@@ -153,7 +153,7 @@ class MidiPlayerController extends ChangeNotifier {
     _ticker?.cancel();
     _ticker = null;
     _lastPlaybackUiNotifyTime = null;
-    _engine.allNotesOff();
+    unawaited(_engine.allNotesOff());
     notifyListeners();
   }
 
@@ -165,7 +165,7 @@ class MidiPlayerController extends ChangeNotifier {
     _lastPlaybackUiNotifyTime = null;
     _currentTime = 0.0;
     _currentEventIndex = 0;
-    _engine.allNotesOff();
+    unawaited(_engine.allNotesOff());
     notifyListeners();
   }
 
@@ -175,7 +175,7 @@ class MidiPlayerController extends ChangeNotifier {
     if (wasPlaying) pause();
 
     _currentTime = seconds.clamp(0.0, totalDuration);
-    _engine.allNotesOff();
+    unawaited(_engine.allNotesOff());
     _updateEventIndex();
 
     if (wasPlaying) play();
@@ -206,7 +206,7 @@ class MidiPlayerController extends ChangeNotifier {
       // 静音时停止该轨道所有通道上的所有音符
       for (final ch in track.channels) {
         for (int note = 0; note < 128; note++) {
-          _engine.noteOff(channel: ch, note: note);
+          unawaited(_engine.noteOff(channel: ch, note: note));
         }
       }
     }
@@ -266,15 +266,19 @@ class MidiPlayerController extends ChangeNotifier {
       case MidiEventType.noteOn:
         final vol = _getTrackVolume(event.trackIndex);
         final adjustedVelocity = (event.data2 * vol).round().clamp(0, 127);
-        _engine.noteOn(
-          channel: event.channel,
-          note: event.data1,
-          velocity: adjustedVelocity,
+        unawaited(
+          _engine.noteOn(
+            channel: event.channel,
+            note: event.data1,
+            velocity: adjustedVelocity,
+          ),
         );
       case MidiEventType.noteOff:
-        _engine.noteOff(channel: event.channel, note: event.data1);
+        unawaited(_engine.noteOff(channel: event.channel, note: event.data1));
       case MidiEventType.programChange:
-        _engine.setInstrument(channel: event.channel, program: event.data1);
+        unawaited(
+          _engine.setInstrument(channel: event.channel, program: event.data1),
+        );
       default:
         break;
     }
@@ -316,7 +320,9 @@ class MidiPlayerController extends ChangeNotifier {
     if (_songData == null) return;
     for (final track in _songData!.tracks) {
       for (final entry in track.programByChannel.entries) {
-        _engine.setInstrument(channel: entry.key, program: entry.value);
+        unawaited(
+          _engine.setInstrument(channel: entry.key, program: entry.value),
+        );
       }
     }
   }
@@ -324,7 +330,7 @@ class MidiPlayerController extends ChangeNotifier {
   @override
   void dispose() {
     stop();
-    _engine.dispose();
+    unawaited(_engine.dispose());
     super.dispose();
   }
 
