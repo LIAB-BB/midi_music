@@ -28,6 +28,7 @@ class _HomePageState extends State<HomePage> {
     final filePath = result.files.single.path;
     if (filePath == null) return;
 
+    if (!mounted) return;
     setState(() => _isLoading = true);
 
     try {

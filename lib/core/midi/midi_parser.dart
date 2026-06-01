@@ -1,7 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dart_midi_pro/dart_midi_pro.dart' as midi;
+import 'package:flutter/foundation.dart';
 
 import '../../models/midi_track.dart';
 import 'tempo_map.dart';
@@ -20,7 +20,10 @@ class MidiFileParser {
       throw FileSystemException('MIDI file not found', filePath);
     }
     final bytes = await file.readAsBytes();
-    return parseBytes(bytes, fileName: file.uri.pathSegments.last);
+    return compute(
+      _parseMidiFileInBackground,
+      _MidiParseRequest(bytes, file.uri.pathSegments.last),
+    );
   }
 
   /// 从字节数据解析
@@ -336,4 +339,15 @@ class _PendingNote {
     required this.channel,
     required this.startTick,
   });
+}
+
+MidiSongData _parseMidiFileInBackground(_MidiParseRequest request) {
+  return MidiFileParser().parseBytes(request.bytes, fileName: request.fileName);
+}
+
+class _MidiParseRequest {
+  final Uint8List bytes;
+  final String fileName;
+
+  const _MidiParseRequest(this.bytes, this.fileName);
 }
