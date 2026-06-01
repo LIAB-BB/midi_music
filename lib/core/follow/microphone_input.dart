@@ -6,8 +6,9 @@ import 'package:flutter_audio_capture/flutter_audio_capture.dart';
 import 'package:pitch_detector_dart/pitch_detector.dart';
 
 import 'onset_detector.dart';
+import 'pitch_input.dart';
 
-class MicrophoneInput {
+class MicrophoneInput implements PitchInput {
   final FlutterAudioCapture _audioCapture = FlutterAudioCapture();
   final _pitchController = StreamController<PitchData>.broadcast();
 
@@ -18,8 +19,10 @@ class MicrophoneInput {
   double _minPrecision = 0.7;
 
   bool get isListening => _isListening;
+  @override
   Stream<PitchData> get pitchStream => _pitchController.stream;
 
+  @override
   Future<void> start({
     int sampleRate = 44100,
     int bufferSize = 8192,
@@ -177,6 +180,7 @@ class MicrophoneInput {
     return value;
   }
 
+  @override
   Future<void> dispose() async {
     await stop();
     _sampleBuffer = null;

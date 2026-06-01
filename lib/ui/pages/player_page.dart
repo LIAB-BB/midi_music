@@ -5,8 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/follow/follow_mode_controller.dart';
-import '../../core/follow/microphone_input.dart';
-import '../../core/follow/onset_detector.dart';
+import '../../core/follow/follow_mode_session.dart';
 import '../../core/midi/midi_player.dart';
 import '../../models/midi_track.dart';
 import '../theme/luxury_theme.dart';
@@ -95,9 +94,7 @@ class _PlayerBody extends StatefulWidget {
 }
 
 class _PlayerBodyState extends State<_PlayerBody> {
-  MicrophoneInput? _micInput;
-  OnsetDetector? _onsetDetector;
-  FollowModeController? _followController;
+  FollowModeSession? _followSession;
   bool _isFollowMode = false;
   FollowModeState _followState = FollowModeState.idle;
   double _followSpeedFactor = 1.0;
@@ -105,10 +102,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
 
   @override
   void dispose() {
-    final player = widget.player;
-    unawaited(
-      _releaseFollowResources(player: player).catchError((Object _) {}),
-    );
+    unawaited(_releaseFollowResources().catchError((Object _) {}));
     super.dispose();
   }
 
@@ -172,28 +166,23 @@ class _PlayerBodyState extends State<_PlayerBody> {
       throw StateError('未选择主旋律轨道');
     }
 
-    MidiTrackInfo? melodyTrack;
-    for (final track in song.tracks) {
-      if (track.index == melodyTrackIndex) {
-        melodyTrack = track;
-        break;
-      }
-    }
+    final melodyTrack = FollowModeSession.findMelodyTrack(
+      song,
+      melodyTrackIndex,
+    );
     if (melodyTrack == null) {
       throw StateError('主旋律轨道不存在');
-    }
-    if (melodyTrack.notes.isEmpty) {
-      throw StateError('主旋律轨道没有可跟随的音符');
     }
 
     await _releaseFollowResources(resetPlayerSpeed: false);
 
-    _micInput = MicrophoneInput();
-    _onsetDetector = OnsetDetector();
-    _followController = FollowModeController(onsetDetector: _onsetDetector!);
+    final session = FollowModeSession.forMidi(
+      player: player,
+      melodyTrack: melodyTrack,
+    );
+    _followSession = session;
 
-    _followController!.onSpeedChanged = (speed) {
-      player.setSpeed(speed);
+    session.onSpeedChanged = (speed) {
       if (mounted) {
         // 确保在主线程更新UI
         SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -203,36 +192,32 @@ class _PlayerBodyState extends State<_PlayerBody> {
         });
       }
     };
-    _followController!.onStateChanged = (state) {
+    session.onStateChanged = (state) {
       if (mounted) {
         // 确保在主线程更新UI
         SchedulerBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            setState(() => _followState = state);
+            setState(() {
+              _followState = state;
+              if (state == FollowModeState.idle) {
+                _isFollowMode = false;
+                _followSpeedFactor = 1.0;
+              }
+            });
+            if (state == FollowModeState.idle) {
+              unawaited(_releaseFollowResources().catchError((Object _) {}));
+            }
           }
         });
       }
     };
 
     try {
-      _followController!.loadScore(melodyTrack.notes);
-      _onsetDetector!.attachPitchStream(_micInput!.pitchStream);
-
-      // 使用更适合实时音频处理的参数
-      await _micInput!.start(
-        sampleRate: 44100,
-        bufferSize: 4096, // 减小缓冲区，降低延迟
-        minPrecision: 0.6, // 提高精度要求
-      );
-
-      // 确保播放器在启动，否则没有声音
-      if (!player.isPlaying) {
-        player.play();
-      }
-
-      _followController!.start();
+      await session.start();
     } catch (_) {
-      await _releaseFollowResources(resetPlayerSpeed: false);
+      if (_followSession == session) {
+        _followSession = null;
+      }
       rethrow;
     }
   }
@@ -249,29 +234,11 @@ class _PlayerBodyState extends State<_PlayerBody> {
     }
   }
 
-  Future<void> _releaseFollowResources({
-    MidiPlayerController? player,
-    bool resetPlayerSpeed = true,
-  }) async {
-    final followController = _followController;
-    final onsetDetector = _onsetDetector;
-    final micInput = _micInput;
-
-    _followController = null;
-    _onsetDetector = null;
-    _micInput = null;
-
-    followController?.stop(notifyCallbacks: false);
-    onsetDetector?.detach();
-
-    if (micInput != null) {
-      await micInput.dispose();
-    }
-    followController?.dispose();
-    onsetDetector?.dispose();
-
-    if (resetPlayerSpeed) {
-      (player ?? widget.player).setSpeed(1.0);
+  Future<void> _releaseFollowResources({bool resetPlayerSpeed = true}) async {
+    final session = _followSession;
+    _followSession = null;
+    if (session != null) {
+      await session.dispose(resetPlayerSpeed: resetPlayerSpeed);
     }
   }
 
