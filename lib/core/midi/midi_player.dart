@@ -13,6 +13,7 @@ enum PlaybackState { stopped, playing, paused }
 enum SoundfontSetupState { idle, checking, downloading, ready, failed }
 
 const _kDefaultSoundfontFileName = 'TimGM6mb.sf2';
+const _kPlaybackUiNotifyInterval = Duration(milliseconds: 33);
 const _kDefaultSoundfontUrls = [
   'https://cdn.jsdelivr.net/gh/arbruijn/TimGM6mb@master/TimGM6mb.sf2',
   'https://raw.githubusercontent.com/arbruijn/TimGM6mb/master/TimGM6mb.sf2',
@@ -36,6 +37,7 @@ class MidiPlayerController extends ChangeNotifier {
   int _currentEventIndex = 0;
   Timer? _ticker;
   DateTime? _lastTickTime;
+  DateTime? _lastPlaybackUiNotifyTime;
   String? _soundfontErrorMessage;
 
   // Getters
@@ -137,12 +139,10 @@ class MidiPlayerController extends ChangeNotifier {
 
     _state = PlaybackState.playing;
     _lastTickTime = DateTime.now();
+    _lastPlaybackUiNotifyTime = _lastTickTime;
 
     // 启动定时器，约 5ms 精度
-    _ticker = Timer.periodic(
-      const Duration(milliseconds: 5),
-      (_) => _onTick(),
-    );
+    _ticker = Timer.periodic(const Duration(milliseconds: 5), (_) => _onTick());
     notifyListeners();
   }
 
@@ -152,6 +152,7 @@ class MidiPlayerController extends ChangeNotifier {
     _state = PlaybackState.paused;
     _ticker?.cancel();
     _ticker = null;
+    _lastPlaybackUiNotifyTime = null;
     _engine.allNotesOff();
     notifyListeners();
   }
@@ -161,6 +162,7 @@ class MidiPlayerController extends ChangeNotifier {
     _state = PlaybackState.stopped;
     _ticker?.cancel();
     _ticker = null;
+    _lastPlaybackUiNotifyTime = null;
     _currentTime = 0.0;
     _currentEventIndex = 0;
     _engine.allNotesOff();
@@ -229,7 +231,7 @@ class MidiPlayerController extends ChangeNotifier {
 
     // 触发当前时间之前的所有事件
     _processEvents();
-    notifyListeners();
+    _notifyPlaybackUiIfNeeded(now);
   }
 
   /// 处理当前时间点之前的所有未触发事件
@@ -242,6 +244,17 @@ class MidiPlayerController extends ChangeNotifier {
       _dispatchEvent(event);
       _currentEventIndex++;
     }
+  }
+
+  void _notifyPlaybackUiIfNeeded(DateTime now) {
+    final lastNotifyTime = _lastPlaybackUiNotifyTime;
+    if (lastNotifyTime != null &&
+        now.difference(lastNotifyTime) < _kPlaybackUiNotifyInterval) {
+      return;
+    }
+
+    _lastPlaybackUiNotifyTime = now;
+    notifyListeners();
   }
 
   /// 分发单个 MIDI 事件到引擎
@@ -259,15 +272,9 @@ class MidiPlayerController extends ChangeNotifier {
           velocity: adjustedVelocity,
         );
       case MidiEventType.noteOff:
-        _engine.noteOff(
-          channel: event.channel,
-          note: event.data1,
-        );
+        _engine.noteOff(channel: event.channel, note: event.data1);
       case MidiEventType.programChange:
-        _engine.setInstrument(
-          channel: event.channel,
-          program: event.data1,
-        );
+        _engine.setInstrument(channel: event.channel, program: event.data1);
       default:
         break;
     }
@@ -309,10 +316,7 @@ class MidiPlayerController extends ChangeNotifier {
     if (_songData == null) return;
     for (final track in _songData!.tracks) {
       for (final entry in track.programByChannel.entries) {
-        _engine.setInstrument(
-          channel: entry.key,
-          program: entry.value,
-        );
+        _engine.setInstrument(channel: entry.key, program: entry.value);
       }
     }
   }
@@ -326,8 +330,9 @@ class MidiPlayerController extends ChangeNotifier {
 
   Future<File> _getSoundfontFile() async {
     final appSupportDirectory = await getApplicationSupportDirectory();
-    final soundfontDirectory =
-        Directory('${appSupportDirectory.path}/soundfonts');
+    final soundfontDirectory = Directory(
+      '${appSupportDirectory.path}/soundfonts',
+    );
     await soundfontDirectory.create(recursive: true);
     return File('${soundfontDirectory.path}/$_kDefaultSoundfontFileName');
   }

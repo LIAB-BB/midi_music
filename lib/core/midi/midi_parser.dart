@@ -24,10 +24,7 @@ class MidiFileParser {
   }
 
   /// 从字节数据解析
-  MidiSongData parseBytes(
-    Uint8List bytes, {
-    String fileName = 'unknown.mid',
-  }) {
+  MidiSongData parseBytes(Uint8List bytes, {String fileName = 'unknown.mid'}) {
     final midiFile = _parser.parseMidiFromBuffer(bytes);
     return _convertMidiFile(midiFile, fileName);
   }
@@ -95,16 +92,20 @@ class MidiFileParser {
         absoluteTick += event.deltaTime;
 
         if (event is midi.SetTempoEvent) {
-          tempoChanges.add(TempoChange(
-            tick: absoluteTick,
-            microsecondsPerBeat: event.microsecondsPerBeat,
-          ));
+          tempoChanges.add(
+            TempoChange(
+              tick: absoluteTick,
+              microsecondsPerBeat: event.microsecondsPerBeat,
+            ),
+          );
         } else if (event is midi.TimeSignatureEvent) {
-          timeSignatureChanges.add(TimeSignatureChange(
-            tick: absoluteTick,
-            numerator: event.numerator,
-            denominator: event.denominator,
-          ));
+          timeSignatureChanges.add(
+            TimeSignatureChange(
+              tick: absoluteTick,
+              numerator: event.numerator,
+              denominator: event.denominator,
+            ),
+          );
         }
       }
     }
@@ -124,7 +125,7 @@ class MidiFileParser {
     final events = <TimelineEvent>[];
     final channels = <int>{};
     final programByChannel = <int, int>{};
-    final pendingNotes = <String, _PendingNote>{};
+    final pendingNotes = <String, List<_PendingNote>>{};
     String trackName = '';
     int absoluteTick = 0;
 
@@ -134,52 +135,80 @@ class MidiFileParser {
       if (event is midi.NoteOnEvent) {
         if (event.velocity == 0) {
           // NoteOn with velocity=0 等同于 NoteOff
-          _handleNoteOff(event.noteNumber, event.channel,
-              absoluteTick, trackIndex, pendingNotes, notes, events);
+          _handleNoteOff(
+            event.noteNumber,
+            event.channel,
+            absoluteTick,
+            trackIndex,
+            pendingNotes,
+            notes,
+            events,
+          );
         } else {
-          _handleNoteOn(event, absoluteTick, trackIndex, channels,
-              pendingNotes, events);
+          _handleNoteOn(
+            event,
+            absoluteTick,
+            trackIndex,
+            channels,
+            pendingNotes,
+            events,
+          );
         }
       } else if (event is midi.NoteOffEvent) {
-        _handleNoteOff(event.noteNumber, event.channel,
-            absoluteTick, trackIndex, pendingNotes, notes, events);
+        _handleNoteOff(
+          event.noteNumber,
+          event.channel,
+          absoluteTick,
+          trackIndex,
+          pendingNotes,
+          notes,
+          events,
+        );
       } else if (event is midi.ProgramChangeMidiEvent) {
         channels.add(event.channel);
         programByChannel[event.channel] = event.programNumber;
-        events.add(TimelineEvent(
-          type: MidiEventType.programChange,
-          tick: absoluteTick,
-          channel: event.channel,
-          trackIndex: trackIndex,
-          data1: event.programNumber,
-        ));
+        events.add(
+          TimelineEvent(
+            type: MidiEventType.programChange,
+            tick: absoluteTick,
+            channel: event.channel,
+            trackIndex: trackIndex,
+            data1: event.programNumber,
+          ),
+        );
       } else if (event is midi.ControllerEvent) {
         channels.add(event.channel);
-        events.add(TimelineEvent(
-          type: MidiEventType.controlChange,
-          tick: absoluteTick,
-          channel: event.channel,
-          trackIndex: trackIndex,
-          data1: event.controllerType,
-          data2: event.value,
-        ));
+        events.add(
+          TimelineEvent(
+            type: MidiEventType.controlChange,
+            tick: absoluteTick,
+            channel: event.channel,
+            trackIndex: trackIndex,
+            data1: event.controllerType,
+            data2: event.value,
+          ),
+        );
       } else if (event is midi.PitchBendEvent) {
         channels.add(event.channel);
-        events.add(TimelineEvent(
-          type: MidiEventType.pitchBend,
-          tick: absoluteTick,
-          channel: event.channel,
-          trackIndex: trackIndex,
-          data1: event.value,
-        ));
+        events.add(
+          TimelineEvent(
+            type: MidiEventType.pitchBend,
+            tick: absoluteTick,
+            channel: event.channel,
+            trackIndex: trackIndex,
+            data1: event.value,
+          ),
+        );
       } else if (event is midi.TrackNameEvent) {
         trackName = event.text;
       } else if (event is midi.EndOfTrackEvent) {
-        events.add(TimelineEvent(
-          type: MidiEventType.endOfTrack,
-          tick: absoluteTick,
-          trackIndex: trackIndex,
-        ));
+        events.add(
+          TimelineEvent(
+            type: MidiEventType.endOfTrack,
+            tick: absoluteTick,
+            trackIndex: trackIndex,
+          ),
+        );
       }
     }
 
@@ -207,27 +236,32 @@ class MidiFileParser {
     int absoluteTick,
     int trackIndex,
     Set<int> channels,
-    Map<String, _PendingNote> pendingNotes,
+    Map<String, List<_PendingNote>> pendingNotes,
     List<TimelineEvent> events,
   ) {
     channels.add(event.channel);
     final key = '${event.channel}-${event.noteNumber}';
 
-    pendingNotes[key] = _PendingNote(
-      noteNumber: event.noteNumber,
-      velocity: event.velocity,
-      channel: event.channel,
-      startTick: absoluteTick,
+    final pendingForNote = pendingNotes.putIfAbsent(key, () => []);
+    pendingForNote.add(
+      _PendingNote(
+        noteNumber: event.noteNumber,
+        velocity: event.velocity,
+        channel: event.channel,
+        startTick: absoluteTick,
+      ),
     );
 
-    events.add(TimelineEvent(
-      type: MidiEventType.noteOn,
-      tick: absoluteTick,
-      channel: event.channel,
-      trackIndex: trackIndex,
-      data1: event.noteNumber,
-      data2: event.velocity,
-    ));
+    events.add(
+      TimelineEvent(
+        type: MidiEventType.noteOn,
+        tick: absoluteTick,
+        channel: event.channel,
+        trackIndex: trackIndex,
+        data1: event.noteNumber,
+        data2: event.velocity,
+      ),
+    );
   }
 
   /// 处理 NoteOff 事件：与待配对的 NoteOn 配对，生成 MidiNote
@@ -236,31 +270,41 @@ class MidiFileParser {
     int channel,
     int absoluteTick,
     int trackIndex,
-    Map<String, _PendingNote> pendingNotes,
+    Map<String, List<_PendingNote>> pendingNotes,
     List<MidiNote> notes,
     List<TimelineEvent> events,
   ) {
     final key = '$channel-$noteNumber';
-    final pending = pendingNotes.remove(key);
-
-    if (pending != null) {
-      notes.add(MidiNote(
-        noteNumber: pending.noteNumber,
-        velocity: pending.velocity,
-        channel: pending.channel,
-        startTick: pending.startTick,
-        endTick: absoluteTick,
-      ));
+    final pendingForNote = pendingNotes[key];
+    final pending = pendingForNote == null || pendingForNote.isEmpty
+        ? null
+        : pendingForNote.removeAt(0);
+    if (pendingForNote != null && pendingForNote.isEmpty) {
+      pendingNotes.remove(key);
     }
 
-    events.add(TimelineEvent(
-      type: MidiEventType.noteOff,
-      tick: absoluteTick,
-      channel: channel,
-      trackIndex: trackIndex,
-      data1: noteNumber,
-      data2: 0,
-    ));
+    if (pending != null) {
+      notes.add(
+        MidiNote(
+          noteNumber: pending.noteNumber,
+          velocity: pending.velocity,
+          channel: pending.channel,
+          startTick: pending.startTick,
+          endTick: absoluteTick,
+        ),
+      );
+    }
+
+    events.add(
+      TimelineEvent(
+        type: MidiEventType.noteOff,
+        tick: absoluteTick,
+        channel: channel,
+        trackIndex: trackIndex,
+        data1: noteNumber,
+        data2: 0,
+      ),
+    );
   }
 
   /// 查找所有轨道中的最大 tick 值

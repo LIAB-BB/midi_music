@@ -56,14 +56,28 @@ class MidiNote {
 
   /// 音符名称（如 C4, D#5）
   String get noteName {
-    const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const names = [
+      'C',
+      'C#',
+      'D',
+      'D#',
+      'E',
+      'F',
+      'F#',
+      'G',
+      'G#',
+      'A',
+      'A#',
+      'B',
+    ];
     final octave = (noteNumber ~/ 12) - 1;
     final name = names[noteNumber % 12];
     return '$name$octave';
   }
 
   @override
-  String toString() => 'MidiNote($noteName, ch:$channel, vel:$velocity, '
+  String toString() =>
+      'MidiNote($noteName, ch:$channel, vel:$velocity, '
       'tick:$startTick-$endTick, time:${startTime.toStringAsFixed(3)}s)';
 }
 
@@ -102,12 +116,46 @@ class TimelineEvent implements Comparable<TimelineEvent> {
   });
 
   @override
-  int compareTo(TimelineEvent other) => tick.compareTo(other.tick);
+  int compareTo(TimelineEvent other) {
+    final tickCompare = tick.compareTo(other.tick);
+    if (tickCompare != 0) return tickCompare;
+
+    final priorityCompare = _eventPriority(
+      type,
+    ).compareTo(_eventPriority(other.type));
+    if (priorityCompare != 0) return priorityCompare;
+
+    final trackCompare = trackIndex.compareTo(other.trackIndex);
+    if (trackCompare != 0) return trackCompare;
+
+    final channelCompare = channel.compareTo(other.channel);
+    if (channelCompare != 0) return channelCompare;
+
+    final data1Compare = data1.compareTo(other.data1);
+    if (data1Compare != 0) return data1Compare;
+
+    return data2.compareTo(other.data2);
+  }
 
   @override
   String toString() =>
       'TimelineEvent($type, tick:$tick, time:${time.toStringAsFixed(3)}s, '
       'ch:$channel, d1:$data1, d2:$data2)';
+}
+
+int _eventPriority(MidiEventType type) {
+  return switch (type) {
+    MidiEventType.noteOff => 0,
+    MidiEventType.controlChange => 1,
+    MidiEventType.programChange => 1,
+    MidiEventType.pitchBend => 1,
+    MidiEventType.noteOn => 2,
+    MidiEventType.tempo => 3,
+    MidiEventType.timeSignature => 3,
+    MidiEventType.keySignature => 3,
+    MidiEventType.endOfTrack => 4,
+    MidiEventType.other => 5,
+  };
 }
 
 /// 单个 MIDI 轨道的信息
@@ -145,10 +193,10 @@ class MidiTrackInfo {
     List<TimelineEvent>? events,
     this.isMuted = false,
     this.volume = 1.0,
-  })  : channels = channels ?? {},
-        programByChannel = programByChannel ?? {},
-        notes = notes ?? [],
-        events = events ?? [];
+  }) : channels = channels ?? {},
+       programByChannel = programByChannel ?? {},
+       notes = notes ?? [],
+       events = events ?? [];
 
   /// 轨道是否包含音符
   bool get hasNotes => notes.isNotEmpty;
@@ -169,7 +217,8 @@ class MidiTrackInfo {
   }
 
   @override
-  String toString() => 'MidiTrackInfo(#$index "$name", '
+  String toString() =>
+      'MidiTrackInfo(#$index "$name", '
       'ch:$channels, notes:${notes.length})';
 }
 
@@ -228,7 +277,8 @@ class MidiSongData {
   }
 
   @override
-  String toString() => 'MidiSongData("$fileName", format:$format, '
+  String toString() =>
+      'MidiSongData("$fileName", format:$format, '
       'ppq:$ticksPerBeat, tracks:${tracks.length}, '
       'duration:${totalDuration.toStringAsFixed(1)}s)';
 }
@@ -254,8 +304,7 @@ class TempoChange {
   double get bpm => 60000000.0 / microsecondsPerBeat;
 
   @override
-  String toString() =>
-      'TempoChange(tick:$tick, ${bpm.toStringAsFixed(1)} BPM)';
+  String toString() => 'TempoChange(tick:$tick, ${bpm.toStringAsFixed(1)} BPM)';
 }
 
 /// 拍号变化点
@@ -280,6 +329,5 @@ class TimeSignatureChange {
   });
 
   @override
-  String toString() =>
-      'TimeSignature(tick:$tick, $numerator/$denominator)';
+  String toString() => 'TimeSignature(tick:$tick, $numerator/$denominator)';
 }
