@@ -108,6 +108,17 @@ flutter build apk --release
 
 生成的 APK 位于 `build/app/outputs/flutter-apk/app-release.apk`。
 
+早期真机测试建议先打 debug APK：
+
+```bash
+flutter build apk --debug
+```
+
+测试流程见：
+
+- `docs/真机测试清单.md`
+- `docs/测试分发说明.md`
+
 ## 🎯 变速跟随模式
 
 变速跟随是本 App 的核心特色功能，让伴奏跟着演奏者的节奏走。
