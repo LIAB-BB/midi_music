@@ -3,8 +3,9 @@ import 'package:flutter/cupertino.dart';
 import '../../core/follow/follow_mode_controller.dart';
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
-import 'player_helpers.dart';
+import 'luxury_controls.dart';
 import 'player_display_data.dart';
+import 'player_helpers.dart';
 import 'transport_deck.dart';
 
 /// 仪表盘数字显示
@@ -63,49 +64,6 @@ class StageDial extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// 指标卡片（BPM / 时长 / 轨道数）
-class StageMetric extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const StageMetric({super.key, required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 92,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      decoration: BoxDecoration(
-        color: CupertinoColors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: LuxuryPalette.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 11,
-              letterSpacing: 1.1,
-              color: LuxuryPalette.textSubtle,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: LuxuryPalette.goldBright,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -194,9 +152,17 @@ class StageConsole extends StatelessWidget {
             spacing: 10,
             runSpacing: 10,
             children: [
-              StageMetric(label: 'BPM', value: data.bpmLabel),
-              StageMetric(label: '时长', value: data.durationLabel),
-              StageMetric(label: '轨道', value: data.trackCountLabel),
+              LuxuryMetricTile(label: 'BPM', value: data.bpmLabel, width: 92),
+              LuxuryMetricTile(
+                label: '时长',
+                value: data.durationLabel,
+                width: 92,
+              ),
+              LuxuryMetricTile(
+                label: '轨道',
+                value: data.trackCountLabel,
+                width: 92,
+              ),
             ],
           ),
           const SizedBox(height: 18),

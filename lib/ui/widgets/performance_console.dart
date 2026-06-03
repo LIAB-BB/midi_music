@@ -3,57 +3,9 @@ import 'package:flutter/cupertino.dart';
 import '../../core/follow/follow_mode_controller.dart';
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
+import 'luxury_controls.dart';
 import 'player_display_data.dart';
 import 'player_helpers.dart';
-
-/// 控制台卡片
-class ConsoleCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color accent;
-
-  const ConsoleCard({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.accent,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: LuxuryPalette.textSubtle,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: accent,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 /// 演奏控制台：跟随模式开关、手动速度滑块
 class PerformanceConsole extends StatelessWidget {
@@ -119,7 +71,7 @@ class PerformanceConsole extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: ConsoleCard(
+                child: LuxuryMetricTile(
                   label: '主旋律',
                   value: data.melodyLabel,
                   accent: melodyTrackIndex == null
@@ -129,7 +81,7 @@ class PerformanceConsole extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: ConsoleCard(
+                child: LuxuryMetricTile(
                   label: data.speedMetricLabel,
                   value: data.speedLabel,
                   accent: data.accent,

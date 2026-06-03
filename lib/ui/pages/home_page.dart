@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../core/midi/midi_parser.dart';
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
+import '../widgets/luxury_controls.dart';
 import '../widgets/player_helpers.dart';
 import 'player_page.dart';
 
@@ -173,7 +174,7 @@ class _HomeHeroPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 28),
-          const _HeroAccent(),
+          const OrnamentLine(),
           const SizedBox(height: 22),
           Text('黑金伴奏厅', style: luxuryDisplayStyle(context, size: 38)),
           const SizedBox(height: 12),
@@ -190,15 +191,16 @@ class _HomeHeroPanel extends StatelessWidget {
             _LoadedScoreLine(fileName: song.fileName),
           ],
           const SizedBox(height: 22),
-          _PrimaryActionButton(
+          LuxuryActionButton(
             key: HomeUiKeys.importMidiButton,
             label: '导入 MIDI 乐谱',
             icon: CupertinoIcons.arrow_down_doc_fill,
             onPressed: onImportMidi,
+            primary: true,
           ),
           if (song != null) ...[
             const SizedBox(height: 12),
-            _SecondaryActionButton(
+            LuxuryActionButton(
               key: HomeUiKeys.continueSongButton,
               label: '继续当前曲目',
               icon: CupertinoIcons.play_arrow_solid,
@@ -223,11 +225,14 @@ class _HomeMetricRow extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: _CompactMetric(label: '当前曲目', value: hasSong ? '已就绪' : '未载入'),
+          child: LuxuryMetricTile(
+            label: '当前曲目',
+            value: hasSong ? '已就绪' : '未载入',
+          ),
         ),
         const SizedBox(width: 12),
         const Expanded(
-          child: _CompactMetric(label: '控制能力', value: '轨道 / 跟随'),
+          child: LuxuryMetricTile(label: '控制能力', value: '轨道 / 跟随'),
         ),
       ],
     );
@@ -373,30 +378,6 @@ class _SoundfontStatusLine extends StatelessWidget {
   }
 }
 
-class _HeroAccent extends StatelessWidget {
-  const _HeroAccent();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(width: 40, height: 2, color: LuxuryPalette.goldBright),
-        const SizedBox(width: 10),
-        Container(
-          width: 10,
-          height: 10,
-          decoration: const BoxDecoration(
-            color: LuxuryPalette.goldBright,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(child: Container(height: 1, color: LuxuryPalette.divider)),
-      ],
-    );
-  }
-}
-
 class _LoadedScoreLine extends StatelessWidget {
   final String fileName;
 
@@ -428,148 +409,6 @@ class _LoadedScoreLine extends StatelessWidget {
                 fontSize: 13,
                 color: LuxuryPalette.textPrimary,
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PrimaryActionButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  const _PrimaryActionButton({
-    super.key,
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFE8CF99), Color(0xFFC49A57)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: LuxuryPalette.gold.withValues(alpha: 0.22),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: CupertinoButton(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-        borderRadius: BorderRadius.circular(20),
-        onPressed: onPressed,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 18, color: CupertinoColors.black),
-            const SizedBox(width: 10),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: CupertinoColors.black,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SecondaryActionButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  const _SecondaryActionButton({
-    super.key,
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: CupertinoColors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: LuxuryPalette.divider),
-      ),
-      child: CupertinoButton(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-        borderRadius: BorderRadius.circular(20),
-        onPressed: onPressed,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: LuxuryPalette.textPrimary),
-            const SizedBox(width: 10),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 14,
-                color: LuxuryPalette.textPrimary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CompactMetric extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _CompactMetric({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      decoration: BoxDecoration(
-        color: CupertinoColors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: LuxuryPalette.divider),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: LuxuryPalette.textSubtle,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              color: LuxuryPalette.goldBright,
             ),
           ),
         ],

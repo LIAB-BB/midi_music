@@ -134,6 +134,7 @@ flutter test
 - `widgets/performance_console.dart` — PerformanceConsole（跟随模式开关/手动速度滑块）、ConsoleCard
 - `widgets/track_salon.dart` — TrackSalon（轨道列表）、TrackTile（单轨道磁贴）
 - `widgets/soundfont_banner.dart` — SoundfontBanner（音色下载/重试横幅）
+- `widgets/luxury_controls.dart` — 共享 UI 控件：`LuxuryActionButton`（主/次操作按钮）、`LuxuryMetricTile`（指标卡），用于减少首页和播放器组件之间的样式重复
 - `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；稳定控件 Key：`PlayerUiKeys`；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 - `docs/ui施工说明.md` — UI 人工施工说明，列出可改区域、禁止误改的跟随生命周期函数、必须保留的回调语义和验收命令
