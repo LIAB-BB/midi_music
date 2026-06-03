@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import '../../core/follow/follow_mode_controller.dart';
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
+import 'player_display_data.dart';
 import 'player_helpers.dart';
 
 /// 控制台卡片
@@ -75,18 +76,13 @@ class PerformanceConsole extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final followAccentColor = followAccent(
-      isFollowMode,
-      followState,
-      player.isPlaying,
+    final data = PerformanceConsoleData.fromPlayer(
+      player: player,
+      isFollowMode: isFollowMode,
+      followState: followState,
+      followSpeedFactor: followSpeedFactor,
+      melodyTrackIndex: melodyTrackIndex,
     );
-    final followNote = switch (followState) {
-      FollowModeState.following => '伴奏正在贴合你的演奏速度。',
-      FollowModeState.waitingForOnset => '已进入跟随模式，等待新的起拍。',
-      FollowModeState.idle => isFollowMode
-          ? '跟随已开启，等待演奏输入。'
-          : '当前为手动排练模式。',
-    };
 
     return LuxuryPanel(
       child: Column(
@@ -103,6 +99,7 @@ class PerformanceConsole extends StatelessWidget {
               ),
               const Spacer(),
               CupertinoSwitch(
+                key: PlayerUiKeys.followModeSwitch,
                 value: isFollowMode,
                 onChanged: (_) => onToggleFollow(),
               ),
@@ -111,7 +108,7 @@ class PerformanceConsole extends StatelessWidget {
           Text('跟随与排练', style: luxuryDisplayStyle(context, size: 28)),
           const SizedBox(height: 8),
           Text(
-            followNote,
+            data.note,
             style: const TextStyle(
               fontSize: 14,
               height: 1.45,
@@ -124,9 +121,7 @@ class PerformanceConsole extends StatelessWidget {
               Expanded(
                 child: ConsoleCard(
                   label: '主旋律',
-                  value: melodyTrackIndex == null
-                      ? '未指定'
-                      : 'Track ${melodyTrackIndex! + 1}',
+                  value: data.melodyLabel,
                   accent: melodyTrackIndex == null
                       ? LuxuryPalette.ruby
                       : LuxuryPalette.goldBright,
@@ -135,11 +130,9 @@ class PerformanceConsole extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: ConsoleCard(
-                  label: isFollowMode ? '跟随倍率' : '速度倍率',
-                  value: isFollowMode
-                      ? '${followSpeedFactor.toStringAsFixed(2)}x'
-                      : '${player.playbackSpeed.toStringAsFixed(2)}x',
-                  accent: followAccentColor,
+                  label: data.speedMetricLabel,
+                  value: data.speedLabel,
+                  accent: data.accent,
                 ),
               ),
             ],
@@ -155,10 +148,10 @@ class PerformanceConsole extends StatelessWidget {
                       vertical: 16,
                     ),
                     decoration: BoxDecoration(
-                      color: followAccentColor.withValues(alpha: 0.08),
+                      color: data.accent.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(22),
                       border: Border.all(
-                        color: followAccentColor.withValues(alpha: 0.28),
+                        color: data.accent.withValues(alpha: 0.28),
                       ),
                     ),
                     child: Row(
@@ -166,16 +159,12 @@ class PerformanceConsole extends StatelessWidget {
                         Icon(
                           CupertinoIcons.waveform_path_ecg,
                           size: 18,
-                          color: followAccentColor,
+                          color: data.accent,
                         ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            followLabel(
-                              true,
-                              followState,
-                              player.isPlaying,
-                            ),
+                            data.liveStatusLabel,
                             style: const TextStyle(
                               fontSize: 14,
                               color: LuxuryPalette.textPrimary,
@@ -218,6 +207,7 @@ class PerformanceConsole extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         CupertinoSlider(
+                          key: PlayerUiKeys.manualSpeedSlider,
                           value: player.playbackSpeed,
                           min: 0.25,
                           max: 4.0,

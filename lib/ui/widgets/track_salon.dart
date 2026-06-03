@@ -1,22 +1,20 @@
 import 'package:flutter/cupertino.dart';
 
 import '../../core/midi/midi_player.dart';
-import '../../models/midi_track.dart';
 import '../theme/luxury_theme.dart';
+import 'player_display_data.dart';
 import 'player_helpers.dart';
 
 /// 单条轨道磁贴
 class TrackTile extends StatelessWidget {
-  final MidiTrackInfo track;
-  final bool isMelody;
+  final TrackTileData data;
   final VoidCallback onToggleMute;
   final ValueChanged<double> onVolumeChanged;
   final VoidCallback onSetMelody;
 
   const TrackTile({
     super.key,
-    required this.track,
-    required this.isMelody,
+    required this.data,
     required this.onToggleMute,
     required this.onVolumeChanged,
     required this.onSetMelody,
@@ -24,21 +22,17 @@ class TrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = track.name.isNotEmpty ? track.name : '轨道 ${track.index + 1}';
-    final channels = track.channels.toList()..sort();
-    final channelText =
-        channels.isEmpty ? '无通道' : 'CH ${channels.join(', ')}';
-
     return AnimatedContainer(
+      key: PlayerUiKeys.trackTile(data.index),
       duration: const Duration(milliseconds: 220),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
-        color: isMelody
+        color: data.isMelody
             ? LuxuryPalette.gold.withValues(alpha: 0.08)
             : CupertinoColors.white.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: isMelody
+          color: data.isMelody
               ? LuxuryPalette.gold.withValues(alpha: 0.4)
               : LuxuryPalette.divider,
         ),
@@ -49,15 +43,16 @@ class TrackTile extends StatelessWidget {
           Row(
             children: [
               CupertinoButton(
+                key: PlayerUiKeys.trackMuteButton(data.index),
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(34, 34),
                 onPressed: onToggleMute,
                 child: Icon(
-                  track.isMuted
+                  data.isMuted
                       ? CupertinoIcons.speaker_slash_fill
                       : CupertinoIcons.speaker_2_fill,
                   size: 18,
-                  color: track.isMuted
+                  color: data.isMuted
                       ? LuxuryPalette.textSubtle
                       : LuxuryPalette.goldBright,
                 ),
@@ -68,7 +63,7 @@ class TrackTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
+                      data.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -79,7 +74,7 @@ class TrackTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '$channelText · ${track.noteCount} 音符',
+                      data.subtitle,
                       style: const TextStyle(
                         fontSize: 12,
                         color: LuxuryPalette.textMuted,
@@ -89,21 +84,22 @@ class TrackTile extends StatelessWidget {
                 ),
               ),
               CupertinoButton(
+                key: PlayerUiKeys.trackMelodyButton(data.index),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
                 ),
                 minimumSize: const Size(30, 30),
-                color: isMelody
+                color: data.isMelody
                     ? LuxuryPalette.gold.withValues(alpha: 0.16)
                     : CupertinoColors.white.withValues(alpha: 0.04),
                 borderRadius: BorderRadius.circular(999),
                 onPressed: onSetMelody,
                 child: Text(
-                  isMelody ? '主旋律' : '设为主旋律',
+                  data.melodyActionLabel,
                   style: TextStyle(
                     fontSize: 12,
-                    color: isMelody
+                    color: data.isMelody
                         ? LuxuryPalette.goldBright
                         : LuxuryPalette.textMuted,
                   ),
@@ -125,10 +121,10 @@ class TrackTile extends StatelessWidget {
                   border: Border.all(color: LuxuryPalette.divider),
                 ),
                 child: Text(
-                  track.isMuted ? '静音中' : '已开启',
+                  data.muteStatusLabel,
                   style: TextStyle(
                     fontSize: 11,
-                    color: track.isMuted
+                    color: data.isMuted
                         ? LuxuryPalette.textSubtle
                         : LuxuryPalette.goldBright,
                   ),
@@ -137,13 +133,14 @@ class TrackTile extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: CupertinoSlider(
-                  value: track.isMuted ? 0.0 : track.volume,
-                  onChanged: track.isMuted ? null : onVolumeChanged,
+                  key: PlayerUiKeys.trackVolumeSlider(data.index),
+                  value: data.isMuted ? 0.0 : data.volume,
+                  onChanged: data.isMuted ? null : onVolumeChanged,
                 ),
               ),
               const SizedBox(width: 8),
               Text(
-                '${(track.volume * 100).round()}%',
+                data.volumeLabel,
                 style: const TextStyle(
                   fontSize: 12,
                   color: LuxuryPalette.textMuted,
@@ -221,9 +218,12 @@ class TrackSalon extends StatelessWidget {
               separatorBuilder: (context, index) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
                 final track = tracks[index];
-                return TrackTile(
+                final data = TrackTileData.fromTrack(
                   track: track,
                   isMelody: track.index == melodyTrackIndex,
+                );
+                return TrackTile(
+                  data: data,
                   onToggleMute: () => player.toggleTrackMute(track.index),
                   onVolumeChanged: (value) =>
                       player.setTrackVolume(track.index, value),

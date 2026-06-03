@@ -3,6 +3,41 @@ import 'package:flutter/cupertino.dart';
 import '../../core/follow/follow_mode_controller.dart';
 import '../theme/luxury_theme.dart';
 
+class PlayerUiKeys {
+  const PlayerUiKeys._();
+
+  static const stageProgressSlider = ValueKey<String>(
+    'player.stage.progressSlider',
+  );
+  static const transportStopButton = ValueKey<String>('player.transport.stop');
+  static const transportBackwardButton = ValueKey<String>(
+    'player.transport.backward',
+  );
+  static const transportPlayPauseButton = ValueKey<String>(
+    'player.transport.playPause',
+  );
+  static const transportForwardButton = ValueKey<String>(
+    'player.transport.forward',
+  );
+  static const transportResetButton = ValueKey<String>(
+    'player.transport.reset',
+  );
+  static const followModeSwitch = ValueKey<String>('player.follow.switch');
+  static const manualSpeedSlider = ValueKey<String>('player.speed.slider');
+
+  static ValueKey<String> trackTile(int trackIndex) =>
+      ValueKey<String>('player.track.$trackIndex.tile');
+
+  static ValueKey<String> trackMuteButton(int trackIndex) =>
+      ValueKey<String>('player.track.$trackIndex.mute');
+
+  static ValueKey<String> trackMelodyButton(int trackIndex) =>
+      ValueKey<String>('player.track.$trackIndex.melody');
+
+  static ValueKey<String> trackVolumeSlider(int trackIndex) =>
+      ValueKey<String>('player.track.$trackIndex.volume');
+}
+
 /// 跟随状态对应的强调色
 Color followAccent(bool isFollowMode, FollowModeState state, bool isPlaying) {
   if (!isFollowMode) {
@@ -16,11 +51,7 @@ Color followAccent(bool isFollowMode, FollowModeState state, bool isPlaying) {
 }
 
 /// 跟随状态对应的中文标签
-String followLabel(
-  bool isFollowMode,
-  FollowModeState state,
-  bool isPlaying,
-) {
+String followLabel(bool isFollowMode, FollowModeState state, bool isPlaying) {
   if (!isFollowMode) {
     return isPlaying ? '手动播放' : '待机';
   }

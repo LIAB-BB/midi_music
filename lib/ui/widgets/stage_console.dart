@@ -4,6 +4,7 @@ import '../../core/follow/follow_mode_controller.dart';
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
 import 'player_helpers.dart';
+import 'player_display_data.dart';
 import 'transport_deck.dart';
 
 /// 仪表盘数字显示
@@ -132,23 +133,12 @@ class StageConsole extends StatelessWidget {
     final song = player.songData;
     if (song == null) return const SizedBox.shrink();
 
-    final accent = followAccent(isFollowMode, followState, player.isPlaying);
-    final accentLabel = followLabel(
-      isFollowMode,
-      followState,
-      player.isPlaying,
+    final data = StageConsoleData.fromPlayer(
+      player: player,
+      isFollowMode: isFollowMode,
+      followState: followState,
+      followSpeedFactor: followSpeedFactor,
     );
-    final displaySpeed = isFollowMode
-        ? followSpeedFactor
-        : player.playbackSpeed;
-    final displayTitle = displaySongTitle(song.fileName);
-    final remaining = (player.totalDuration - player.currentTime).clamp(
-      0.0,
-      player.totalDuration,
-    );
-    final titleSize = displayTitle.length > 24
-        ? 26.0
-        : (displayTitle.length > 16 ? 30.0 : 34.0);
 
     return LuxuryPanel(
       highlighted: true,
@@ -160,7 +150,7 @@ class StageConsole extends StatelessWidget {
             children: [
               const SectionEyebrow(label: 'NOCTURNE STAGE'),
               const Spacer(),
-              StatusBadge(label: accentLabel, color: accent),
+              StatusBadge(label: data.statusLabel, color: data.accent),
             ],
           ),
           const SizedBox(height: 22),
@@ -174,10 +164,10 @@ class StageConsole extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      displayTitle,
+                      data.title,
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
-                      style: luxuryDisplayStyle(context, size: titleSize),
+                      style: luxuryDisplayStyle(context, size: data.titleSize),
                     ),
                     const SizedBox(height: 8),
                     const Text(
@@ -193,9 +183,9 @@ class StageConsole extends StatelessWidget {
               ),
               const SizedBox(width: 16),
               StageDial(
-                value: '${displaySpeed.toStringAsFixed(2)}x',
-                caption: isFollowMode ? 'FOLLOW' : 'TEMPO',
-                accent: accent,
+                value: data.speedLabel,
+                caption: data.speedCaption,
+                accent: data.accent,
               ),
             ],
           ),
@@ -204,12 +194,9 @@ class StageConsole extends StatelessWidget {
             spacing: 10,
             runSpacing: 10,
             children: [
-              StageMetric(
-                label: 'BPM',
-                value: player.currentBpm.toStringAsFixed(0),
-              ),
-              StageMetric(label: '时长', value: formatClock(song.totalDuration)),
-              StageMetric(label: '轨道', value: '${song.noteTracks.length}'),
+              StageMetric(label: 'BPM', value: data.bpmLabel),
+              StageMetric(label: '时长', value: data.durationLabel),
+              StageMetric(label: '轨道', value: data.trackCountLabel),
             ],
           ),
           const SizedBox(height: 18),
@@ -235,7 +222,7 @@ class StageConsole extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      '-${formatClock(remaining)}',
+                      data.remainingLabel,
                       style: const TextStyle(
                         fontSize: 12,
                         color: LuxuryPalette.textMuted,
@@ -245,13 +232,14 @@ class StageConsole extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 CupertinoSlider(
-                  value: player.progress,
-                  onChanged: (value) => _seekTo(value * player.totalDuration),
+                  key: PlayerUiKeys.stageProgressSlider,
+                  value: data.progress,
+                  onChanged: (value) => _seekTo(value * data.totalDuration),
                 ),
                 Row(
                   children: [
                     Text(
-                      formatClock(player.currentTime),
+                      data.currentTimeLabel,
                       style: const TextStyle(
                         fontSize: 13,
                         color: LuxuryPalette.textPrimary,
@@ -259,7 +247,7 @@ class StageConsole extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      formatClock(player.totalDuration),
+                      data.totalDurationLabel,
                       style: const TextStyle(
                         fontSize: 13,
                         color: LuxuryPalette.textMuted,

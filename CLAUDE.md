@@ -64,6 +64,7 @@ flutter test
 | `lib/core/follow/follow_playback_target.dart` | 🔒 高 | 抽象接口，同上 |
 | `lib/ui/pages/home_page.dart` | 🔄 低 | 首页 UI，改动影响范围小 |
 | `lib/ui/pages/player_page.dart` | 🔄 低 | 播放页 UI，1410 行太大，后续会拆分 |
+| `lib/ui/widgets/player_display_data.dart` | 🔄 低 | UI 展示数据层，适合随界面结构一起迭代 |
 | `lib/ui/theme/luxury_theme.dart` | 🔒 高 | 主题定义，改动影响全部 UI |
 | `lib/main.dart` + `lib/app.dart` | 🔒 高 | 入口，极少改动 |
 
@@ -127,13 +128,15 @@ flutter test
 ### UI Layer (`lib/ui/`)
 - `pages/home_page.dart` — 首页，文件选择器（`file_picker`），加载 MIDI 并跳转播放页，SoundFont 状态展示
 - `pages/player_page.dart` — 播放器页面（~260 行，已拆分）。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），组件委托给 `widgets/` 下的子文件；用户 seek 后会同步跟随会话的播放时间重对齐
+- `widgets/player_display_data.dart` — UI 展示数据层。把播放器、跟随状态和轨道信息转换成界面需要的标题、标签、颜色、时间文本和 Key 友好的轨道数据，降低人工重做 UI 时误碰核心控制器的概率
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调
 - `widgets/transport_deck.dart` — TransportDeck（运输按钮）、TransportButton、ConsoleNote；回退/快进/归零支持外部 `onSeek` 回调
 - `widgets/performance_console.dart` — PerformanceConsole（跟随模式开关/手动速度滑块）、ConsoleCard
 - `widgets/track_salon.dart` — TrackSalon（轨道列表）、TrackTile（单轨道磁贴）
 - `widgets/soundfont_banner.dart` — SoundfontBanner（音色下载/重试横幅）
-- `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
+- `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；稳定控件 Key：`PlayerUiKeys`；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
+- `docs/ui施工说明.md` — UI 人工施工说明，列出可改区域、禁止误改的跟随生命周期函数、必须保留的回调语义和验收命令
 
 ### Tests (`test/`，共 79 用例)
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）

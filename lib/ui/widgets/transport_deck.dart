@@ -2,6 +2,8 @@ import 'package:flutter/cupertino.dart';
 
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
+import 'player_display_data.dart';
+import 'player_helpers.dart';
 
 /// 运输控制按钮
 class TransportButton extends StatelessWidget {
@@ -10,6 +12,7 @@ class TransportButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool highlighted;
   final bool large;
+  final Key? buttonKey;
 
   const TransportButton({
     super.key,
@@ -18,6 +21,7 @@ class TransportButton extends StatelessWidget {
     required this.onPressed,
     this.highlighted = false,
     this.large = false,
+    this.buttonKey,
   });
 
   @override
@@ -56,6 +60,7 @@ class TransportButton extends StatelessWidget {
             ],
           ),
           child: CupertinoButton(
+            key: buttonKey,
             padding: EdgeInsets.zero,
             minimumSize: Size.square(size),
             borderRadius: BorderRadius.circular(size / 2),
@@ -137,28 +142,31 @@ class TransportDeck extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canPlay = player.isSoundfontReady && player.songData != null;
+    final data = TransportDeckData.fromPlayer(player);
     final transportButtons = [
       TransportButton(
+        buttonKey: PlayerUiKeys.transportStopButton,
         icon: CupertinoIcons.stop_fill,
         label: '停止',
-        onPressed: canPlay ? player.stop : null,
+        onPressed: data.canPlay ? player.stop : null,
       ),
       TransportButton(
+        buttonKey: PlayerUiKeys.transportBackwardButton,
         icon: CupertinoIcons.gobackward_10,
         label: '回退',
-        onPressed: canPlay ? () => _seekTo(player.currentTime - 10) : null,
+        onPressed: data.canPlay ? () => _seekTo(data.currentTime - 10) : null,
       ),
       TransportButton(
-        icon: player.isPlaying
+        buttonKey: PlayerUiKeys.transportPlayPauseButton,
+        icon: data.isPlaying
             ? CupertinoIcons.pause_fill
             : CupertinoIcons.play_fill,
-        label: player.isPlaying ? '暂停' : '播放',
+        label: data.isPlaying ? '暂停' : '播放',
         highlighted: true,
         large: true,
-        onPressed: canPlay
+        onPressed: data.canPlay
             ? () {
-                if (player.isPlaying) {
+                if (data.isPlaying) {
                   player.pause();
                 } else {
                   player.play();
@@ -167,14 +175,16 @@ class TransportDeck extends StatelessWidget {
             : null,
       ),
       TransportButton(
+        buttonKey: PlayerUiKeys.transportForwardButton,
         icon: CupertinoIcons.goforward_10,
         label: '快进',
-        onPressed: canPlay ? () => _seekTo(player.currentTime + 10) : null,
+        onPressed: data.canPlay ? () => _seekTo(data.currentTime + 10) : null,
       ),
       TransportButton(
+        buttonKey: PlayerUiKeys.transportResetButton,
         icon: CupertinoIcons.arrow_counterclockwise,
         label: '归零',
-        onPressed: canPlay ? () => _seekTo(0) : null,
+        onPressed: data.canPlay ? () => _seekTo(0) : null,
       ),
     ];
 
@@ -213,17 +223,11 @@ class TransportDeck extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: ConsoleNote(
-                label: canPlay ? 'Tone Ready' : 'Tone Pending',
-                value: canPlay ? '可直接演奏' : '等待音色加载',
-              ),
+              child: ConsoleNote(label: data.toneLabel, value: data.toneValue),
             ),
             const SizedBox(width: 10),
             Expanded(
-              child: ConsoleNote(
-                label: 'Mode',
-                value: player.isPlaying ? '舞台运行中' : '待机',
-              ),
+              child: ConsoleNote(label: 'Mode', value: data.modeValue),
             ),
           ],
         ),

@@ -4,7 +4,9 @@ import 'package:midi_music/core/follow/follow_mode_controller.dart';
 import 'package:midi_music/core/midi/midi_engine.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
 import 'package:midi_music/models/midi_track.dart';
+import 'package:midi_music/ui/widgets/player_helpers.dart';
 import 'package:midi_music/ui/widgets/stage_console.dart';
+import 'package:midi_music/ui/widgets/track_salon.dart';
 import 'package:midi_music/ui/widgets/transport_deck.dart';
 
 void main() {
@@ -28,7 +30,9 @@ void main() {
       ),
     );
 
-    final slider = tester.widget<CupertinoSlider>(find.byType(CupertinoSlider));
+    final slider = tester.widget<CupertinoSlider>(
+      find.byKey(PlayerUiKeys.stageProgressSlider),
+    );
     slider.onChanged!(0.5);
 
     expect(seeks, [5.0]);
@@ -49,9 +53,32 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byIcon(CupertinoIcons.goforward_10));
+    await tester.tap(find.byKey(PlayerUiKeys.transportForwardButton));
 
     expect(seeks, [14.0]);
+
+    player.dispose();
+  });
+
+  testWidgets('TrackSalon 暴露稳定轨道控制 Key', (tester) async {
+    final player = _readyPlayer();
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: CupertinoPageScaffold(
+          child: TrackSalon(
+            player: player,
+            melodyTrackIndex: 0,
+            onSetMelody: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byKey(PlayerUiKeys.trackTile(0)), findsOneWidget);
+    expect(find.byKey(PlayerUiKeys.trackMuteButton(0)), findsOneWidget);
+    expect(find.byKey(PlayerUiKeys.trackMelodyButton(0)), findsOneWidget);
+    expect(find.byKey(PlayerUiKeys.trackVolumeSlider(0)), findsOneWidget);
 
     player.dispose();
   });
