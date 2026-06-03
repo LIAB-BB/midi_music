@@ -12,6 +12,26 @@ enum PlaybackState { stopped, playing, paused }
 
 enum SoundfontSetupState { idle, checking, downloading, ready, failed }
 
+class SoundfontCacheInfo {
+  final String? path;
+  final bool exists;
+  final int? sizeBytes;
+  final String? errorMessage;
+
+  const SoundfontCacheInfo({
+    required this.path,
+    required this.exists,
+    required this.sizeBytes,
+    required this.errorMessage,
+  });
+
+  const SoundfontCacheInfo.error(String message)
+    : path = null,
+      exists = false,
+      sizeBytes = null,
+      errorMessage = message;
+}
+
 const _kDefaultSoundfontFileName = 'TimGM6mb.sf2';
 
 /// UI 刷新节流：内部调度是 5ms（200Hz），但 ChangeNotifier 通知
@@ -161,6 +181,21 @@ class MidiPlayerController extends ChangeNotifier {
 
   Future<void> retrySoundfontSetup() async {
     await ensureSoundfontReady();
+  }
+
+  Future<SoundfontCacheInfo> inspectSoundfontCache() async {
+    try {
+      final soundfontFile = await _resolveSoundfontFile();
+      final exists = await soundfontFile.exists();
+      return SoundfontCacheInfo(
+        path: soundfontFile.path,
+        exists: exists,
+        sizeBytes: exists ? await soundfontFile.length() : null,
+        errorMessage: null,
+      );
+    } catch (error) {
+      return SoundfontCacheInfo.error('无法读取音色缓存信息：$error');
+    }
   }
 
   /// 加载歌曲数据

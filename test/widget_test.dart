@@ -29,6 +29,7 @@ void main() {
 
     expect(find.text('诊断'), findsOneWidget);
     expect(find.text('音色引擎'), findsOneWidget);
+    expect(find.text('缓存'), findsOneWidget);
     expect(find.text('麦克风权限'), findsOneWidget);
     expect(find.text('构建信息'), findsOneWidget);
     expect(find.byKey(DiagnosticsUiKeys.copyReportButton), findsOneWidget);

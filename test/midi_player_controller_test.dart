@@ -58,6 +58,33 @@ void main() {
     player.dispose();
   });
 
+  test('可以读取 SoundFont 缓存诊断信息', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'midi-player-sf2-cache-test-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final soundfontFile = File('${tempDir.path}/test.sf2');
+    await soundfontFile.writeAsBytes([1, 2, 3, 4]);
+    final player = MidiPlayerController(
+      engine: _FakeMidiPlaybackEngine(),
+      soundfontFileProvider: () async => soundfontFile,
+    );
+
+    final cacheInfo = await player.inspectSoundfontCache();
+
+    expect(cacheInfo.path, soundfontFile.path);
+    expect(cacheInfo.exists, isTrue);
+    expect(cacheInfo.sizeBytes, 4);
+    expect(cacheInfo.errorMessage, isNull);
+
+    player.dispose();
+  });
+
   test('释放后完成的音色加载不会通知监听器', () async {
     final engine = _FakeMidiPlaybackEngine(ready: false);
     final loadGate = Completer<void>();

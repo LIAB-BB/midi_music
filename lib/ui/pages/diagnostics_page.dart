@@ -20,12 +20,14 @@ class DiagnosticsPage extends StatefulWidget {
 
 class _DiagnosticsPageState extends State<DiagnosticsPage> {
   PermissionStatus? _microphoneStatus;
+  SoundfontCacheInfo? _soundfontCacheInfo;
   bool _isRefreshingPermission = false;
 
   @override
   void initState() {
     super.initState();
     _refreshPermissionStatus();
+    _refreshSoundfontCacheInfo();
   }
 
   Future<void> _refreshPermissionStatus() async {
@@ -44,6 +46,19 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     await _refreshPermissionStatus();
   }
 
+  Future<void> _refreshSoundfontCacheInfo() async {
+    final player = context.read<MidiPlayerController>();
+    final cacheInfo = await player.inspectSoundfontCache();
+    if (!mounted) return;
+    setState(() => _soundfontCacheInfo = cacheInfo);
+  }
+
+  Future<void> _retrySoundfontSetup(MidiPlayerController player) async {
+    await player.retrySoundfontSetup();
+    if (!mounted) return;
+    await _refreshSoundfontCacheInfo();
+  }
+
   Future<void> _copyDiagnosticsReport(
     MidiPlayerController player,
     SoundfontStatusData soundfont,
@@ -55,6 +70,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
           player: player,
           soundfont: soundfont,
           permission: permission,
+          cacheInfo: _soundfontCacheInfo,
         ),
       ),
     );
@@ -80,6 +96,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     required MidiPlayerController player,
     required SoundfontStatusData soundfont,
     required _PermissionDisplayData permission,
+    required SoundfontCacheInfo? cacheInfo,
   }) {
     final song = player.songData;
     return [
@@ -89,6 +106,10 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       '音色进度: ${(player.soundfontDownloadProgress * 100).round()}%',
       if (player.soundfontErrorMessage != null)
         '音色错误: ${player.soundfontErrorMessage}',
+      '音色缓存: ${_formatCacheExists(cacheInfo)}',
+      '音色缓存大小: ${_formatCacheSize(cacheInfo)}',
+      if (cacheInfo?.path != null) '音色缓存路径: ${cacheInfo!.path}',
+      if (cacheInfo?.errorMessage != null) '音色缓存错误: ${cacheInfo!.errorMessage}',
       '麦克风权限: ${permission.label}',
       '当前曲目: ${song?.fileName ?? '未载入'}',
       '轨道数: ${song?.noteTracks.length ?? 0}',
@@ -172,12 +193,30 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                         label: '错误',
                         value: player.soundfontErrorMessage!,
                       ),
+                    _DiagnosticRow(
+                      label: '缓存',
+                      value: _formatCacheExists(_soundfontCacheInfo),
+                    ),
+                    _DiagnosticRow(
+                      label: '大小',
+                      value: _formatCacheSize(_soundfontCacheInfo),
+                    ),
+                    if (_soundfontCacheInfo?.path != null)
+                      _DiagnosticRow(
+                        label: '路径',
+                        value: _soundfontCacheInfo!.path!,
+                      ),
+                    if (_soundfontCacheInfo?.errorMessage != null)
+                      _DiagnosticRow(
+                        label: '缓存错误',
+                        value: _soundfontCacheInfo!.errorMessage!,
+                      ),
                     const SizedBox(height: 12),
                     LuxuryActionButton(
                       key: DiagnosticsUiKeys.soundfontRetryButton,
                       label: soundfont.canRetry ? '重试音色准备' : '重新检查音色',
                       icon: CupertinoIcons.arrow_clockwise,
-                      onPressed: player.retrySoundfontSetup,
+                      onPressed: () => _retrySoundfontSetup(player),
                     ),
                   ],
                 ),
@@ -260,6 +299,21 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       ),
     );
   }
+}
+
+String _formatCacheExists(SoundfontCacheInfo? info) {
+  if (info == null) return '检查中';
+  if (info.errorMessage != null) return '读取失败';
+  return info.exists ? '已缓存' : '未缓存';
+}
+
+String _formatCacheSize(SoundfontCacheInfo? info) {
+  final sizeBytes = info?.sizeBytes;
+  if (sizeBytes == null) return '未知';
+  if (sizeBytes < 1024) return '$sizeBytes B';
+  final sizeKb = sizeBytes / 1024;
+  if (sizeKb < 1024) return '${sizeKb.toStringAsFixed(1)} KB';
+  return '${(sizeKb / 1024).toStringAsFixed(1)} MB';
 }
 
 String _playbackStateLabel(PlaybackState state) {
