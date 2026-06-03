@@ -110,7 +110,14 @@ class _PlayerBodyState extends State<_PlayerBody> {
   @override
   void initState() {
     super.initState();
+    _melodyTrackIndex = _defaultMelodyTrackIndex();
     widget.player.onPlaybackError = _onPlaybackError;
+  }
+
+  int? _defaultMelodyTrackIndex() {
+    final noteTracks = widget.player.songData?.noteTracks ?? [];
+    if (noteTracks.isEmpty) return null;
+    return noteTracks.first.index;
   }
 
   void _onPlaybackError(Object error, String context) {

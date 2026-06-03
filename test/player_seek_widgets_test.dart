@@ -4,10 +4,12 @@ import 'package:midi_music/core/follow/follow_mode_controller.dart';
 import 'package:midi_music/core/midi/midi_engine.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
 import 'package:midi_music/models/midi_track.dart';
+import 'package:midi_music/ui/pages/player_page.dart';
 import 'package:midi_music/ui/widgets/player_helpers.dart';
 import 'package:midi_music/ui/widgets/stage_console.dart';
 import 'package:midi_music/ui/widgets/track_salon.dart';
 import 'package:midi_music/ui/widgets/transport_deck.dart';
+import 'package:provider/provider.dart';
 
 void main() {
   testWidgets('StageConsole 进度条 seek 会走外部回调', (tester) async {
@@ -79,6 +81,24 @@ void main() {
     expect(find.byKey(PlayerUiKeys.trackMuteButton(0)), findsOneWidget);
     expect(find.byKey(PlayerUiKeys.trackMelodyButton(0)), findsOneWidget);
     expect(find.byKey(PlayerUiKeys.trackVolumeSlider(0)), findsOneWidget);
+
+    player.dispose();
+  });
+
+  testWidgets('PlayerPage 默认选择第一条音符轨道作为主旋律', (tester) async {
+    final player = _readyPlayer();
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: ChangeNotifierProvider.value(
+          value: player,
+          child: const PlayerPage(),
+        ),
+      ),
+    );
+
+    expect(find.text('Track 1'), findsOneWidget);
+    expect(find.byKey(PlayerUiKeys.trackMelodyButton(0)), findsOneWidget);
 
     player.dispose();
   });

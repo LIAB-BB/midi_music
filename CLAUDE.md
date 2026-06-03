@@ -129,7 +129,7 @@ flutter test
 ### UI Layer (`lib/ui/`)
 - `pages/home_page.dart` — 首页，文件选择器（`file_picker`）和内置示例曲目入口，加载 MIDI 并跳转播放页。页面状态类只处理导入/导航，首页 hero 和指标布局拆到 `_HomeContent` / `_HomeHeroPanel`
 - `pages/diagnostics_page.dart` — 测试诊断页，显示 SoundFont 状态/重试、麦克风权限/系统设置、当前曲目、版本和隐私提示，用于真机测试反馈
-- `pages/player_page.dart` — 播放器页面。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），滚动内容拆到 `_PlayerStageContent`，状态横幅拆到 `_PlayerStatusStack`；用户 seek 后会同步跟随会话的播放时间重对齐
+- `pages/player_page.dart` — 播放器页面。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），滚动内容拆到 `_PlayerStageContent`，状态横幅拆到 `_PlayerStatusStack`；进入播放页时默认选择第一条音符轨道作为主旋律，用户 seek 后会同步跟随会话的播放时间重对齐
 - `widgets/player_display_data.dart` — UI 展示数据层。把播放器、跟随状态、SoundFont 状态和轨道信息转换成界面需要的标题、标签、颜色、时间文本和 Key 友好的轨道数据，降低人工重做 UI 时误碰核心控制器的概率
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调
 - `widgets/transport_deck.dart` — TransportDeck（运输按钮）、TransportButton、ConsoleNote；回退/快进/归零支持外部 `onSeek` 回调
@@ -150,7 +150,7 @@ flutter test
 - `follow_mode_controller_test.dart` — 跟随算法测试（10 用例，含 seek/currentTime 重对齐、idle 恢复、seek 到长休止等待和连续未匹配重对齐请求）
 - `follow_mode_session_test.dart` — 跟随会话生命周期测试（9 用例，含长休止暂停恢复、按播放时间重对齐、seek 到长休止暂停等待、连续未匹配自动重对齐、dispose 回调清理）
 - `microphone_input_test.dart` — 麦克风输入生命周期测试（4 用例）
-- `player_seek_widgets_test.dart` — 播放页 seek 控件合同测试（2 用例）
+- `player_seek_widgets_test.dart` — 播放页 seek 控件合同和默认主旋律选择测试（4 用例）
 - `widget_test.dart` — App smoke test
 
 测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
