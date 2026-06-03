@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
@@ -43,6 +44,61 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     await _refreshPermissionStatus();
   }
 
+  Future<void> _copyDiagnosticsReport(
+    MidiPlayerController player,
+    SoundfontStatusData soundfont,
+    _PermissionDisplayData permission,
+  ) async {
+    await Clipboard.setData(
+      ClipboardData(
+        text: _buildDiagnosticsReport(
+          player: player,
+          soundfont: soundfont,
+          permission: permission,
+        ),
+      ),
+    );
+    if (!mounted) return;
+
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('已复制'),
+        content: const Text('诊断信息已复制到剪贴板，可以直接粘贴给测试负责人。'),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('好的'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _buildDiagnosticsReport({
+    required MidiPlayerController player,
+    required SoundfontStatusData soundfont,
+    required _PermissionDisplayData permission,
+  }) {
+    final song = player.songData;
+    return [
+      'MIDI 伴奏 App 诊断信息',
+      '版本: $_kAppVersionLabel',
+      '音色状态: ${soundfont.bannerText}',
+      '音色进度: ${(player.soundfontDownloadProgress * 100).round()}%',
+      if (player.soundfontErrorMessage != null)
+        '音色错误: ${player.soundfontErrorMessage}',
+      '麦克风权限: ${permission.label}',
+      '当前曲目: ${song?.fileName ?? '未载入'}',
+      '轨道数: ${song?.noteTracks.length ?? 0}',
+      '曲目时长: ${formatClock(player.totalDuration)}',
+      '播放状态: ${_playbackStateLabel(player.state)}',
+      '播放位置: ${formatClock(player.currentTime)}',
+      '音频上传: 不会上传麦克风音频',
+    ].join('\n');
+  }
+
   @override
   Widget build(BuildContext context) {
     final player = context.watch<MidiPlayerController>();
@@ -77,12 +133,24 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        '把这些状态截图发给开发者，可以更快定位播放、音色或麦克风问题。',
+                        '把这些状态截图或复制给开发者，可以更快定位播放、音色或麦克风问题。',
                         style: TextStyle(
                           fontSize: 14,
                           height: 1.45,
                           color: LuxuryPalette.textMuted,
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      LuxuryActionButton(
+                        key: DiagnosticsUiKeys.copyReportButton,
+                        label: '复制诊断信息',
+                        icon: CupertinoIcons.doc_on_clipboard,
+                        onPressed: () => _copyDiagnosticsReport(
+                          player,
+                          soundfont,
+                          permission,
+                        ),
+                        primary: true,
                       ),
                     ],
                   ),
@@ -167,11 +235,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                     ),
                     _DiagnosticRow(
                       label: '播放状态',
-                      value: switch (player.state) {
-                        PlaybackState.playing => '播放中',
-                        PlaybackState.paused => '已暂停',
-                        PlaybackState.stopped => '已停止',
-                      },
+                      value: _playbackStateLabel(player.state),
                     ),
                   ],
                 ),
@@ -196,6 +260,14 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       ),
     );
   }
+}
+
+String _playbackStateLabel(PlaybackState state) {
+  return switch (state) {
+    PlaybackState.playing => '播放中',
+    PlaybackState.paused => '已暂停',
+    PlaybackState.stopped => '已停止',
+  };
 }
 
 class _PermissionDisplayData {

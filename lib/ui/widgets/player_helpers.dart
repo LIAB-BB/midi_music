@@ -53,6 +53,7 @@ class HomeUiKeys {
 class DiagnosticsUiKeys {
   const DiagnosticsUiKeys._();
 
+  static const copyReportButton = ValueKey<String>('diagnostics.report.copy');
   static const soundfontRetryButton = ValueKey<String>(
     'diagnostics.soundfont.retry',
   );
