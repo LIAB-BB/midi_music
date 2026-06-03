@@ -298,42 +298,103 @@ class _PlayerBodyState extends State<_PlayerBody> {
     final song = player.songData;
     if (song == null) return const SizedBox.shrink();
 
+    return _PlayerStageContent(
+      player: player,
+      playbackError: _playbackError,
+      isFollowMode: _isFollowMode,
+      followState: _followState,
+      followSpeedFactor: _followSpeedFactor,
+      melodyTrackIndex: _melodyTrackIndex,
+      onSeek: _seekTo,
+      onToggleFollow: _toggleFollowMode,
+      onSetMelody: _setMelodyTrack,
+    );
+  }
+}
+
+class _PlayerStageContent extends StatelessWidget {
+  final MidiPlayerController player;
+  final String? playbackError;
+  final bool isFollowMode;
+  final FollowModeState followState;
+  final double followSpeedFactor;
+  final int? melodyTrackIndex;
+  final ValueChanged<double> onSeek;
+  final Future<void> Function() onToggleFollow;
+  final ValueChanged<int> onSetMelody;
+
+  const _PlayerStageContent({
+    required this.player,
+    required this.playbackError,
+    required this.isFollowMode,
+    required this.followState,
+    required this.followSpeedFactor,
+    required this.melodyTrackIndex,
+    required this.onSeek,
+    required this.onToggleFollow,
+    required this.onSetMelody,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_playbackError != null) ...[
-            _ErrorBanner(message: _playbackError!),
-            const SizedBox(height: 10),
-          ],
-          if (!player.isSoundfontReady) ...[
-            SoundfontBanner(player: player),
-            const SizedBox(height: 14),
-          ],
+          _PlayerStatusStack(player: player, playbackError: playbackError),
           StageConsole(
             player: player,
-            isFollowMode: _isFollowMode,
-            followState: _followState,
-            followSpeedFactor: _followSpeedFactor,
-            onSeek: _seekTo,
+            isFollowMode: isFollowMode,
+            followState: followState,
+            followSpeedFactor: followSpeedFactor,
+            onSeek: onSeek,
           ),
           const SizedBox(height: 14),
           PerformanceConsole(
             player: player,
-            isFollowMode: _isFollowMode,
-            followState: _followState,
-            followSpeedFactor: _followSpeedFactor,
-            melodyTrackIndex: _melodyTrackIndex,
-            onToggleFollow: _toggleFollowMode,
+            isFollowMode: isFollowMode,
+            followState: followState,
+            followSpeedFactor: followSpeedFactor,
+            melodyTrackIndex: melodyTrackIndex,
+            onToggleFollow: onToggleFollow,
           ),
           const SizedBox(height: 14),
           TrackSalon(
             player: player,
-            melodyTrackIndex: _melodyTrackIndex,
-            onSetMelody: _setMelodyTrack,
+            melodyTrackIndex: melodyTrackIndex,
+            onSetMelody: onSetMelody,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlayerStatusStack extends StatelessWidget {
+  final MidiPlayerController player;
+  final String? playbackError;
+
+  const _PlayerStatusStack({required this.player, required this.playbackError});
+
+  @override
+  Widget build(BuildContext context) {
+    final error = playbackError;
+    final showSoundfontBanner = !player.isSoundfontReady;
+    if (error == null && !showSoundfontBanner) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        children: [
+          if (error != null) ...[
+            _ErrorBanner(message: error),
+            if (showSoundfontBanner) const SizedBox(height: 10),
+          ],
+          if (showSoundfontBanner) SoundfontBanner(player: player),
         ],
       ),
     );

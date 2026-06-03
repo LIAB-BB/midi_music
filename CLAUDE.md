@@ -126,8 +126,8 @@ flutter test
 - `follow_playback_target.dart` — `FollowPlaybackTarget` 抽象 + `MidiFollowPlaybackTarget` 实现，适配 `MidiPlayerController`
 
 ### UI Layer (`lib/ui/`)
-- `pages/home_page.dart` — 首页，文件选择器（`file_picker`），加载 MIDI 并跳转播放页，SoundFont 状态展示
-- `pages/player_page.dart` — 播放器页面（~260 行，已拆分）。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），组件委托给 `widgets/` 下的子文件；用户 seek 后会同步跟随会话的播放时间重对齐
+- `pages/home_page.dart` — 首页，文件选择器（`file_picker`），加载 MIDI 并跳转播放页。页面状态类只处理导入/导航，首页 hero 和指标布局拆到 `_HomeContent` / `_HomeHeroPanel`
+- `pages/player_page.dart` — 播放器页面。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），滚动内容拆到 `_PlayerStageContent`，状态横幅拆到 `_PlayerStatusStack`；用户 seek 后会同步跟随会话的播放时间重对齐
 - `widgets/player_display_data.dart` — UI 展示数据层。把播放器、跟随状态和轨道信息转换成界面需要的标题、标签、颜色、时间文本和 Key 友好的轨道数据，降低人工重做 UI 时误碰核心控制器的概率
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调
 - `widgets/transport_deck.dart` — TransportDeck（运输按钮）、TransportButton、ConsoleNote；回退/快进/归零支持外部 `onSeek` 回调

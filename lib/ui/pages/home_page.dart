@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../core/midi/midi_parser.dart';
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
+import '../widgets/player_helpers.dart';
 import 'player_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -40,9 +41,11 @@ class _HomePageState extends State<HomePage> {
       final player = context.read<MidiPlayerController>();
       player.loadSong(songData);
 
-      unawaited(Navigator.of(
-        context,
-      ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())));
+      unawaited(
+        Navigator.of(
+          context,
+        ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())),
+      );
     } catch (e) {
       if (!mounted) return;
       _showError('无法解析 MIDI 文件: $e');
@@ -70,9 +73,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _openPlayer() {
-    unawaited(Navigator.of(
-      context,
-    ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())));
+    unawaited(
+      Navigator.of(
+        context,
+      ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())),
+    );
   }
 
   @override
@@ -93,98 +98,138 @@ class _HomePageState extends State<HomePage> {
                     key: ValueKey('loading'),
                     child: CupertinoActivityIndicator(radius: 18),
                   )
-                : SingleChildScrollView(
-                    key: const ValueKey('home'),
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _HeaderBlock(),
-                        const SizedBox(height: 14),
-                        LuxuryPanel(
-                          highlighted: true,
-                          padding: const EdgeInsets.fromLTRB(22, 22, 22, 24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const _TinyStatus(label: 'Nocturne Edition'),
-                                  const Spacer(),
-                                  _SoundfontPill(player: player),
-                                ],
-                              ),
-                              const SizedBox(height: 28),
-                              const _HeroAccent(),
-                              const SizedBox(height: 22),
-                              Text(
-                                '黑金伴奏厅',
-                                style: luxuryDisplayStyle(context, size: 38),
-                              ),
-                              const SizedBox(height: 12),
-                              const Text(
-                                '为古典排练准备的 MIDI 伴奏与实时跟随。',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: LuxuryPalette.textMuted,
-                                ),
-                              ),
-                              if (!player.isSoundfontReady) ...[
-                                const SizedBox(height: 14),
-                                _SoundfontStatusLine(player: player),
-                              ],
-                              if (player.songData != null) ...[
-                                const SizedBox(height: 14),
-                                _LoadedScoreLine(
-                                  fileName: player.songData!.fileName,
-                                ),
-                              ],
-                              const SizedBox(height: 22),
-                              _PrimaryActionButton(
-                                label: '导入 MIDI 乐谱',
-                                icon: CupertinoIcons.arrow_down_doc_fill,
-                                onPressed: _pickAndLoadMidi,
-                              ),
-                              if (player.songData != null) ...[
-                                const SizedBox(height: 12),
-                                _SecondaryActionButton(
-                                  label: '继续当前曲目',
-                                  icon: CupertinoIcons.play_arrow_solid,
-                                  onPressed: _openPlayer,
-                                ),
-                              ],
-                              const SizedBox(height: 22),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _CompactMetric(
-                                      label: '当前曲目',
-                                      value: player.songData == null
-                                          ? '未载入'
-                                          : '已就绪',
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  const Expanded(
-                                    child: _CompactMetric(
-                                      label: '控制能力',
-                                      value: '轨道 / 跟随',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        const _BottomFeatureStrip(),
-                      ],
-                    ),
+                : _HomeContent(
+                    player: player,
+                    onImportMidi: _pickAndLoadMidi,
+                    onOpenPlayer: _openPlayer,
                   ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _HomeContent extends StatelessWidget {
+  final MidiPlayerController player;
+  final VoidCallback onImportMidi;
+  final VoidCallback onOpenPlayer;
+
+  const _HomeContent({
+    required this.player,
+    required this.onImportMidi,
+    required this.onOpenPlayer,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      key: const ValueKey('home'),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _HeaderBlock(),
+          const SizedBox(height: 14),
+          _HomeHeroPanel(
+            player: player,
+            onImportMidi: onImportMidi,
+            onOpenPlayer: onOpenPlayer,
+          ),
+          const SizedBox(height: 14),
+          const _BottomFeatureStrip(),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeHeroPanel extends StatelessWidget {
+  final MidiPlayerController player;
+  final VoidCallback onImportMidi;
+  final VoidCallback onOpenPlayer;
+
+  const _HomeHeroPanel({
+    required this.player,
+    required this.onImportMidi,
+    required this.onOpenPlayer,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final song = player.songData;
+    return LuxuryPanel(
+      highlighted: true,
+      padding: const EdgeInsets.fromLTRB(22, 22, 22, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const _TinyStatus(label: 'Nocturne Edition'),
+              const Spacer(),
+              _SoundfontPill(player: player),
+            ],
+          ),
+          const SizedBox(height: 28),
+          const _HeroAccent(),
+          const SizedBox(height: 22),
+          Text('黑金伴奏厅', style: luxuryDisplayStyle(context, size: 38)),
+          const SizedBox(height: 12),
+          const Text(
+            '为古典排练准备的 MIDI 伴奏与实时跟随。',
+            style: TextStyle(fontSize: 14, color: LuxuryPalette.textMuted),
+          ),
+          if (!player.isSoundfontReady) ...[
+            const SizedBox(height: 14),
+            _SoundfontStatusLine(player: player),
+          ],
+          if (song != null) ...[
+            const SizedBox(height: 14),
+            _LoadedScoreLine(fileName: song.fileName),
+          ],
+          const SizedBox(height: 22),
+          _PrimaryActionButton(
+            key: HomeUiKeys.importMidiButton,
+            label: '导入 MIDI 乐谱',
+            icon: CupertinoIcons.arrow_down_doc_fill,
+            onPressed: onImportMidi,
+          ),
+          if (song != null) ...[
+            const SizedBox(height: 12),
+            _SecondaryActionButton(
+              key: HomeUiKeys.continueSongButton,
+              label: '继续当前曲目',
+              icon: CupertinoIcons.play_arrow_solid,
+              onPressed: onOpenPlayer,
+            ),
+          ],
+          const SizedBox(height: 22),
+          _HomeMetricRow(hasSong: song != null),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeMetricRow extends StatelessWidget {
+  final bool hasSong;
+
+  const _HomeMetricRow({required this.hasSong});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _CompactMetric(label: '当前曲目', value: hasSong ? '已就绪' : '未载入'),
+        ),
+        const SizedBox(width: 12),
+        const Expanded(
+          child: _CompactMetric(label: '控制能力', value: '轨道 / 跟随'),
+        ),
+      ],
     );
   }
 }
@@ -313,6 +358,7 @@ class _SoundfontStatusLine extends StatelessWidget {
         if (player.soundfontState == SoundfontSetupState.failed) ...[
           const SizedBox(width: 12),
           CupertinoButton(
+            key: HomeUiKeys.soundfontRetryButton,
             padding: EdgeInsets.zero,
             minimumSize: const Size(0, 0),
             onPressed: player.retrySoundfontSetup,
@@ -396,6 +442,7 @@ class _PrimaryActionButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   const _PrimaryActionButton({
+    super.key,
     required this.label,
     required this.icon,
     required this.onPressed,
@@ -451,6 +498,7 @@ class _SecondaryActionButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   const _SecondaryActionButton({
+    super.key,
     required this.label,
     required this.icon,
     required this.onPressed,
