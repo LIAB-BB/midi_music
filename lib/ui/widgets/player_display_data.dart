@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import '../../core/follow/follow_mode_controller.dart';
 import '../../core/midi/midi_player.dart';
 import '../../models/midi_track.dart';
+import '../theme/luxury_theme.dart';
 import 'player_helpers.dart';
 
 class StageConsoleData {
@@ -150,6 +151,69 @@ class TransportDeckData {
       toneLabel: canPlay ? 'Tone Ready' : 'Tone Pending',
       toneValue: canPlay ? '可直接演奏' : '等待音色加载',
       modeValue: player.isPlaying ? '舞台运行中' : '待机',
+    );
+  }
+}
+
+class SoundfontStatusData {
+  final String pillText;
+  final String lineText;
+  final String bannerText;
+  final Color accent;
+  final IconData bannerIcon;
+  final bool canRetry;
+
+  const SoundfontStatusData({
+    required this.pillText,
+    required this.lineText,
+    required this.bannerText,
+    required this.accent,
+    required this.bannerIcon,
+    required this.canRetry,
+  });
+
+  factory SoundfontStatusData.fromPlayer(MidiPlayerController player) {
+    final progressPercent = (player.soundfontDownloadProgress * 100)
+        .clamp(0, 100)
+        .round();
+    final lineText = switch (player.soundfontState) {
+      SoundfontSetupState.downloading => '正在自动下载音色库 $progressPercent%',
+      SoundfontSetupState.failed => player.soundfontErrorMessage ?? '音色库自动下载失败',
+      SoundfontSetupState.checking => '正在检查本地音色库',
+      SoundfontSetupState.idle => '正在准备音色库',
+      SoundfontSetupState.ready => '音色库已就绪',
+    };
+
+    return SoundfontStatusData(
+      pillText: switch (player.soundfontState) {
+        SoundfontSetupState.ready => '音色已就绪',
+        SoundfontSetupState.failed => '下载失败',
+        SoundfontSetupState.downloading => '下载中',
+        SoundfontSetupState.checking => '检查中',
+        SoundfontSetupState.idle => '准备中',
+      },
+      lineText: lineText,
+      bannerText: switch (player.soundfontState) {
+        SoundfontSetupState.downloading => '正在自动下载演出音色 $progressPercent%',
+        SoundfontSetupState.failed =>
+          player.soundfontErrorMessage ?? '演出音色下载失败，请稍后重试。',
+        SoundfontSetupState.checking => '正在检查本地演出音色。',
+        SoundfontSetupState.idle => '正在准备演出音色。',
+        SoundfontSetupState.ready => '演出音色已就绪。',
+      },
+      accent: switch (player.soundfontState) {
+        SoundfontSetupState.ready => LuxuryPalette.emerald,
+        SoundfontSetupState.failed => LuxuryPalette.ruby,
+        SoundfontSetupState.downloading => LuxuryPalette.goldBright,
+        _ => LuxuryPalette.gold,
+      },
+      bannerIcon: switch (player.soundfontState) {
+        SoundfontSetupState.failed =>
+          CupertinoIcons.exclamationmark_triangle_fill,
+        SoundfontSetupState.ready => CupertinoIcons.check_mark_circled_solid,
+        _ => CupertinoIcons.cloud_download_fill,
+      },
+      canRetry: player.soundfontState == SoundfontSetupState.failed,
     );
   }
 }

@@ -8,6 +8,7 @@ import '../../core/midi/midi_parser.dart';
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
 import '../widgets/luxury_controls.dart';
+import '../widgets/player_display_data.dart';
 import '../widgets/player_helpers.dart';
 import 'player_page.dart';
 
@@ -303,29 +304,17 @@ class _SoundfontPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (player.soundfontState) {
-      SoundfontSetupState.ready => LuxuryPalette.emerald,
-      SoundfontSetupState.failed => LuxuryPalette.ruby,
-      SoundfontSetupState.downloading => LuxuryPalette.goldBright,
-      _ => LuxuryPalette.gold,
-    };
-    final text = switch (player.soundfontState) {
-      SoundfontSetupState.ready => '音色已就绪',
-      SoundfontSetupState.failed => '下载失败',
-      SoundfontSetupState.downloading => '下载中',
-      SoundfontSetupState.checking => '检查中',
-      SoundfontSetupState.idle => '准备中',
-    };
+    final data = SoundfontStatusData.fromPlayer(player);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 8,
           height: 8,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          decoration: BoxDecoration(color: data.accent, shape: BoxShape.circle),
         ),
         const SizedBox(width: 8),
-        Text(text, style: TextStyle(fontSize: 12, color: color)),
+        Text(data.pillText, style: TextStyle(fontSize: 12, color: data.accent)),
       ],
     );
   }
@@ -338,29 +327,20 @@ class _SoundfontStatusLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final progressPercent = (player.soundfontDownloadProgress * 100)
-        .clamp(0, 100)
-        .round();
-    final message = switch (player.soundfontState) {
-      SoundfontSetupState.downloading => '正在自动下载音色库 $progressPercent%',
-      SoundfontSetupState.failed => player.soundfontErrorMessage ?? '音色库自动下载失败',
-      SoundfontSetupState.checking => '正在检查本地音色库',
-      SoundfontSetupState.idle => '正在准备音色库',
-      SoundfontSetupState.ready => '音色库已就绪',
-    };
+    final data = SoundfontStatusData.fromPlayer(player);
 
     return Row(
       children: [
         Expanded(
           child: Text(
-            message,
+            data.lineText,
             style: const TextStyle(
               fontSize: 13,
               color: LuxuryPalette.textMuted,
             ),
           ),
         ),
-        if (player.soundfontState == SoundfontSetupState.failed) ...[
+        if (data.canRetry) ...[
           const SizedBox(width: 12),
           CupertinoButton(
             key: HomeUiKeys.soundfontRetryButton,
