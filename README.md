@@ -7,6 +7,7 @@
 - **MIDI 文件播放** — 解析标准 MIDI 文件（Format 0/1），支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
 - **内置示例曲目** — 首次安装后无需准备文件，可直接载入内置古典 MIDI 样例测试播放、轨道控制和跟随模式
 - **SoundFont 音色引擎** — 基于 FluidSynth (Android) / AVFoundation (iOS)，加载 SF2/SF3 音色库
+- **诊断页** — 展示音色状态、麦克风权限、当前曲目和构建信息，方便测试者反馈问题
 - **轨道控制** — 按轨道（而非通道）独立控制音量、静音，即使多轨道共享同一 MIDI 通道也互不干扰
 - **变速跟随模式** — 通过麦克风检测演奏者弹奏节奏（onset detection），实时调整伴奏播放速度
 - **iOS 风格 UI** — 全 Cupertino 组件，简约流畅
@@ -47,7 +48,8 @@ lib/
 │   └── midi_track.dart                # MIDI 轨道模型
 └── ui/
     ├── pages/
-    │   ├── home_page.dart             # 首页（文件选择）
+    │   ├── home_page.dart             # 首页（文件选择 / 示例曲目）
+    │   ├── diagnostics_page.dart      # 测试诊断页
     │   └── player_page.dart           # 播放器页面
     └── theme/
         └── luxury_theme.dart          # 黑金主题组件

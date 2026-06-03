@@ -22,5 +22,15 @@ void main() {
       find.byKey(HomeUiKeys.demoSongButton('Beethoven-Moonlight-Sonata.mid')),
       findsOneWidget,
     );
+    expect(find.byKey(HomeUiKeys.diagnosticsButton), findsOneWidget);
+
+    await tester.tap(find.byKey(HomeUiKeys.diagnosticsButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('诊断'), findsOneWidget);
+    expect(find.text('音色引擎'), findsOneWidget);
+    expect(find.text('麦克风权限'), findsOneWidget);
+    expect(find.text('构建信息'), findsOneWidget);
+    expect(find.byKey(DiagnosticsUiKeys.soundfontRetryButton), findsOneWidget);
   });
 }

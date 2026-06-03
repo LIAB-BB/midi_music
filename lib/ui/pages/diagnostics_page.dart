@@ -1,0 +1,332 @@
+import 'package:flutter/cupertino.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/midi/midi_player.dart';
+import '../theme/luxury_theme.dart';
+import '../widgets/luxury_controls.dart';
+import '../widgets/player_display_data.dart';
+import '../widgets/player_helpers.dart';
+
+const _kAppVersionLabel = '1.0.0+1';
+
+class DiagnosticsPage extends StatefulWidget {
+  const DiagnosticsPage({super.key});
+
+  @override
+  State<DiagnosticsPage> createState() => _DiagnosticsPageState();
+}
+
+class _DiagnosticsPageState extends State<DiagnosticsPage> {
+  PermissionStatus? _microphoneStatus;
+  bool _isRefreshingPermission = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshPermissionStatus();
+  }
+
+  Future<void> _refreshPermissionStatus() async {
+    setState(() => _isRefreshingPermission = true);
+    final status = await Permission.microphone.status;
+    if (!mounted) return;
+    setState(() {
+      _microphoneStatus = status;
+      _isRefreshingPermission = false;
+    });
+  }
+
+  Future<void> _openSystemSettings() async {
+    await openAppSettings();
+    if (!mounted) return;
+    await _refreshPermissionStatus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final player = context.watch<MidiPlayerController>();
+    final soundfont = SoundfontStatusData.fromPlayer(player);
+    final permission = _PermissionDisplayData.fromStatus(_microphoneStatus);
+
+    return CupertinoPageScaffold(
+      navigationBar: const CupertinoNavigationBar(
+        border: null,
+        previousPageTitle: '首页',
+        middle: Text('诊断'),
+      ),
+      child: LuxuryBackdrop(
+        child: SafeArea(
+          bottom: false,
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 30),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LuxuryPanel(
+                  highlighted: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SectionEyebrow(label: 'APP DIAGNOSTICS'),
+                      const SizedBox(height: 12),
+                      Text(
+                        '测试前检查',
+                        style: luxuryDisplayStyle(context, size: 32),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '把这些状态截图发给开发者，可以更快定位播放、音色或麦克风问题。',
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.45,
+                          color: LuxuryPalette.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _DiagnosticSection(
+                  title: '音色引擎',
+                  icon: soundfont.bannerIcon,
+                  accent: soundfont.accent,
+                  children: [
+                    _DiagnosticRow(label: '状态', value: soundfont.bannerText),
+                    _DiagnosticRow(
+                      label: '进度',
+                      value:
+                          '${(player.soundfontDownloadProgress * 100).round()}%',
+                    ),
+                    if (player.soundfontErrorMessage != null)
+                      _DiagnosticRow(
+                        label: '错误',
+                        value: player.soundfontErrorMessage!,
+                      ),
+                    const SizedBox(height: 12),
+                    LuxuryActionButton(
+                      key: DiagnosticsUiKeys.soundfontRetryButton,
+                      label: soundfont.canRetry ? '重试音色准备' : '重新检查音色',
+                      icon: CupertinoIcons.arrow_clockwise,
+                      onPressed: player.retrySoundfontSetup,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _DiagnosticSection(
+                  title: '麦克风权限',
+                  icon: permission.icon,
+                  accent: permission.accent,
+                  children: [
+                    _DiagnosticRow(label: '状态', value: permission.label),
+                    const _DiagnosticRow(label: '用途', value: '跟随模式识别演奏起拍和速度'),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: LuxuryActionButton(
+                            key: DiagnosticsUiKeys.permissionRefreshButton,
+                            label: _isRefreshingPermission ? '检查中' : '刷新状态',
+                            icon: CupertinoIcons.arrow_clockwise,
+                            onPressed: _refreshPermissionStatus,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: LuxuryActionButton(
+                            key: DiagnosticsUiKeys.openSettingsButton,
+                            label: '系统设置',
+                            icon: CupertinoIcons.settings_solid,
+                            onPressed: _openSystemSettings,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _DiagnosticSection(
+                  title: '当前曲目',
+                  icon: CupertinoIcons.music_note_list,
+                  accent: player.songData == null
+                      ? LuxuryPalette.textSubtle
+                      : LuxuryPalette.goldBright,
+                  children: [
+                    _DiagnosticRow(
+                      label: '文件',
+                      value: player.songData?.fileName ?? '未载入',
+                    ),
+                    _DiagnosticRow(
+                      label: '轨道',
+                      value: '${player.songData?.noteTracks.length ?? 0}',
+                    ),
+                    _DiagnosticRow(
+                      label: '时长',
+                      value: formatClock(player.totalDuration),
+                    ),
+                    _DiagnosticRow(
+                      label: '播放状态',
+                      value: switch (player.state) {
+                        PlaybackState.playing => '播放中',
+                        PlaybackState.paused => '已暂停',
+                        PlaybackState.stopped => '已停止',
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const _DiagnosticSection(
+                  title: '构建信息',
+                  icon: CupertinoIcons.info_circle_fill,
+                  accent: LuxuryPalette.emerald,
+                  children: [
+                    _DiagnosticRow(label: '版本', value: _kAppVersionLabel),
+                    _DiagnosticRow(
+                      label: '质量门禁',
+                      value: 'flutter analyze / flutter test',
+                    ),
+                    _DiagnosticRow(label: '音频上传', value: '不会上传麦克风音频'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PermissionDisplayData {
+  final String label;
+  final Color accent;
+  final IconData icon;
+
+  const _PermissionDisplayData({
+    required this.label,
+    required this.accent,
+    required this.icon,
+  });
+
+  factory _PermissionDisplayData.fromStatus(PermissionStatus? status) {
+    return switch (status) {
+      PermissionStatus.granted => const _PermissionDisplayData(
+        label: '已授权',
+        accent: LuxuryPalette.emerald,
+        icon: CupertinoIcons.check_mark_circled_solid,
+      ),
+      PermissionStatus.denied => const _PermissionDisplayData(
+        label: '未授权',
+        accent: LuxuryPalette.goldBright,
+        icon: CupertinoIcons.mic_slash_fill,
+      ),
+      PermissionStatus.permanentlyDenied => const _PermissionDisplayData(
+        label: '已拒绝，需要去系统设置开启',
+        accent: LuxuryPalette.ruby,
+        icon: CupertinoIcons.exclamationmark_triangle_fill,
+      ),
+      PermissionStatus.restricted => const _PermissionDisplayData(
+        label: '系统限制',
+        accent: LuxuryPalette.ruby,
+        icon: CupertinoIcons.exclamationmark_triangle_fill,
+      ),
+      PermissionStatus.limited => const _PermissionDisplayData(
+        label: '受限授权',
+        accent: LuxuryPalette.goldBright,
+        icon: CupertinoIcons.mic_fill,
+      ),
+      PermissionStatus.provisional => const _PermissionDisplayData(
+        label: '临时授权',
+        accent: LuxuryPalette.goldBright,
+        icon: CupertinoIcons.mic_fill,
+      ),
+      null => const _PermissionDisplayData(
+        label: '检查中',
+        accent: LuxuryPalette.textSubtle,
+        icon: CupertinoIcons.clock_fill,
+      ),
+    };
+  }
+}
+
+class _DiagnosticSection extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Color accent;
+  final List<Widget> children;
+
+  const _DiagnosticSection({
+    required this.title,
+    required this.icon,
+    required this.accent,
+    required this.children,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LuxuryPanel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: accent),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: LuxuryPalette.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _DiagnosticRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DiagnosticRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                color: LuxuryPalette.textSubtle,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.35,
+                color: LuxuryPalette.textMuted,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

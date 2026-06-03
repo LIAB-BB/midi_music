@@ -63,6 +63,7 @@ flutter test
 | `lib/core/follow/pitch_input.dart` | 🔒 高 | 抽象接口，改了所有实现都得跟着改 |
 | `lib/core/follow/follow_playback_target.dart` | 🔒 高 | 抽象接口，同上 |
 | `lib/ui/pages/home_page.dart` | 🔄 低 | 首页 UI，改动影响范围小 |
+| `lib/ui/pages/diagnostics_page.dart` | 🔄 低 | 测试诊断页，显示音色、麦克风、曲目和构建状态 |
 | `lib/ui/pages/player_page.dart` | 🔄 低 | 播放页 UI，1410 行太大，后续会拆分 |
 | `lib/ui/widgets/player_display_data.dart` | 🔄 低 | UI 展示数据层，适合随界面结构一起迭代 |
 | `lib/ui/theme/luxury_theme.dart` | 🔒 高 | 主题定义，改动影响全部 UI |
@@ -127,6 +128,7 @@ flutter test
 
 ### UI Layer (`lib/ui/`)
 - `pages/home_page.dart` — 首页，文件选择器（`file_picker`）和内置示例曲目入口，加载 MIDI 并跳转播放页。页面状态类只处理导入/导航，首页 hero 和指标布局拆到 `_HomeContent` / `_HomeHeroPanel`
+- `pages/diagnostics_page.dart` — 测试诊断页，显示 SoundFont 状态/重试、麦克风权限/系统设置、当前曲目、版本和隐私提示，用于真机测试反馈
 - `pages/player_page.dart` — 播放器页面。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），滚动内容拆到 `_PlayerStageContent`，状态横幅拆到 `_PlayerStatusStack`；用户 seek 后会同步跟随会话的播放时间重对齐
 - `widgets/player_display_data.dart` — UI 展示数据层。把播放器、跟随状态、SoundFont 状态和轨道信息转换成界面需要的标题、标签、颜色、时间文本和 Key 友好的轨道数据，降低人工重做 UI 时误碰核心控制器的概率
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调

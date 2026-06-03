@@ -10,6 +10,7 @@ import '../theme/luxury_theme.dart';
 import '../widgets/luxury_controls.dart';
 import '../widgets/player_display_data.dart';
 import '../widgets/player_helpers.dart';
+import 'diagnostics_page.dart';
 import 'player_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -113,6 +114,7 @@ class _HomePageState extends State<HomePage> {
       navigationBar: const CupertinoNavigationBar(
         border: null,
         middle: Text('MIDI 伴奏'),
+        trailing: _DiagnosticsNavButton(),
       ),
       child: LuxuryBackdrop(
         child: SafeArea(
@@ -132,6 +134,31 @@ class _HomePageState extends State<HomePage> {
                   ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _DiagnosticsNavButton extends StatelessWidget {
+  const _DiagnosticsNavButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      key: HomeUiKeys.diagnosticsButton,
+      padding: EdgeInsets.zero,
+      minimumSize: const Size.square(32),
+      onPressed: () {
+        unawaited(
+          Navigator.of(context).push(
+            CupertinoPageRoute<void>(builder: (_) => const DiagnosticsPage()),
+          ),
+        );
+      },
+      child: const Icon(
+        CupertinoIcons.waveform_path_ecg,
+        size: 20,
+        color: LuxuryPalette.goldBright,
       ),
     );
   }

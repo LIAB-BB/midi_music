@@ -41,12 +41,27 @@ class PlayerUiKeys {
 class HomeUiKeys {
   const HomeUiKeys._();
 
+  static const diagnosticsButton = ValueKey<String>('home.diagnostics');
   static const importMidiButton = ValueKey<String>('home.importMidi');
   static const continueSongButton = ValueKey<String>('home.continueSong');
   static const soundfontRetryButton = ValueKey<String>('home.soundfont.retry');
 
   static ValueKey<String> demoSongButton(String fileName) =>
       ValueKey<String>('home.demo.$fileName');
+}
+
+class DiagnosticsUiKeys {
+  const DiagnosticsUiKeys._();
+
+  static const soundfontRetryButton = ValueKey<String>(
+    'diagnostics.soundfont.retry',
+  );
+  static const permissionRefreshButton = ValueKey<String>(
+    'diagnostics.permission.refresh',
+  );
+  static const openSettingsButton = ValueKey<String>(
+    'diagnostics.permission.settings',
+  );
 }
 
 /// 跟随状态对应的强调色
