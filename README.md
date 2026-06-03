@@ -5,6 +5,7 @@
 ## ✨ 核心功能
 
 - **MIDI 文件播放** — 解析标准 MIDI 文件（Format 0/1），支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
+- **内置示例曲目** — 首次安装后无需准备文件，可直接载入内置古典 MIDI 样例测试播放、轨道控制和跟随模式
 - **SoundFont 音色引擎** — 基于 FluidSynth (Android) / AVFoundation (iOS)，加载 SF2/SF3 音色库
 - **轨道控制** — 按轨道（而非通道）独立控制音量、静音，即使多轨道共享同一 MIDI 通道也互不干扰
 - **变速跟随模式** — 通过麦克风检测演奏者弹奏节奏（onset detection），实时调整伴奏播放速度
@@ -93,9 +94,9 @@ flutter analyze
 flutter test
 ```
 
-### 准备资源文件
+### 试用方式
 
-App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录，App 同时支持从设备文件系统选择 MIDI 文件。
+App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。首页提供内置示例曲目，可以直接载入测试；也可以从设备文件系统选择自己的 MIDI 文件。
 
 ### 打包 APK
 

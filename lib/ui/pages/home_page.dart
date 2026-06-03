@@ -74,6 +74,30 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Future<void> _loadDemoSong(_DemoSong demo) async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final songData = await _parser.parseAsset(
+        demo.assetPath,
+        fileName: demo.fileName,
+      );
+      if (!mounted) return;
+
+      final player = context.read<MidiPlayerController>();
+      player.loadSong(songData);
+      _openPlayer();
+    } catch (e) {
+      if (!mounted) return;
+      _showError('无法载入示例曲目: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
   void _openPlayer() {
     unawaited(
       Navigator.of(
@@ -104,6 +128,7 @@ class _HomePageState extends State<HomePage> {
                     player: player,
                     onImportMidi: _pickAndLoadMidi,
                     onOpenPlayer: _openPlayer,
+                    onLoadDemoSong: _loadDemoSong,
                   ),
           ),
         ),
@@ -116,11 +141,13 @@ class _HomeContent extends StatelessWidget {
   final MidiPlayerController player;
   final VoidCallback onImportMidi;
   final VoidCallback onOpenPlayer;
+  final ValueChanged<_DemoSong> onLoadDemoSong;
 
   const _HomeContent({
     required this.player,
     required this.onImportMidi,
     required this.onOpenPlayer,
+    required this.onLoadDemoSong,
   });
 
   @override
@@ -141,7 +168,142 @@ class _HomeContent extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           const _BottomFeatureStrip(),
+          const SizedBox(height: 14),
+          _DemoSongPanel(onLoadDemoSong: onLoadDemoSong),
         ],
+      ),
+    );
+  }
+}
+
+class _DemoSong {
+  final String title;
+  final String composer;
+  final String fileName;
+  final String assetPath;
+
+  const _DemoSong({
+    required this.title,
+    required this.composer,
+    required this.fileName,
+    required this.assetPath,
+  });
+}
+
+const _demoSongs = [
+  _DemoSong(
+    title: '月光奏鸣曲',
+    composer: 'Beethoven',
+    fileName: 'Beethoven-Moonlight-Sonata.mid',
+    assetPath: 'assets/midi/Beethoven-Moonlight-Sonata.mid',
+  ),
+  _DemoSong(
+    title: 'C 大调前奏曲',
+    composer: 'Bach',
+    fileName: 'bach_wtc1_prelude.mid',
+    assetPath: 'assets/midi/bach_wtc1_prelude.mid',
+  ),
+  _DemoSong(
+    title: '钢琴奏鸣曲 K545',
+    composer: 'Mozart',
+    fileName: 'mozart_k545.mid',
+    assetPath: 'assets/midi/mozart_k545.mid',
+  ),
+];
+
+class _DemoSongPanel extends StatelessWidget {
+  final ValueChanged<_DemoSong> onLoadDemoSong;
+
+  const _DemoSongPanel({required this.onLoadDemoSong});
+
+  @override
+  Widget build(BuildContext context) {
+    return LuxuryPanel(
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SectionEyebrow(label: 'DEMO SCORES'),
+          const SizedBox(height: 10),
+          Text('示例曲目', style: luxuryDisplayStyle(context, size: 26)),
+          const SizedBox(height: 8),
+          const Text(
+            '无需准备文件，直接载入内置 MIDI 检查播放、轨道和跟随模式。',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: LuxuryPalette.textMuted,
+            ),
+          ),
+          const SizedBox(height: 12),
+          for (final demo in _demoSongs)
+            _DemoSongTile(demo: demo, onPressed: () => onLoadDemoSong(demo)),
+        ],
+      ),
+    );
+  }
+}
+
+class _DemoSongTile extends StatelessWidget {
+  final _DemoSong demo;
+  final VoidCallback onPressed;
+
+  const _DemoSongTile({required this.demo, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      key: HomeUiKeys.demoSongButton(demo.fileName),
+      padding: EdgeInsets.zero,
+      onPressed: onPressed,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: CupertinoColors.white.withValues(alpha: 0.035),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: LuxuryPalette.divider),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              CupertinoIcons.music_note_2,
+              size: 17,
+              color: LuxuryPalette.goldBright,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    demo.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: LuxuryPalette.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    demo.composer,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: LuxuryPalette.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              CupertinoIcons.chevron_right,
+              size: 15,
+              color: LuxuryPalette.textSubtle,
+            ),
+          ],
+        ),
       ),
     );
   }

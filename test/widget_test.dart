@@ -18,5 +18,9 @@ void main() {
 
     expect(find.text('导入 MIDI 乐谱'), findsOneWidget);
     expect(find.byKey(HomeUiKeys.importMidiButton), findsOneWidget);
+    expect(
+      find.byKey(HomeUiKeys.demoSongButton('Beethoven-Moonlight-Sonata.mid')),
+      findsOneWidget,
+    );
   });
 }

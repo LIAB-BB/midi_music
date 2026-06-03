@@ -44,6 +44,9 @@ class HomeUiKeys {
   static const importMidiButton = ValueKey<String>('home.importMidi');
   static const continueSongButton = ValueKey<String>('home.continueSong');
   static const soundfontRetryButton = ValueKey<String>('home.soundfont.retry');
+
+  static ValueKey<String> demoSongButton(String fileName) =>
+      ValueKey<String>('home.demo.$fileName');
 }
 
 /// 跟随状态对应的强调色

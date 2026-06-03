@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dart_midi_pro/dart_midi_pro.dart' as midi;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/midi_track.dart';
 import 'tempo_map.dart';
@@ -23,6 +24,30 @@ class MidiFileParser {
     return compute(
       _parseMidiFileInBackground,
       _MidiParseRequest(bytes, file.uri.pathSegments.last),
+    );
+  }
+
+  /// 从 Flutter asset 解析
+  Future<MidiSongData> parseAsset(String assetPath, {String? fileName}) async {
+    final byteData = await rootBundle.load(assetPath);
+    final bytes = byteData.buffer.asUint8List(
+      byteData.offsetInBytes,
+      byteData.lengthInBytes,
+    );
+    return parseBytesInBackground(
+      bytes,
+      fileName: fileName ?? assetPath.split('/').last,
+    );
+  }
+
+  /// 从字节数据后台解析
+  Future<MidiSongData> parseBytesInBackground(
+    Uint8List bytes, {
+    String fileName = 'unknown.mid',
+  }) {
+    return compute(
+      _parseMidiFileInBackground,
+      _MidiParseRequest(bytes, fileName),
     );
   }
 
