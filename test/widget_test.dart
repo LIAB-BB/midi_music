@@ -34,5 +34,9 @@ void main() {
     expect(find.text('构建信息'), findsOneWidget);
     expect(find.byKey(DiagnosticsUiKeys.copyReportButton), findsOneWidget);
     expect(find.byKey(DiagnosticsUiKeys.soundfontRetryButton), findsOneWidget);
+    expect(
+      find.byKey(DiagnosticsUiKeys.soundfontClearCacheButton),
+      findsOneWidget,
+    );
   });
 }

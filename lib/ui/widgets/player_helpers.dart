@@ -54,6 +54,9 @@ class DiagnosticsUiKeys {
   const DiagnosticsUiKeys._();
 
   static const copyReportButton = ValueKey<String>('diagnostics.report.copy');
+  static const soundfontClearCacheButton = ValueKey<String>(
+    'diagnostics.soundfont.clearCache',
+  );
   static const soundfontRetryButton = ValueKey<String>(
     'diagnostics.soundfont.retry',
   );

@@ -198,6 +198,31 @@ class MidiPlayerController extends ChangeNotifier {
     }
   }
 
+  Future<void> clearSoundfontCache() async {
+    try {
+      final soundfontFile = await _resolveSoundfontFile();
+      if (await soundfontFile.exists()) {
+        await soundfontFile.delete();
+      }
+      final tempFile = File('${soundfontFile.path}.download');
+      if (await tempFile.exists()) {
+        await tempFile.delete();
+      }
+      if (_isDisposed) return;
+      if (!_engine.isReady) {
+        _soundfontState = SoundfontSetupState.idle;
+        _soundfontDownloadProgress = 0.0;
+        _soundfontErrorMessage = null;
+        _notifyListenersIfActive();
+      }
+    } catch (error) {
+      if (_isDisposed) return;
+      _soundfontState = SoundfontSetupState.failed;
+      _soundfontErrorMessage = '音色缓存清理失败：$error';
+      _notifyListenersIfActive();
+    }
+  }
+
   /// 加载歌曲数据
   void loadSong(MidiSongData song) {
     if (_isDisposed) return;

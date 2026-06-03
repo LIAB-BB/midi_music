@@ -59,6 +59,32 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     await _refreshSoundfontCacheInfo();
   }
 
+  Future<void> _confirmClearSoundfontCache(MidiPlayerController player) async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('清理音色缓存？'),
+        content: const Text('这会删除本地 SoundFont 文件。下次准备音色时需要重新下载或重新加载。'),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('清理'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    await player.clearSoundfontCache();
+    if (!mounted) return;
+    await _refreshSoundfontCacheInfo();
+  }
+
   Future<void> _copyDiagnosticsReport(
     MidiPlayerController player,
     SoundfontStatusData soundfont,
@@ -212,11 +238,27 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                         value: _soundfontCacheInfo!.errorMessage!,
                       ),
                     const SizedBox(height: 12),
-                    LuxuryActionButton(
-                      key: DiagnosticsUiKeys.soundfontRetryButton,
-                      label: soundfont.canRetry ? '重试音色准备' : '重新检查音色',
-                      icon: CupertinoIcons.arrow_clockwise,
-                      onPressed: () => _retrySoundfontSetup(player),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: LuxuryActionButton(
+                            key: DiagnosticsUiKeys.soundfontRetryButton,
+                            label: soundfont.canRetry ? '重试音色准备' : '重新检查音色',
+                            icon: CupertinoIcons.arrow_clockwise,
+                            onPressed: () => _retrySoundfontSetup(player),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: LuxuryActionButton(
+                            key: DiagnosticsUiKeys.soundfontClearCacheButton,
+                            label: '清理缓存',
+                            icon: CupertinoIcons.trash,
+                            onPressed: () =>
+                                _confirmClearSoundfontCache(player),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

@@ -85,6 +85,38 @@ void main() {
     player.dispose();
   });
 
+  test('可以清理 SoundFont 缓存和临时下载文件', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'midi-player-sf2-clear-test-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final soundfontFile = File('${tempDir.path}/test.sf2');
+    final tempFile = File('${soundfontFile.path}.download');
+    await soundfontFile.writeAsBytes([1, 2, 3, 4]);
+    await tempFile.writeAsBytes([5, 6]);
+    final player = MidiPlayerController(
+      engine: _FakeMidiPlaybackEngine(ready: false),
+      soundfontFileProvider: () async => soundfontFile,
+    );
+
+    await player.clearSoundfontCache();
+    final cacheInfo = await player.inspectSoundfontCache();
+
+    expect(await soundfontFile.exists(), isFalse);
+    expect(await tempFile.exists(), isFalse);
+    expect(cacheInfo.exists, isFalse);
+    expect(player.soundfontState, SoundfontSetupState.idle);
+    expect(player.soundfontDownloadProgress, 0.0);
+    expect(player.soundfontErrorMessage, isNull);
+
+    player.dispose();
+  });
+
   test('释放后完成的音色加载不会通知监听器', () async {
     final engine = _FakeMidiPlaybackEngine(ready: false);
     final loadGate = Completer<void>();
