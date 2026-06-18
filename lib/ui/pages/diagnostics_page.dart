@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/input/midi_keyboard_input.dart';
+import '../../core/input/performance_input.dart';
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
 import '../widgets/luxury_controls.dart';
@@ -19,15 +23,31 @@ class DiagnosticsPage extends StatefulWidget {
 }
 
 class _DiagnosticsPageState extends State<DiagnosticsPage> {
+  final MidiKeyboardInput _midiInput = MidiKeyboardInput();
+
+  StreamSubscription<MidiInputSnapshot>? _midiSubscription;
   PermissionStatus? _microphoneStatus;
   SoundfontCacheInfo? _soundfontCacheInfo;
+  MidiInputSnapshot _midiSnapshot = const MidiInputSnapshot();
   bool _isRefreshingPermission = false;
+  bool _isStartingMidi = false;
 
   @override
   void initState() {
     super.initState();
+    _midiSubscription = _midiInput.snapshots.listen((snapshot) {
+      if (!mounted) return;
+      setState(() => _midiSnapshot = snapshot);
+    });
     _refreshPermissionStatus();
     _refreshSoundfontCacheInfo();
+  }
+
+  @override
+  void dispose() {
+    unawaited(_midiSubscription?.cancel());
+    unawaited(_midiInput.dispose());
+    super.dispose();
   }
 
   Future<void> _refreshPermissionStatus() async {
@@ -57,6 +77,13 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     await player.retrySoundfontSetup();
     if (!mounted) return;
     await _refreshSoundfontCacheInfo();
+  }
+
+  Future<void> _startMidiProbe() async {
+    setState(() => _isStartingMidi = true);
+    await _midiInput.start();
+    if (!mounted) return;
+    setState(() => _isStartingMidi = false);
   }
 
   Future<void> _confirmClearSoundfontCache(MidiPlayerController player) async {
@@ -97,6 +124,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
           soundfont: soundfont,
           permission: permission,
           cacheInfo: _soundfontCacheInfo,
+          midiSnapshot: _midiSnapshot,
         ),
       ),
     );
@@ -123,6 +151,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
     required SoundfontStatusData soundfont,
     required _PermissionDisplayData permission,
     required SoundfontCacheInfo? cacheInfo,
+    required MidiInputSnapshot midiSnapshot,
   }) {
     final song = player.songData;
     return [
@@ -137,6 +166,13 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
       if (cacheInfo?.path != null) '音色缓存路径: ${cacheInfo!.path}',
       if (cacheInfo?.errorMessage != null) '音色缓存错误: ${cacheInfo!.errorMessage}',
       '麦克风权限: ${permission.label}',
+      'MIDI 输入状态: ${_formatMidiStatus(midiSnapshot)}',
+      'MIDI 设备数: ${midiSnapshot.devices.length}',
+      if (midiSnapshot.connectedDeviceName != null)
+        'MIDI 已连接设备: ${midiSnapshot.connectedDeviceName}',
+      if (midiSnapshot.lastEvent != null)
+        'MIDI 最近事件: ${_formatMidiEvent(midiSnapshot.lastEvent!)}',
+      if (midiSnapshot.lastError != null) 'MIDI 错误: ${midiSnapshot.lastError}',
       '当前曲目: ${song?.fileName ?? '未载入'}',
       '轨道数: ${song?.noteTracks.length ?? 0}',
       '曲目时长: ${formatClock(player.totalDuration)}',
@@ -296,6 +332,46 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
                 ),
                 const SizedBox(height: 14),
                 _DiagnosticSection(
+                  title: 'MIDI 输入',
+                  icon: CupertinoIcons.keyboard,
+                  accent: _midiSnapshot.lastError == null
+                      ? LuxuryPalette.emerald
+                      : LuxuryPalette.ruby,
+                  children: [
+                    _DiagnosticRow(
+                      label: '状态',
+                      value: _formatMidiStatus(_midiSnapshot),
+                    ),
+                    _DiagnosticRow(
+                      label: '设备',
+                      value: _formatMidiDevices(_midiSnapshot.devices),
+                    ),
+                    _DiagnosticRow(
+                      label: '连接',
+                      value: _midiSnapshot.connectedDeviceName ?? '未连接',
+                    ),
+                    _DiagnosticRow(
+                      label: '最近事件',
+                      value: _midiSnapshot.lastEvent == null
+                          ? '暂无'
+                          : _formatMidiEvent(_midiSnapshot.lastEvent!),
+                    ),
+                    if (_midiSnapshot.lastError != null)
+                      _DiagnosticRow(
+                        label: '错误',
+                        value: _midiSnapshot.lastError!,
+                      ),
+                    const SizedBox(height: 12),
+                    LuxuryActionButton(
+                      key: DiagnosticsUiKeys.midiProbeButton,
+                      label: _isStartingMidi ? '检查中' : '检查 MIDI',
+                      icon: CupertinoIcons.arrow_clockwise,
+                      onPressed: _startMidiProbe,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _DiagnosticSection(
                   title: '当前曲目',
                   icon: CupertinoIcons.music_note_list,
                   accent: player.songData == null
@@ -357,6 +433,36 @@ String _formatCacheSize(SoundfontCacheInfo? info) {
   final sizeKb = sizeBytes / 1024;
   if (sizeKb < 1024) return '${sizeKb.toStringAsFixed(1)} KB';
   return '${(sizeKb / 1024).toStringAsFixed(1)} MB';
+}
+
+String _formatMidiStatus(MidiInputSnapshot snapshot) {
+  if (snapshot.lastError != null) return '读取失败';
+  if (snapshot.isListening) return '监听中';
+  return '未启动';
+}
+
+String _formatMidiDevices(List<MidiInputDeviceInfo> devices) {
+  if (devices.isEmpty) return '未发现';
+  return devices
+      .map((device) {
+        final suffix = device.connected ? '已连接' : device.type;
+        return '${device.name} ($suffix)';
+      })
+      .join(', ');
+}
+
+String _formatMidiEvent(PerformanceInputEvent event) {
+  final channelLabel = 'ch ${event.channel + 1}';
+  return switch (event.type) {
+    PerformanceInputEventType.noteOn =>
+      'Note On ${event.midiNote} v${event.velocity} $channelLabel',
+    PerformanceInputEventType.noteOff =>
+      'Note Off ${event.midiNote} v${event.velocity} $channelLabel',
+    PerformanceInputEventType.sustain =>
+      'Sustain ${event.sustain == true ? 'down' : 'up'} $channelLabel',
+    PerformanceInputEventType.pitch =>
+      'Pitch ${event.pitchHz?.toStringAsFixed(1) ?? '未知'}Hz $channelLabel',
+  };
 }
 
 String _playbackStateLabel(PlaybackState state) {

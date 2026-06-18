@@ -31,6 +31,7 @@ void main() {
     expect(find.text('音色引擎'), findsOneWidget);
     expect(find.text('缓存'), findsOneWidget);
     expect(find.text('麦克风权限'), findsOneWidget);
+    expect(find.text('MIDI 输入'), findsOneWidget);
     expect(find.text('构建信息'), findsOneWidget);
     expect(find.byKey(DiagnosticsUiKeys.copyReportButton), findsOneWidget);
     expect(find.byKey(DiagnosticsUiKeys.soundfontRetryButton), findsOneWidget);
@@ -38,5 +39,6 @@ void main() {
       find.byKey(DiagnosticsUiKeys.soundfontClearCacheButton),
       findsOneWidget,
     );
+    expect(find.byKey(DiagnosticsUiKeys.midiProbeButton), findsOneWidget);
   });
 }

@@ -7,10 +7,10 @@
 - **MIDI 文件播放** — 解析标准 MIDI 文件（Format 0/1），支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
 - **内置示例曲目** — 首次安装后无需准备文件，可直接载入内置古典 MIDI 样例测试播放、轨道控制和跟随模式
 - **SoundFont 音色引擎** — 基于 FluidSynth (Android) / AVFoundation (iOS)，加载 SF2/SF3 音色库
-- **诊断页** — 展示音色状态、麦克风权限、当前曲目和构建信息，方便测试者反馈问题
+- **诊断页** — 展示音色状态、麦克风权限、MIDI 输入探测、当前曲目和构建信息，方便测试者反馈问题
 - **轨道控制** — 按轨道（而非通道）独立控制音量、静音，即使多轨道共享同一 MIDI 通道也互不干扰
 - **变速跟随模式** — 通过麦克风检测演奏者弹奏节奏（onset detection），实时调整伴奏播放速度
-- **Score 架构骨架** — 已新增独立记谱模型、PerformanceTimeline、演奏输入事件和 Fake MIDI 输入，供后续 score following 迭代使用
+- **Score 架构骨架** — 已新增独立记谱模型、PerformanceTimeline、演奏输入事件、真实 MIDI 输入探测和 Fake MIDI 输入，供后续 score following 迭代使用
 - **iOS 风格 UI** — 全 Cupertino 组件，简约流畅
 
 ## 🏗️ 技术栈
@@ -22,6 +22,7 @@
 | flutter_midi_pro | MIDI 引擎（FluidSynth/AVFoundation） |
 | dart_midi_pro | MIDI 文件解析 |
 | flutter_audio_capture | 麦克风音频输入 |
+| flutter_midi_command | iOS/桌面 MIDI 设备发现和输入 |
 | pitch_detector_dart | YIN 音高检测 |
 | permission_handler | 权限管理 |
 | Provider | 状态管理 |
@@ -51,6 +52,8 @@ lib/
 │       └── tracking_state.dart        # 后续跟随状态模型
 │   ├── input/
 │   │   ├── performance_input.dart     # 统一演奏输入事件接口
+│   │   ├── midi_message_parser.dart   # MIDI 输入字节解析
+│   │   ├── midi_keyboard_input.dart   # 真实 MIDI 键盘输入探测
 │   │   └── fake_midi_input.dart       # 自动化测试用 MIDI 输入
 │   └── score/
 │       ├── score_document.dart        # 记谱结构模型
@@ -109,7 +112,7 @@ flutter analyze
 flutter test
 ```
 
-当前测试集包含 97 个用例，覆盖 MIDI 解析/播放、SoundFont 缓存、跟随生命周期、score 模型、演奏输入骨架、Android 权限和 UI smoke test。
+当前测试集包含 102 个用例，覆盖 MIDI 解析/播放、SoundFont 缓存、跟随生命周期、score 模型、演奏输入骨架、MIDI 输入字节解析、Android 权限和 UI smoke test。
 
 ### 试用方式
 
@@ -189,9 +192,9 @@ dart run tool/playback_timer_benchmark.dart --samples=200
 ## 当前已知限制
 
 - MusicXML、MXL、PDF/OMR 和乐谱显示尚未接入。
-- MIDI 键盘输入仍只有接口和 FakeMidiInput，尚未选择真实平台库。
+- MIDI 键盘输入已接入诊断页探测和字节解析，但尚未接入 `FollowModeController` 的实时跟随算法。
 - 当前 score 模型是架构骨架，可手工构造并生成 PerformanceTimeline，但尚未接入 MusicXML 解析。
-- Android/iOS 真机音频延迟、麦克风串音和 release 分发仍需专项验证。
+- iOS USB/Bluetooth MIDI、真机音频延迟、麦克风串音和 release 分发仍需专项验证；Android 暂不作为当前验收重点。
 
 ## 📄 License
 

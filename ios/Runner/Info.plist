@@ -59,6 +59,10 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>用于连接蓝牙 MIDI 键盘进行演奏输入。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于发现和连接局域网 MIDI 设备。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>跟随模式需要使用麦克风检测您的演奏，以自动调整伴奏速度。</string>
 	<key>UISupportedInterfaceOrientations~ipad</key>

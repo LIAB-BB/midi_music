@@ -66,6 +66,7 @@ class DiagnosticsUiKeys {
   static const openSettingsButton = ValueKey<String>(
     'diagnostics.permission.settings',
   );
+  static const midiProbeButton = ValueKey<String>('diagnostics.midi.probe');
 }
 
 /// 跟随状态对应的强调色
