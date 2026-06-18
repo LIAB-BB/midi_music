@@ -10,6 +10,7 @@
 - **诊断页** — 展示音色状态、麦克风权限、当前曲目和构建信息，方便测试者反馈问题
 - **轨道控制** — 按轨道（而非通道）独立控制音量、静音，即使多轨道共享同一 MIDI 通道也互不干扰
 - **变速跟随模式** — 通过麦克风检测演奏者弹奏节奏（onset detection），实时调整伴奏播放速度
+- **Score 架构骨架** — 已新增独立记谱模型、PerformanceTimeline、演奏输入事件和 Fake MIDI 输入，供后续 score following 迭代使用
 - **iOS 风格 UI** — 全 Cupertino 组件，简约流畅
 
 ## 🏗️ 技术栈
@@ -34,8 +35,10 @@ lib/
 ├── core/
 │   ├── midi/
 │   │   ├── midi_engine.dart           # SoundFont 引擎封装
+│   │   ├── midi_import_validator.dart # MIDI 导入类型/大小校验
 │   │   ├── midi_parser.dart           # MIDI 文件解析
 │   │   ├── midi_player.dart           # 播放控制器
+│   │   ├── playback_timer_benchmark.dart # 5ms Timer 调度基线测量
 │   │   └── tempo_map.dart             # 速度映射
 │   └── follow/
 │       ├── pitch_input.dart           # 音高输入抽象
@@ -43,7 +46,17 @@ lib/
 │       ├── onset_detector.dart        # 音符起始检测
 │       ├── follow_mode_controller.dart # 变速跟随状态机
 │       ├── follow_mode_session.dart   # 跟随模式生命周期协调
-│       └── follow_playback_target.dart # 跟随播放目标抽象
+│       ├── follow_playback_target.dart # 跟随播放目标抽象
+│       ├── follow_replay_case.dart    # 后续跟随回放测试格式
+│       └── tracking_state.dart        # 后续跟随状态模型
+│   ├── input/
+│   │   ├── performance_input.dart     # 统一演奏输入事件接口
+│   │   └── fake_midi_input.dart       # 自动化测试用 MIDI 输入
+│   └── score/
+│       ├── score_document.dart        # 记谱结构模型
+│       ├── performance_timeline.dart  # 展开后的演奏时间线
+│       ├── score_position.dart        # 谱面位置
+│       └── score_source.dart          # 来源引用
 ├── models/
 │   └── midi_track.dart                # MIDI 轨道模型
 └── ui/
@@ -96,6 +109,8 @@ flutter analyze
 flutter test
 ```
 
+当前测试集包含 97 个用例，覆盖 MIDI 解析/播放、SoundFont 缓存、跟随生命周期、score 模型、演奏输入骨架、Android 权限和 UI smoke test。
+
 ### 试用方式
 
 App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。首页提供内置示例曲目，可以直接载入测试；也可以从设备文件系统选择自己的 MIDI 文件。
@@ -134,6 +149,8 @@ flutter build apk --debug
 3. **FollowModeController** — 状态机（idle / following / waitingForOnset），使用 EMA（指数移动平均，α=0.3）平滑速度因子
 4. **FollowModeSession** — 串联音高输入、onset 检测、跟随控制器和播放器目标，并处理 start/dispose 生命周期
 
+当前跟随模式仍是基础实现：按主旋律音符序列做局部匹配和速度平滑，还不是完整 HMM/粒子滤波/全局重定位式 score following。
+
 ### 使用方式
 
 1. 在播放器页面的轨道列表中，点击「主旋律」选择要跟随的轨道
@@ -158,6 +175,23 @@ flutter build apk --debug
 - 5ms 精度 Timer 驱动事件调度
 - TempoMap 支持多 tempo 变化（如月光奏鸣曲含 61 个 tempo 变化点）
 - 二分查找实现高效 seek 定位
+
+### 调度基线测量
+
+当前播放调度仍使用 Flutter/Dart isolate 上的 `Timer.periodic(5ms)`。可以运行：
+
+```bash
+dart run tool/playback_timer_benchmark.dart --samples=200
+```
+
+该工具输出普通负载和模拟高负载下的平均 interval、最大 interval、平均误差和最大误差；它只建立基线，不代表实时性能已经改善。
+
+## 当前已知限制
+
+- MusicXML、MXL、PDF/OMR 和乐谱显示尚未接入。
+- MIDI 键盘输入仍只有接口和 FakeMidiInput，尚未选择真实平台库。
+- 当前 score 模型是架构骨架，可手工构造并生成 PerformanceTimeline，但尚未接入 MusicXML 解析。
+- Android/iOS 真机音频延迟、麦克风串音和 release 分发仍需专项验证。
 
 ## 📄 License
 

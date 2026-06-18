@@ -16,12 +16,14 @@ class SoundfontCacheInfo {
   final String? path;
   final bool exists;
   final int? sizeBytes;
+  final bool isUsable;
   final String? errorMessage;
 
   const SoundfontCacheInfo({
     required this.path,
     required this.exists,
     required this.sizeBytes,
+    this.isUsable = false,
     required this.errorMessage,
   });
 
@@ -29,10 +31,12 @@ class SoundfontCacheInfo {
     : path = null,
       exists = false,
       sizeBytes = null,
+      isUsable = false,
       errorMessage = message;
 }
 
 const _kDefaultSoundfontFileName = 'TimGM6mb.sf2';
+const _kMinimumUsableSoundfontBytes = 1024;
 
 /// UI 刷新节流：内部调度是 5ms（200Hz），但 ChangeNotifier 通知
 /// 降到约 30Hz，避免不必要的 Widget rebuild。
@@ -155,21 +159,23 @@ class MidiPlayerController extends ChangeNotifier {
       final soundfontFile = await _resolveSoundfontFile();
       if (_isDisposed) return;
 
-      final cachedFileIsUsable =
-          await soundfontFile.exists() && await soundfontFile.length() > 0;
+      final cacheInfo = await _inspectSoundfontCache(soundfontFile);
       if (_isDisposed) return;
 
-      if (cachedFileIsUsable) {
+      if (cacheInfo.exists && cacheInfo.isUsable) {
         try {
           await _loadDownloadedSoundfont(soundfontFile);
           return;
         } catch (_) {
           await soundfontFile.delete();
         }
+      } else if (cacheInfo.exists) {
+        await soundfontFile.delete();
       }
 
       await _downloadConfiguredSoundfont(soundfontFile);
       if (_isDisposed) return;
+      _verifySoundfontFile(await _inspectSoundfontCache(soundfontFile));
       await _loadDownloadedSoundfont(soundfontFile);
     } catch (e) {
       if (_isDisposed) return;
@@ -186,15 +192,43 @@ class MidiPlayerController extends ChangeNotifier {
   Future<SoundfontCacheInfo> inspectSoundfontCache() async {
     try {
       final soundfontFile = await _resolveSoundfontFile();
-      final exists = await soundfontFile.exists();
-      return SoundfontCacheInfo(
-        path: soundfontFile.path,
-        exists: exists,
-        sizeBytes: exists ? await soundfontFile.length() : null,
-        errorMessage: null,
-      );
+      return _inspectSoundfontCache(soundfontFile);
     } catch (error) {
       return SoundfontCacheInfo.error('无法读取音色缓存信息：$error');
+    }
+  }
+
+  Future<SoundfontCacheInfo> _inspectSoundfontCache(File soundfontFile) async {
+    final exists = await soundfontFile.exists();
+    if (!exists) {
+      return SoundfontCacheInfo(
+        path: soundfontFile.path,
+        exists: false,
+        sizeBytes: null,
+        errorMessage: null,
+      );
+    }
+
+    final sizeBytes = await soundfontFile.length();
+    final tooSmall = sizeBytes < _kMinimumUsableSoundfontBytes;
+    return SoundfontCacheInfo(
+      path: soundfontFile.path,
+      exists: true,
+      sizeBytes: sizeBytes,
+      isUsable: !tooSmall,
+      errorMessage: tooSmall ? '音色缓存文件过小，可能已损坏。' : null,
+    );
+  }
+
+  void _verifySoundfontFile(SoundfontCacheInfo cacheInfo) {
+    if (!cacheInfo.exists) {
+      throw const FileSystemException('SoundFont file was not created');
+    }
+    if (!cacheInfo.isUsable) {
+      throw FileSystemException(
+        cacheInfo.errorMessage ?? 'SoundFont file is not usable',
+        cacheInfo.path,
+      );
     }
   }
 

@@ -345,6 +345,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
 
 String _formatCacheExists(SoundfontCacheInfo? info) {
   if (info == null) return '检查中';
+  if (info.exists && !info.isUsable) return '疑似损坏';
   if (info.errorMessage != null) return '读取失败';
   return info.exists ? '已缓存' : '未缓存';
 }

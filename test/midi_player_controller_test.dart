@@ -35,7 +35,7 @@ void main() {
           downloadStarted.complete();
         }
         await downloadGate.future;
-        await targetFile.writeAsBytes([1]);
+        await targetFile.writeAsBytes(List<int>.filled(2048, 1));
       },
     );
 
@@ -69,7 +69,7 @@ void main() {
     });
 
     final soundfontFile = File('${tempDir.path}/test.sf2');
-    await soundfontFile.writeAsBytes([1, 2, 3, 4]);
+    await soundfontFile.writeAsBytes(List<int>.filled(2048, 1));
     final player = MidiPlayerController(
       engine: _FakeMidiPlaybackEngine(),
       soundfontFileProvider: () async => soundfontFile,
@@ -79,8 +79,67 @@ void main() {
 
     expect(cacheInfo.path, soundfontFile.path);
     expect(cacheInfo.exists, isTrue);
-    expect(cacheInfo.sizeBytes, 4);
+    expect(cacheInfo.sizeBytes, 2048);
+    expect(cacheInfo.isUsable, isTrue);
     expect(cacheInfo.errorMessage, isNull);
+
+    player.dispose();
+  });
+
+  test('过小的 SoundFont 缓存会标记为疑似损坏', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'midi-player-sf2-corrupt-test-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final soundfontFile = File('${tempDir.path}/test.sf2');
+    await soundfontFile.writeAsBytes([1, 2, 3, 4]);
+    final player = MidiPlayerController(
+      engine: _FakeMidiPlaybackEngine(),
+      soundfontFileProvider: () async => soundfontFile,
+    );
+
+    final cacheInfo = await player.inspectSoundfontCache();
+
+    expect(cacheInfo.exists, isTrue);
+    expect(cacheInfo.isUsable, isFalse);
+    expect(cacheInfo.errorMessage, contains('可能已损坏'));
+
+    player.dispose();
+  });
+
+  test('准备音色时会丢弃过小缓存并重新下载', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'midi-player-sf2-redownload-test-',
+    );
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    final soundfontFile = File('${tempDir.path}/test.sf2');
+    await soundfontFile.writeAsBytes([1]);
+    final engine = _FakeMidiPlaybackEngine(ready: false);
+    var downloadCalls = 0;
+    final player = MidiPlayerController(
+      engine: engine,
+      soundfontFileProvider: () async => soundfontFile,
+      soundfontDownloader: (targetFile) async {
+        downloadCalls++;
+        await targetFile.writeAsBytes(List<int>.filled(2048, 1));
+      },
+    );
+
+    await player.ensureSoundfontReady();
+
+    expect(downloadCalls, 1);
+    expect(player.soundfontState, SoundfontSetupState.ready);
+    expect(await soundfontFile.length(), 2048);
 
     player.dispose();
   });

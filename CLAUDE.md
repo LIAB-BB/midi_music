@@ -53,11 +53,17 @@ flutter test
 |---------|--------|---------|
 | `lib/models/midi_track.dart` | 🔒 高 | **数据模型层**。改动会影响所有下游代码，改前确认 test 覆盖充分 |
 | `lib/core/midi/midi_engine.dart` | 🔒 高 | 引擎封装层，底层依赖 `flutter_midi_pro`，改动后务必真机验证音质 |
+| `lib/core/midi/midi_import_validator.dart` | 🔒 中 | MIDI 导入前校验，改动会影响文件选择错误分类 |
 | `lib/core/midi/midi_player.dart` | 🔒 中 | 核心播放控制器，`ChangeNotifier`，改动注意线程安全 |
 | `lib/core/midi/midi_parser.dart` | 🔒 中 | 文件/asset 解析在后台 isolate 执行（`compute`），加字段注意序列化 |
+| `lib/core/midi/playback_timer_benchmark.dart` | 🔄 低 | 当前 5ms Timer 调度基线测量，不参与生产播放路径 |
 | `lib/core/midi/tempo_map.dart` | 🔒 高 | 纯算法模块，tick ↔ 秒互转，有充分测试，改动安全 |
+| `lib/core/score/` | 🔒 高 | 后续 score following 的记谱语义骨架，不能和 MIDI 播放事件混在一起 |
+| `lib/core/input/` | 🔒 中 | 后续 MIDI/演奏输入统一接口，目前只有 FakeMidiInput |
 | `lib/core/follow/follow_mode_controller.dart` | 🔄 中 | 跟随算法核心，参数调优为主战场 |
 | `lib/core/follow/follow_mode_session.dart` | 🔄 中 | 会话生命周期协调层，改动注意并发安全 |
+| `lib/core/follow/follow_replay_case.dart` | 🔄 低 | 后续跟随回放测试格式，不替换当前算法 |
+| `lib/core/follow/tracking_state.dart` | 🔄 低 | 后续跟随状态模型，预留位置/速度/置信度 |
 | `lib/core/follow/microphone_input.dart` | 🔒 中 | 麦克风→音高管道，改动后需真机验证 |
 | `lib/core/follow/onset_detector.dart` | 🔒 中 | 纯信号检测逻辑，无平台依赖 |
 | `lib/core/follow/pitch_input.dart` | 🔒 高 | 抽象接口，改了所有实现都得跟着改 |
@@ -112,11 +118,23 @@ flutter test
 ### Models (`lib/models/`)
 - `midi_track.dart` — 全部数据模型：`MidiEventType`（枚举）、`MidiNote`（音符）、`TimelineEvent`（时间线事件，带 `trackIndex`、`Comparable`，通过 `_eventPriority` 确保同 tick 时 NoteOff 优先于 NoteOn）、`MidiTrackInfo`（轨道，支持多 channel、静音/音量）、`MidiSongData`（歌曲）、`TempoChange`/`TimeSignatureChange`
 
+### Score Model (`lib/core/score/`)
+- `score_document.dart` — 后续 score following 的独立记谱语义骨架：`ScoreDocument`、`ScorePart`、`ScoreMeasure`、`ScoreVoice`、`ScoreNote`、`ScoreRest`、`NotatedPitch`。支持按 part、measure、absolute beat 查询，同一位置多个音符，并能生成 `PerformanceTimeline`
+- `performance_timeline.dart` — 展开后的实际演奏时间线：`PerformanceEvent` / `PerformanceTimeline`。它不是现有 MIDI 播放事件，也不是 MusicXML 标签映射
+- `score_position.dart` — `ScorePosition`，保存小节号、小节内 beat 和 absolute beat
+- `score_source.dart` — `SourceReference`，为 note/rest 保留稳定来源 ID
+
 ### MIDI Playback (`lib/core/midi/`)
 - `midi_engine.dart` — `MidiPlaybackEngine` 抽象 + `MidiEngine` 实现。封装 `flutter_midi_pro`，按 channel 串行化操作队列（`_channelOperations`），通过 `_operationGeneration` 代际机制确保 `allNotesOff` 时取消未完成的排队操作
+- `midi_import_validator.dart` — MIDI 导入前校验，只允许 `.mid/.midi`，检查文件存在、空文件和 50MB 大小上限，并输出分类错误
 - `midi_parser.dart` — `MidiFileParser`，使用 `dart_midi_pro` 解析 MIDI 文件。支持文件路径、Flutter asset 和原始 bytes 解析；文件/asset/后台 bytes 路径通过 `compute` isolate 执行。FIFO 配对重叠音符（`_PendingNote` 链表）
 - `tempo_map.dart` — tick ↔ 秒互转，支持多 tempo 变化点，二分查找，批量顺序应用优化
-- `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存
+- `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存，并对过小缓存做损坏检测
+- `playback_timer_benchmark.dart` — 当前 `Timer.periodic(5ms)` 调度基线测量。运行 `dart run tool/playback_timer_benchmark.dart --samples=200` 输出普通/高负载平均误差和最大误差；只用于测量，不代表实时性能已经改善
+
+### Performance Input (`lib/core/input/`)
+- `performance_input.dart` — 统一演奏输入事件接口，预留 note-on、note-off、pitch、velocity、channel、timestamp、sustain
+- `fake_midi_input.dart` — 自动化测试用 Fake MIDI 输入。本轮未选择真实 MIDI 输入第三方库
 
 ### Tempo Follow (`lib/core/follow/`)
 - `pitch_input.dart` — `PitchInput` 抽象接口（`pitchStream`、`start()`、`dispose()`）
@@ -125,6 +143,8 @@ flutter test
 - `follow_mode_controller.dart` — 跟随模式状态机（idle → following → waitingForOnset）。核心算法：onset 与乐谱音符匹配（容差 + 可选八度误差容忍）、EMA（α=0.3）平滑速度因子、测量速度可信范围过滤、音符跳跃检测（向前最多 3 个）、休止符检测、连续未匹配降速并请求外部按播放位置重对齐。含 `FollowModeConfig` 配置
 - `follow_mode_session.dart` — **跟随模式会话**，串联 `PitchInput` → `OnsetDetector` → `FollowModeController` → `FollowPlaybackTarget` 的完整生命周期。防并发 start、dispose 打断 start、根据跟随状态自动控制播放器（休止时暂停、恢复时播放），支持 `resumeFromTime()` 在用户 seek 或连续未匹配时按当前播放时间重新对齐
 - `follow_playback_target.dart` — `FollowPlaybackTarget` 抽象 + `MidiFollowPlaybackTarget` 实现，适配 `MidiPlayerController`
+- `tracking_state.dart` — 后续 score following 状态骨架，预留 score position、tempo、confidence、tracking status 和 last reliable match
+- `follow_replay_case.dart` — 后续跟随回放测试格式，保存目标 `PerformanceTimeline`、输入事件、预期位置区间和恢复时间
 
 ### UI Layer (`lib/ui/`)
 - `pages/home_page.dart` — 首页，文件选择器（`file_picker`）和内置示例曲目入口，加载 MIDI 并跳转播放页。页面状态类只处理导入/导航，首页 hero 和指标布局拆到 `_HomeContent` / `_HomeHeroPanel`
@@ -141,14 +161,20 @@ flutter test
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 - `docs/ui施工说明.md` — UI 人工施工说明，列出可改区域、禁止误改的跟随生命周期函数、必须保留的回调语义和验收命令
 
-### Tests (`test/`，共 81 用例)
-- `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）
+### Tests (`test/`，共 97 用例)
+- `midi_player_controller_test.dart` — 播放控制器调度和 SoundFont 缓存测试（~27 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理、过小缓存损坏检测）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
+- `midi_import_validator_test.dart` — MIDI 导入校验测试（3 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
 - `midi_parse_test.dart` — 解析真实 MIDI 文件和 Flutter asset 测试（2 用例）
 - `midi_regression_test.dart` — **MIDI 解析回归测试**（22 用例）：16 个合成 MIDI（Format 0/1、重叠音符、tempo/拍号、PPQ、边界）+ 6 个真实古典 MIDI（巴赫/莫扎特/肖邦/贝多芬，来自 BitMidi）
 - `follow_mode_controller_test.dart` — 跟随算法测试（10 用例，含 seek/currentTime 重对齐、idle 恢复、seek 到长休止等待和连续未匹配重对齐请求）
 - `follow_mode_session_test.dart` — 跟随会话生命周期测试（9 用例，含长休止暂停恢复、按播放时间重对齐、seek 到长休止暂停等待、连续未匹配自动重对齐、dispose 回调清理）
+- `follow_replay_case_test.dart` — 跟随回放测试格式和 tracking state 骨架测试（2 用例）
+- `performance_input_test.dart` — Fake MIDI 输入事件测试（2 用例）
+- `score_document_test.dart` — score 记谱模型查询和 PerformanceTimeline 展开测试（2 用例）
+- `android_manifest_test.dart` — Android 主 Manifest release 网络权限测试（1 用例）
+- `playback_timer_benchmark_test.dart` — Timer benchmark 基线数据结构测试（1 用例）
 - `microphone_input_test.dart` — 麦克风输入生命周期测试（4 用例）
 - `player_seek_widgets_test.dart` — 播放页 seek 控件合同和默认主旋律选择测试（4 用例）
 - `widget_test.dart` — App smoke test
@@ -178,6 +204,8 @@ flutter test
 
 - **状态管理**: Provider + ChangeNotifier（`MidiPlayerController` 是唯一全局状态）
 - **多轨道共享 channel**: 通过 `trackIndex`（而非 channel）做静音/音量控制
+- **Score 与 MIDI 分层**: `lib/core/score/` 保存记谱语义和展开后的 PerformanceTimeline；`lib/models/midi_track.dart` 继续只服务当前 MIDI 解析/播放链
+- **演奏输入骨架**: `PerformanceInput` 预留 MIDI 输入事件，当前只有 `FakeMidiInput`，未绑定真实平台库
 - **音频处理管道**: 麦克风 → `PitchDetector` → `OnsetDetector` → `FollowModeController` → `setSpeed()`
 - **线程安全**: UI 回调使用 `SchedulerBinding.addPostFrameCallback()` 包裹
 - **生命周期守卫**: 所有公开方法开头检查 `_isDisposed`，异步操作支持 `dispose()` 打断
@@ -200,3 +228,9 @@ flutter test
 | file_picker | ^8.0.0 | 文件选择 |
 | permission_handler | ^11.3.0 | 权限管理 |
 | path_provider | ^2.1.0 | 应用目录路径 |
+
+### Current Known Limits
+- MusicXML/MXL/PDF/OMR/乐谱显示均未接入，本轮只建立 score 模型骨架。
+- MIDI 键盘输入未选择真实第三方库；只能用 `FakeMidiInput` 写自动化测试。
+- 当前 `FollowModeController` 仍是线性主旋律匹配 + EMA 速度平滑，不是完整概率式 score following。
+- 播放调度仍使用 Dart `Timer.periodic(5ms)`；benchmark 只记录误差基线，不表示已经改善实时性能。

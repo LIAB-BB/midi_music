@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/midi/midi_import_validator.dart';
 import '../../core/midi/midi_parser.dart';
 import '../../core/midi/midi_player.dart';
 import '../theme/luxury_theme.dart';
@@ -26,7 +27,8 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _pickAndLoadMidi() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
+      type: FileType.custom,
+      allowedExtensions: const ['mid', 'midi'],
       allowMultiple: false,
     );
     if (result == null || result.files.isEmpty) return;
@@ -38,6 +40,7 @@ class _HomePageState extends State<HomePage> {
     setState(() => _isLoading = true);
 
     try {
+      await validateMidiImportFile(filePath);
       final songData = await _parser.parseFile(filePath);
       if (!mounted) return;
 
@@ -49,9 +52,12 @@ class _HomePageState extends State<HomePage> {
           context,
         ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())),
       );
+    } on MidiImportException catch (e) {
+      if (!mounted) return;
+      _showError(e.message);
     } catch (e) {
       if (!mounted) return;
-      _showError('无法解析 MIDI 文件: $e');
+      _showError('无法解析 MIDI 文件，文件可能损坏或不是标准 MIDI：$e');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
