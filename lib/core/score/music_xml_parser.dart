@@ -96,6 +96,7 @@ class MusicXmlScoreParser {
           measures.length + 1;
       final voiceEvents = <String, List<ScoreEvent>>{};
       var cursorBeat = 0.0;
+      var lastNoteStartBeat = 0.0;
       var measuredBeats = 0.0;
       var noteIndex = 0;
 
@@ -103,13 +104,15 @@ class MusicXmlScoreParser {
         switch (child.name) {
           case 'note':
             noteIndex += 1;
+            final isChord = child.firstElement('chord') != null;
+            final noteStartBeat = isChord ? lastNoteStartBeat : cursorBeat;
             final event = _parseNote(
               child,
               partId: partId,
               measureNumber: measureNumber,
               noteIndex: noteIndex,
-              cursorBeat: cursorBeat,
-              absoluteBeat: absoluteBeat + cursorBeat,
+              cursorBeat: noteStartBeat,
+              absoluteBeat: absoluteBeat + noteStartBeat,
               divisions: divisions,
               sourceId: sourceId,
               path: path,
@@ -118,15 +121,13 @@ class MusicXmlScoreParser {
             voiceEvents.putIfAbsent(voiceId, () => []).add(event);
 
             final durationBeats = event.durationBeats;
-            measuredBeats = _max(measuredBeats, cursorBeat + durationBeats);
-            if (child.firstElement('chord') == null) {
+            measuredBeats = _max(measuredBeats, noteStartBeat + durationBeats);
+            if (!isChord) {
+              lastNoteStartBeat = cursorBeat;
               cursorBeat += durationBeats;
             }
           case 'backup':
-            cursorBeat = _max(
-              0,
-              cursorBeat - _durationBeats(child, divisions),
-            );
+            cursorBeat = _max(0, cursorBeat - _durationBeats(child, divisions));
           case 'forward':
             cursorBeat += _durationBeats(child, divisions);
             measuredBeats = _max(measuredBeats, cursorBeat);
@@ -465,9 +466,9 @@ class _XmlElement {
   String? attribute(String name) => attributes[name];
 
   Iterable<_XmlElement> elements(String name) {
-    return children
-        .whereType<_XmlElement>()
-        .where((child) => child.name == name);
+    return children.whereType<_XmlElement>().where(
+      (child) => child.name == name,
+    );
   }
 
   _XmlElement? firstElement(String name) {

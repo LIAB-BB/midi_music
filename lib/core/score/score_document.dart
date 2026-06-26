@@ -180,8 +180,7 @@ class ScoreDocument {
                       voiceId: voice.id,
                       type: PerformanceEventType.noteOn,
                       position: note.position,
-                      timeSeconds:
-                          note.position.absoluteBeat * secondsPerBeat,
+                      timeSeconds: note.position.absoluteBeat * secondsPerBeat,
                       midiPitch: note.pitch.midiPitch,
                       velocity: defaultVelocity,
                       source: note.source,
@@ -202,8 +201,7 @@ class ScoreDocument {
                       voiceId: voice.id,
                       type: PerformanceEventType.noteOff,
                       position: endPosition,
-                      timeSeconds:
-                          endPosition.absoluteBeat * secondsPerBeat,
+                      timeSeconds: endPosition.absoluteBeat * secondsPerBeat,
                       midiPitch: note.pitch.midiPitch,
                       velocity: 0,
                       source: note.source,

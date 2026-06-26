@@ -35,14 +35,14 @@ class PerformanceEvent implements Comparable<PerformanceEvent> {
     final positionCompare = position.compareTo(other.position);
     if (positionCompare != 0) return positionCompare;
     if (scoreEventId == other.scoreEventId) {
-      final sameEventCompare = _sameEventPriority(type).compareTo(
-        _sameEventPriority(other.type),
-      );
+      final sameEventCompare = _sameEventPriority(
+        type,
+      ).compareTo(_sameEventPriority(other.type));
       if (sameEventCompare != 0) return sameEventCompare;
     }
-    final priorityCompare = _eventPriority(type).compareTo(
-      _eventPriority(other.type),
-    );
+    final priorityCompare = _eventPriority(
+      type,
+    ).compareTo(_eventPriority(other.type));
     if (priorityCompare != 0) return priorityCompare;
     return id.compareTo(other.id);
   }

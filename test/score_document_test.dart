@@ -57,10 +57,12 @@ void main() {
       includeGraceNotes: true,
     );
 
-    expect(
-      timeline.events.map((event) => event.id),
-      ['g1:on', 'g1:off', 't1:on', 't2:off'],
-    );
+    expect(timeline.events.map((event) => event.id), [
+      'g1:on',
+      'g1:off',
+      't1:on',
+      't2:off',
+    ]);
   });
 }
 

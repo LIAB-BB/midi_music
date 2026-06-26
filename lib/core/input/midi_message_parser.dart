@@ -31,18 +31,12 @@ List<PerformanceInputEvent> parseMidiMessageBytes(
     final message = Uint8List.sublistView(data, index, index + length);
     final command = status & 0xF0;
     final channel = status & 0x0F;
-    events.addAll(
-      switch (command) {
-        _noteOffCommand => _parseNoteOff(message, channel, timestamp),
-        _noteOnCommand => _parseNoteOn(message, channel, timestamp),
-        _controlChangeCommand => _parseControlChange(
-          message,
-          channel,
-          timestamp,
-        ),
-        _ => const [],
-      },
-    );
+    events.addAll(switch (command) {
+      _noteOffCommand => _parseNoteOff(message, channel, timestamp),
+      _noteOnCommand => _parseNoteOn(message, channel, timestamp),
+      _controlChangeCommand => _parseControlChange(message, channel, timestamp),
+      _ => const [],
+    });
     index += length;
   }
 
