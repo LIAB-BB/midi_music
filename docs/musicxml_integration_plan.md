@@ -75,16 +75,20 @@ ScoreDocument 语义模型
 
 目标：支持 `.mxl` 文件。
 
+当前状态：基础解包层已完成，`MxlScoreParser` 可以读取 MXL zip、解析 `META-INF/container.xml`、找到 rootfile，并复用 `MusicXmlScoreParser` 生成 `ScoreDocument`。
+
 实现方式：
 
-- 读取 MXL zip。
-- 解析 `META-INF/container.xml`。
-- 找到 `<rootfile full-path="...">` 指向的 MusicXML 主文件。
-- 将主文件内容交给 `MusicXmlScoreParser`。
+- [x] 读取 MXL zip。
+- [x] 解析 `META-INF/container.xml`。
+- [x] 找到 `<rootfile full-path="...">` 指向的 MusicXML 主文件。
+- [x] 将主文件内容交给 `MusicXmlScoreParser`。
+- [ ] 用真实 `.mxl` fixture 做兼容性回归。
+- [ ] 将 `.mxl` 接入文件导入链路。
 
 依赖建议：
 
-- 优先使用活跃 Dart 包处理 zip，例如 `archive`。
+- 已使用 `archive` 处理 zip。
 - XML 解析如果继续扩大范围，建议引入 `package:xml` 替换当前内部轻量 parser。
 - 引入依赖时必须同步提交 `pubspec.lock`。
 

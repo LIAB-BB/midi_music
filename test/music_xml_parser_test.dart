@@ -3,7 +3,7 @@ import 'package:midi_music/core/score/score.dart';
 
 void main() {
   test('MusicXmlScoreParser 解析 part、measure、note、rest 和 tie', () {
-    final document = MusicXmlScoreParser().parse(
+    final document = const MusicXmlScoreParser().parse(
       _sampleMusicXml,
       sourceId: 'sample',
       path: '/tmp/sample.musicxml',
@@ -42,7 +42,7 @@ void main() {
   });
 
   test('MusicXmlScoreParser 展开的 PerformanceTimeline 保留连音语义', () {
-    final document = MusicXmlScoreParser().parse(_sampleMusicXml);
+    final document = const MusicXmlScoreParser().parse(_sampleMusicXml);
 
     final timeline = document.toPerformanceTimeline(secondsPerBeat: 0.5);
     final tiedEvents = timeline.events
@@ -63,7 +63,7 @@ void main() {
 
   test('MusicXmlScoreParser 拒绝非 score-partwise XML', () {
     expect(
-      () => MusicXmlScoreParser().parse('<score-timewise />'),
+      () => const MusicXmlScoreParser().parse('<score-timewise />'),
       throwsA(isA<MusicXmlParseException>()),
     );
   });

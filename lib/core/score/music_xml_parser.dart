@@ -12,6 +12,8 @@ class MusicXmlParseException implements Exception {
 }
 
 class MusicXmlScoreParser {
+  const MusicXmlScoreParser();
+
   ScoreDocument parse(
     String xml, {
     String sourceId = 'musicxml',
