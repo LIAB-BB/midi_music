@@ -58,6 +58,8 @@ flutter test
 | `lib/core/midi/tempo_map.dart` | 🔒 高 | 纯算法模块，tick ↔ 秒互转，有充分测试，改动安全 |
 | `lib/core/follow/follow_mode_controller.dart` | 🔄 中 | 跟随算法核心，参数调优为主战场 |
 | `lib/core/follow/follow_mode_session.dart` | 🔄 中 | 会话生命周期协调层，改动注意并发安全 |
+| `lib/core/follow/midi_follow_mode_session.dart` | 🔒 高 | 当前 iOS USB MIDI 跟随会话，管理多条电子琴轨静音恢复 |
+| `lib/core/midi_input/` | 🔒 高 | USB MIDI 平台边界；Dart 逻辑需测试，原生改动需 iPhone 真机验证 |
 | `lib/core/follow/microphone_input.dart` | 🔒 中 | 麦克风→音高管道，改动后需真机验证 |
 | `lib/core/follow/onset_detector.dart` | 🔒 中 | 纯信号检测逻辑，无平台依赖 |
 | `lib/core/follow/pitch_input.dart` | 🔒 高 | 抽象接口，改了所有实现都得跟着改 |
@@ -113,12 +115,12 @@ flutter test
 ### MIDI Playback (`lib/core/midi/`)
 - `midi_engine.dart` — `MidiPlaybackEngine` 抽象 + `MidiEngine` 实现。封装 `flutter_midi_pro`，按 channel 串行化操作队列（`_channelOperations`），通过 `_operationGeneration` 代际机制确保 `allNotesOff` 时取消未完成的排队操作
 - `midi_parser.dart` — `MidiFileParser`，使用 `dart_midi_pro` 解析 MIDI 文件。FIFO 配对重叠音符（`_PendingNote` 链表），后台 isolate 执行（`compute`）
-- `tempo_map.dart` — tick ↔ 秒互转，支持多 tempo 变化点，二分查找，批量顺序应用优化
+- `tempo_map.dart` — tick ↔ 秒互转，支持多 tempo 变化点，自动补齐 tick 0 默认 tempo、排序并合并同 tick 事件，二分查找，批量顺序应用优化
 - `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存
 
 ### Score Import (`lib/core/import/`)
 - `score_import_service.dart` — 乐谱导入分流服务。支持 MIDI、MusicXML 和 PDF；PDF 通过 `PdfToMusicXmlConverter` 先转 MusicXML，再进入统一播放数据模型
-- `musicxml_parser.dart` — 轻量 MusicXML → `MidiSongData` 转换器。覆盖 MVP 所需的 partwise MusicXML：音高、休止、和弦、divisions、拍号和 tempo；钢琴二重奏按多个 part 转为多个轨道
+- `musicxml_parser.dart` — 轻量 MusicXML → `MidiSongData` 转换器。覆盖 MVP 所需的 partwise MusicXML：音高、休止、和弦、divisions、拍号和 tempo；钢琴二重奏按多个 part 转为多个轨道；总时长取所有音符最大 `endTick`
 - `pdf_omr_client.dart` — HTTP OMR 客户端。通过 `OMR_SERVICE_BASE_URL` 配置服务端地址，创建 `/v1/omr/jobs` 任务并轮询 MusicXML 结果
 - `pdf_to_musicxml_converter.dart` — PDF 到 MusicXML 转换抽象，隔离本地测试 Fake 和服务端 OMR 实现
 
@@ -129,22 +131,31 @@ flutter test
 - Dockerfile 仅包含 Python API 服务，部署时仍需安装或挂载 Audiveris 运行时
 
 ### Tempo Follow (`lib/core/follow/`)
+- `midi_follow_mode_session.dart` — **当前 demo 使用的跟随会话**。消费 USB MIDI Note On，驱动 `FollowModeController`；聚合选中的多条电子琴轨，启动时一起静音，退出时恢复用户原始静音状态
 - `pitch_input.dart` — `PitchInput` 抽象接口（`pitchStream`、`start()`、`dispose()`）
 - `microphone_input.dart` — `MicrophoneInput` 实现 `PitchInput`。`flutter_audio_capture` → `pitch_detector_dart`（YIN 算法）→ 输出 `Stream<PitchData>`。流控（处理中跳过新帧）、RMS 音量计算
 - `onset_detector.dart` — 纯 Dart 的 onset 检测器。输入 `PitchData` 流，输出 `Stream<OnsetEvent>`。含 `PitchData` 和 `OnsetEvent` 数据模型。检测逻辑：音量/精度阈值 + 去抖（80ms）+ 静音帧计数
-- `follow_mode_controller.dart` — 跟随模式状态机（idle → following → waitingForOnset）。核心算法：onset 与乐谱音符匹配（容差 + 可选八度误差容忍）、EMA（α=0.3）平滑速度因子、测量速度可信范围过滤、音符跳跃检测（向前最多 3 个）、休止符检测、连续未匹配降速并请求外部按播放位置重对齐。含 `FollowModeConfig` 配置
+- `follow_mode_controller.dart` — 跟随模式状态机（idle → following → waitingForOnset）。可直接消费任意 `Stream<OnsetEvent>`；USB MIDI 默认精确音符匹配（0 半音、不跨八度），其余算法为 EMA 平滑、可信速度过滤、向前搜索、休止等待和按播放位置重对齐
 - `follow_mode_session.dart` — **跟随模式会话**，串联 `PitchInput` → `OnsetDetector` → `FollowModeController` → `FollowPlaybackTarget` 的完整生命周期。防并发 start、dispose 打断 start、根据跟随状态自动控制播放器（休止时暂停、恢复时播放），支持 `resumeFromTime()` 在用户 seek 或连续未匹配时按当前播放时间重新对齐
 - `follow_playback_target.dart` — `FollowPlaybackTarget` 抽象 + `MidiFollowPlaybackTarget` 实现，适配 `MidiPlayerController`
 
+### MIDI Input (`lib/core/midi_input/` + `ios/Runner/`)
+- `midi_input.dart` — 平台无关的设备、消息、状态模型和 `MidiInput` 接口
+- `ios_midi_input.dart` — MethodChannel/EventChannel 适配，管理设备状态和 MIDI 消息流
+- `CoreMidiInputPlugin.swift` — 直接使用 iOS CoreMIDI，自动连接当前全部 MIDI 输入源，处理热插拔与 running status；当前产品仅使用 Note On
+
 ### UI Layer (`lib/ui/`)
 - `pages/home_page.dart` — 首页，文件选择器（`file_picker`），通过 `ScoreImportService` 加载 MIDI/MusicXML/PDF 并跳转播放页，SoundFont 状态展示
-- `pages/player_page.dart` — 播放器页面（~260 行，已拆分）。仅保留页面骨架和跟随模式状态管理（`_PlayerBodyState`），组件委托给 `widgets/` 下的子文件；用户 seek 后会同步跟随会话的播放时间重对齐
+- `pages/score_practice_page.dart` — 曲库练习页。仅对当前 `songId` 对应曲目开放播放、seek 和调速；装饰性谱面明确标记为示意内容，未接线的循环、跟随、指法、移调和视奏入口不展示
+- `pages/player_page.dart` — 播放器页面。初始化 USB MIDI、展示连接状态并管理 `MidiFollowModeSession`；用户 seek 后同步跟随会话重对齐
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调
 - `widgets/transport_deck.dart` — TransportDeck（运输按钮）、TransportButton、ConsoleNote；回退/快进/归零支持外部 `onSeek` 回调
 - `widgets/performance_console.dart` — PerformanceConsole（跟随模式开关/手动速度滑块）、ConsoleCard
 - `widgets/track_salon.dart` — TrackSalon（轨道列表）、TrackTile（单轨道磁贴）
 - `widgets/soundfont_banner.dart` — SoundfontBanner（音色下载/重试横幅）
 - `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
+- `widgets/midi_piano_roll.dart` — 解析后 MIDI 的实时钢琴卷帘；每个矩形对应一个 `MidiNote`，用于演奏台与导入曲目视图
+- `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，支持翻页与双指缩放
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
 ### Tests (`test/`，共 83 用例)
@@ -163,11 +174,15 @@ flutter test
 测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
 
 ### Assets (`assets/midi/`)
+- `mozart_k478_piano_quartet.mid` — 莫扎特钢琴四重奏 K.478（Format 1；钢琴右手/左手与三条弦乐轨独立，来源与许可见 `docs/demo_assets.md`）
 - `Beethoven-Moonlight-Sonata.mid` — 贝多芬月光奏鸣曲（Format 1，8 tracks，PPQ=120）
 - `bach_wtc1_prelude.mid` — 巴赫平均律前奏曲 BWV 846（Format 1，13 tracks，PPQ=96）
 - `mozart_k545.mid` — 莫扎特钢琴奏鸣曲 K545（Format 1，4 tracks，PPQ=120）
 - `chopin_nocturne.mid` — 肖邦夜曲（Format 1，14 tracks，PPQ=384）
 - `beethoven_moonlight_2.mid` — 贝多芬月光第二乐章（Format 1，11 tracks，PPQ=96）
+
+### Assets (`assets/scores/`)
+- `mozart_k478_piano_part.pdf` 与 `mozart_k478_piano_part/page-01.png` 至 `page-21.png` — K.478 同源公版钢琴分谱及其离线页面渲染；来源、许可和使用边界见 `docs/demo_assets.md`
 
 ---
 
@@ -175,7 +190,8 @@ flutter test
 
 - **部署目标**: iOS 13.6（`Podfile` 中指定）
 - **CocoaPods 镜像**: `https://mirrors.tuna.tsinghua.edu.cn/git/CocoaPods/Specs.git`
-- **音频会话**: AppDelegate 配置 `playAndRecord` + `allowBluetooth` + `defaultToSpeaker` + `mixWithOthers`
+- **音频会话**: AppDelegate 配置 `playback` + `mixWithOthers`；电子琴自行发声，当前 demo 不占用麦克风
+- **USB MIDI**: `CoreMidiInputPlugin.swift` 使用系统 CoreMIDI，无第三方 MIDI 输入依赖
 - **xcconfig**: 3 个配置文件（Debug/Profile/Release）均 `#include` Pods 配置
 - **麦克风权限**: `Info.plist` 中 `NSMicrophoneUsageDescription` 已配置
 
@@ -185,7 +201,7 @@ flutter test
 
 - **状态管理**: Provider + ChangeNotifier（`MidiPlayerController` 是唯一全局状态）
 - **多轨道共享 channel**: 通过 `trackIndex`（而非 channel）做静音/音量控制
-- **音频处理管道**: 麦克风 → `PitchDetector` → `OnsetDetector` → `FollowModeController` → `setSpeed()`
+- **当前跟随管道**: USB MIDI Note On → `MidiFollowModeSession` → `FollowModeController` → `setSpeed()`
 - **线程安全**: UI 回调使用 `SchedulerBinding.addPostFrameCallback()` 包裹
 - **生命周期守卫**: 所有公开方法开头检查 `_isDisposed`，异步操作支持 `dispose()` 打断
 - **SoundFont**: 首次运行自动从 CDN 下载 TimGM6mb.sf2（~6MB），缓存到应用目录，3 个后备 URL
