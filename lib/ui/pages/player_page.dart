@@ -2,18 +2,20 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/follow/follow_mode_controller.dart';
-import '../../core/follow/follow_mode_session.dart';
-import '../../core/follow/onset_detector.dart';
+import '../../core/follow/midi_follow_mode_session.dart';
 import '../../core/diagnostics/app_error.dart';
 import '../../core/diagnostics/diagnostic_logger.dart';
 import '../../core/midi/midi_player.dart';
+import '../../core/midi_input/ios_midi_input.dart';
+import '../../core/midi_input/midi_input.dart';
 import '../../core/settings/app_settings.dart';
+import '../../models/midi_track.dart';
 import '../theme/luxury_theme.dart';
 import '../widgets/performance_console.dart';
+import '../widgets/midi_piano_roll.dart';
 import '../widgets/player_helpers.dart';
 import '../widgets/soundfont_banner.dart';
 import '../widgets/stage_console.dart';
@@ -118,11 +120,14 @@ class _PlayerBody extends StatefulWidget {
 }
 
 class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
-  FollowModeSession? _followSession;
+  late final MidiInput _midiInput;
+  StreamSubscription<MidiInputState>? _midiStateSubscription;
+  MidiFollowModeSession? _followSession;
+  MidiInputState _midiInputState = const MidiInputState();
   bool _isFollowMode = false;
   FollowModeState _followState = FollowModeState.idle;
   double _followSpeedFactor = 1.0;
-  int? _melodyTrackIndex;
+  final Set<int> _performerTrackIndices = {};
   String? _playbackError;
   Timer? _errorDismissTimer;
 
@@ -131,6 +136,38 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.player.onPlaybackError = _onPlaybackError;
+    _midiInput = IosMidiInput();
+    _midiStateSubscription = _midiInput.states.listen(_handleMidiInputState);
+    unawaited(_initializeMidiInput());
+  }
+
+  void _handleMidiInputState(MidiInputState state) {
+    if (!mounted) return;
+    final disconnected = _midiInputState.isConnected && !state.isConnected;
+    setState(() => _midiInputState = state);
+    if (disconnected && _followSession != null) {
+      unawaited(_stopAfterMidiDisconnect());
+    }
+  }
+
+  Future<void> _stopAfterMidiDisconnect() async {
+    await _stopFollowMode();
+    _showTransientError('USB MIDI 已断开，跟随模式已停止。');
+  }
+
+  Future<void> _initializeMidiInput() async {
+    try {
+      await _midiInput.start();
+      if (mounted) setState(() => _midiInputState = _midiInput.state);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _midiInputState = MidiInputState(
+            errorMessage: 'USB MIDI 初始化失败：$error',
+          );
+        });
+      }
+    }
   }
 
   void _onPlaybackError(Object error, String context) {
@@ -159,12 +196,26 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
     if (widget.player.onPlaybackError == _onPlaybackError) {
       widget.player.onPlaybackError = null;
     }
-    unawaited(_releaseFollowResources().catchError((Object _) {}));
+    unawaited(_disposeInputResources().catchError((Object _) {}));
     super.dispose();
   }
 
+  Future<void> _disposeInputResources() async {
+    await _releaseFollowResources().catchError((Object _) {});
+    await _midiStateSubscription?.cancel();
+    await _midiInput.dispose();
+  }
+
   void _setMelodyTrack(int trackIndex) {
-    setState(() => _melodyTrackIndex = trackIndex);
+    if (_isFollowMode) {
+      _showTransientError('跟随进行中，停止后再调整电子琴声部。');
+      return;
+    }
+    setState(() {
+      if (!_performerTrackIndices.add(trackIndex)) {
+        _performerTrackIndices.remove(trackIndex);
+      }
+    });
   }
 
   Future<void> _toggleFollowMode() async {
@@ -176,9 +227,6 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
     if (!_canStartFollowMode()) {
       return;
     }
-
-    final granted = await _requestMicPermission();
-    if (!granted) return;
 
     try {
       await _startFollowMode();
@@ -211,21 +259,21 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
       _showAlert('音色库未就绪', _soundfontGuardMessage(player));
       return false;
     }
-    final melodyTrackIndex = _melodyTrackIndex;
-    if (melodyTrackIndex == null) {
-      _showAlert('请选择主旋律', '先在轨道列表中指定主旋律。');
+    if (_performerTrackIndices.isEmpty) {
+      _showAlert('请选择电子琴声部', '先在轨道列表中选择由电子琴演奏的一个或多个轨道。');
       return false;
     }
-    final melodyTrack = FollowModeSession.findMelodyTrack(
-      song,
-      melodyTrackIndex,
-    );
-    if (melodyTrack == null) {
-      _showAlert('主旋律不可用', '所选轨道不存在，请重新选择。');
+    final performerTracks = _findPerformerTracks(song);
+    if (performerTracks.length != _performerTrackIndices.length) {
+      _showAlert('电子琴声部不可用', '所选轨道不存在，请重新选择。');
       return false;
     }
-    if (melodyTrack.notes.isEmpty) {
-      _showAlert('主旋律为空', '所选轨道没有可跟随的音符。');
+    if (performerTracks.every((track) => track.notes.isEmpty)) {
+      _showAlert('电子琴声部为空', '所选轨道没有可跟随的音符。');
+      return false;
+    }
+    if (!_midiInputState.isConnected) {
+      _showAlert('未连接电子琴', '请用 USB MIDI 将电子琴直接连接到 iPhone，确认电子琴已开机后再试。');
       return false;
     }
     return true;
@@ -246,88 +294,33 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
     }
   }
 
-  Future<bool> _requestMicPermission() async {
-    var status = await Permission.microphone.status;
-    if (status.isGranted) return true;
-
-    if (status.isPermanentlyDenied || status.isRestricted) {
-      _handleMicPermissionDenied(status);
-      return false;
-    }
-
-    status = await Permission.microphone.request();
-    if (status.isGranted) return true;
-
-    _handleMicPermissionDenied(status);
-    return false;
-  }
-
-  void _handleMicPermissionDenied(PermissionStatus status) {
-    final appError = AppError.microphonePermissionDenied(status: status.name);
-    _recordDiagnosticError(appError);
-    if (!mounted) return;
-
-    if (status.isPermanentlyDenied) {
-      _showAlert(
-        '需要麦克风权限',
-        appError.userMessage,
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('稍后'),
-          ),
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            onPressed: () {
-              Navigator.of(context).pop();
-              unawaited(openAppSettings());
-            },
-            child: const Text('打开设置'),
-          ),
-        ],
-      );
-      return;
-    }
-
-    _showAlert('需要麦克风权限', appError.userMessage);
-  }
-
   Future<void> _startFollowMode() async {
     final player = widget.player;
     final song = player.songData;
-    final melodyTrackIndex = _melodyTrackIndex;
     if (song == null) {
       throw StateError('未加载 MIDI 乐谱');
     }
     if (!player.isSoundfontReady) {
       throw StateError('音色库未就绪');
     }
-    if (melodyTrackIndex == null) {
-      throw StateError('未选择主旋律轨道');
+    if (_performerTrackIndices.isEmpty) {
+      throw StateError('未选择电子琴声部');
     }
 
-    final melodyTrack = FollowModeSession.findMelodyTrack(
-      song,
-      melodyTrackIndex,
-    );
-    if (melodyTrack == null) {
-      throw StateError('主旋律轨道不存在');
+    final performerTracks = _findPerformerTracks(song);
+    if (performerTracks.length != _performerTrackIndices.length) {
+      throw StateError('电子琴声部不存在');
     }
 
     final settings = context.read<AppSettingsController>();
 
     await _releaseFollowResources(resetPlayerSpeed: false);
 
-    final onsetDetector = OnsetDetector(config: settings.onsetDetectorConfig);
-    final session = FollowModeSession.forMidi(
+    final session = MidiFollowModeSession(
       player: player,
-      melodyTrack: melodyTrack,
-      onsetDetector: onsetDetector,
-      followController: FollowModeController(
-        onsetDetector: onsetDetector,
-        config: settings.followModeConfig,
-      ),
-      config: settings.followSessionConfig,
+      performerTracks: performerTracks,
+      midiInput: _midiInput,
+      config: settings.followModeConfig,
     );
     _followSession = session;
 
@@ -406,6 +399,12 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
     }
   }
 
+  List<MidiTrackInfo> _findPerformerTracks(MidiSongData song) {
+    return song.tracks
+        .where((track) => _performerTrackIndices.contains(track.index))
+        .toList();
+  }
+
   void _seekTo(double seconds) {
     final player = widget.player;
     player.seekTo(seconds);
@@ -413,7 +412,7 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
   }
 
   void _handleFollowRuntimeError(
-    FollowModeSession session,
+    MidiFollowModeSession session,
     Object error,
     StackTrace? stackTrace,
   ) {
@@ -444,12 +443,16 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
   AppError _buildFollowStartError(Object error, StackTrace stackTrace) {
     if (error is StateError) {
       return AppError.followModeFailed(
-        message: '无法开启跟随，请检查曲目、音色库和主旋律。',
+        message: '无法开启跟随，请检查 USB MIDI、曲目、音色库和电子琴声部。',
         cause: error,
         stackTrace: stackTrace,
       );
     }
-    return AppError.microphoneInitFailed(cause: error, stackTrace: stackTrace);
+    return AppError.followModeFailed(
+      message: 'USB MIDI 输入初始化失败，请重新连接电子琴后再试。',
+      cause: error,
+      stackTrace: stackTrace,
+    );
   }
 
   void _recordDiagnosticError(AppError error) {
@@ -514,18 +517,28 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
             onSeek: _seekTo,
           ),
           const SizedBox(height: 14),
+          SizedBox(
+            height: 254,
+            child: MidiPianoRoll(
+              song: song,
+              currentTime: player.currentTime,
+              accent: LuxuryPalette.goldBright,
+            ),
+          ),
+          const SizedBox(height: 14),
           PerformanceConsole(
             player: player,
             isFollowMode: _isFollowMode,
             followState: _followState,
             followSpeedFactor: _followSpeedFactor,
-            melodyTrackIndex: _melodyTrackIndex,
+            performerTrackIndices: _performerTrackIndices,
+            midiInputState: _midiInputState,
             onToggleFollow: _toggleFollowMode,
           ),
           const SizedBox(height: 14),
           TrackSalon(
             player: player,
-            melodyTrackIndex: _melodyTrackIndex,
+            performerTrackIndices: _performerTrackIndices,
             onSetMelody: _setMelodyTrack,
           ),
         ],

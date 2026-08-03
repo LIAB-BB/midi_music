@@ -87,13 +87,13 @@ class FileAppSettingsStorage implements AppSettingsStorage {
 }
 
 class AppSettingsController extends ChangeNotifier {
-  static const int settingsSchemaVersion = 1;
+  static const int settingsSchemaVersion = 2;
   static const int maxRecentMidiEntries = 20;
   static const double defaultPlaybackSpeedValue = 1.0;
   static const double defaultMicrophoneMinPrecisionValue = 0.6;
   static const double defaultOnsetVolumeThresholdValue = 0.0005;
-  static const int defaultNoteMatchToleranceValue = 2;
-  static const bool defaultAllowOctaveErrorValue = true;
+  static const int defaultNoteMatchToleranceValue = 0;
+  static const bool defaultAllowOctaveErrorValue = false;
   static const double defaultMinMeasuredSpeedFactorValue = 0.6;
   static const double defaultMaxMeasuredSpeedFactorValue = 1.6;
   static const double defaultRestThresholdSecondsValue = 1.0;
@@ -163,6 +163,13 @@ class AppSettingsController extends ChangeNotifier {
     var values = const <String, Object?>{};
     try {
       values = await _storage.read();
+      final storedSchemaVersion = _readInt(
+        values,
+        'schemaVersion',
+        0,
+        min: 0,
+        max: settingsSchemaVersion,
+      );
       _defaultPlaybackSpeed = _readDouble(
         values,
         'defaultPlaybackSpeed',
@@ -184,18 +191,18 @@ class AppSettingsController extends ChangeNotifier {
         min: 0.0001,
         max: 0.005,
       );
-      _noteMatchTolerance = _readInt(
-        values,
-        'noteMatchTolerance',
-        defaultNoteMatchToleranceValue,
-        min: 0,
-        max: 4,
-      );
-      _allowOctaveError = _readBool(
-        values,
-        'allowOctaveError',
-        defaultAllowOctaveErrorValue,
-      );
+      _noteMatchTolerance = storedSchemaVersion < 2
+          ? defaultNoteMatchToleranceValue
+          : _readInt(
+              values,
+              'noteMatchTolerance',
+              defaultNoteMatchToleranceValue,
+              min: 0,
+              max: 4,
+            );
+      _allowOctaveError = storedSchemaVersion < 2
+          ? defaultAllowOctaveErrorValue
+          : _readBool(values, 'allowOctaveError', defaultAllowOctaveErrorValue);
       _minMeasuredSpeedFactor = _readDouble(
         values,
         'minMeasuredSpeedFactor',

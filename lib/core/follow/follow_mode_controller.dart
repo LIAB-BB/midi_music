@@ -52,16 +52,20 @@ class FollowModeConfig {
   /// 连续未匹配 onset 达到此数量后降低 speedFactor
   final int unmatchedThreshold;
 
+  /// 同一和弦的 MIDI Note On 可能分批抵达，在此窗口内视为同一次起拍。
+  final int chordInputWindowMs;
+
   const FollowModeConfig({
     this.emaSmoothingAlpha = 0.3,
     this.minSpeedFactor = 0.25,
     this.maxSpeedFactor = 4.0,
-    this.noteMatchTolerance = 2,
-    this.allowOctaveError = true,
+    this.noteMatchTolerance = 0,
+    this.allowOctaveError = false,
     this.minMeasuredSpeedFactor = 0.6,
     this.maxMeasuredSpeedFactor = 1.6,
     this.restThresholdSeconds = 1.0,
     this.unmatchedThreshold = 3,
+    this.chordInputWindowMs = 80,
   });
 }
 
@@ -92,7 +96,7 @@ typedef FollowRuntimeErrorCallback =
 /// 职责：订阅 OnsetDetector 的 onset 流，与乐谱期望音符匹配，
 /// 计算 EMA 平滑的 speedFactor，通过回调通知播放器调速。
 class FollowModeController {
-  final OnsetDetector _onsetDetector;
+  final Stream<OnsetEvent> _onsetStream;
   FollowModeConfig _config;
 
   /// 当前状态
@@ -101,14 +105,14 @@ class FollowModeController {
   /// 当前平滑后的 speedFactor
   double _speedFactor = 1.0;
 
-  /// 乐谱中的期望音符序列（按 startTime 排序）
-  List<MidiNote> _scoreNotes = [];
+  /// 乐谱中的期望起拍序列；同一 tick 的复音音符合并为一个起拍。
+  List<_ScoreOnset> _scoreOnsets = [];
 
-  /// 当前期望音符索引
-  int _expectedNoteIndex = 0;
+  /// 当前期望起拍索引
+  int _expectedOnsetIndex = 0;
 
-  /// 上一次成功匹配的谱面音符索引
-  int? _lastMatchedNoteIndex;
+  /// 上一次成功匹配的谱面起拍索引
+  int? _lastMatchedOnsetIndex;
 
   /// 上一次 onset 的时间戳
   DateTime? _lastOnsetTimestamp;
@@ -134,7 +138,13 @@ class FollowModeController {
   FollowModeController({
     required OnsetDetector onsetDetector,
     FollowModeConfig? config,
-  }) : _onsetDetector = onsetDetector,
+  }) : _onsetStream = onsetDetector.onsetStream,
+       _config = config ?? const FollowModeConfig();
+
+  FollowModeController.fromOnsetStream({
+    required Stream<OnsetEvent> onsetStream,
+    FollowModeConfig? config,
+  }) : _onsetStream = onsetStream,
        _config = config ?? const FollowModeConfig();
 
   /// 更新配置
@@ -142,20 +152,33 @@ class FollowModeController {
     _config = config;
   }
 
-  /// 加载乐谱音符序列（主旋律轨道的音符，按 startTime 排序）
+  /// 加载乐谱音符序列，并把同一 tick 的和弦音合并为一个起拍。
   void loadScore(List<MidiNote> notes) {
-    _scoreNotes = List.of(notes)
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final sortedNotes = List.of(notes)
+      ..sort((a, b) {
+        final tickCompare = a.startTick.compareTo(b.startTick);
+        if (tickCompare != 0) return tickCompare;
+        return a.noteNumber.compareTo(b.noteNumber);
+      });
+    final onsets = <_ScoreOnset>[];
+    for (final note in sortedNotes) {
+      if (onsets.isEmpty || onsets.last.startTick != note.startTick) {
+        onsets.add(_ScoreOnset(note));
+      } else {
+        onsets.last.add(note);
+      }
+    }
+    _scoreOnsets = onsets;
   }
 
   /// 启动跟随模式
   void start() {
-    if (_scoreNotes.isEmpty) return;
+    if (_scoreOnsets.isEmpty) return;
 
     _resetFollowPosition(0);
 
     unawaited(_onsetSubscription?.cancel());
-    _onsetSubscription = _onsetDetector.onsetStream.listen(
+    _onsetSubscription = _onsetStream.listen(
       _handleOnset,
       onError: _handleOnsetError,
     );
@@ -168,7 +191,7 @@ class FollowModeController {
     _onsetSubscription?.cancel();
     _onsetSubscription = null;
     _speedFactor = 1.0;
-    _lastMatchedNoteIndex = null;
+    _lastMatchedOnsetIndex = null;
     if (notifyCallbacks) {
       _setState(FollowModeState.idle);
       onSpeedChanged?.call(1.0);
@@ -179,7 +202,7 @@ class FollowModeController {
 
   /// 从指定音符索引恢复（用于 seek 后重新对齐）
   void resumeFromIndex(int noteIndex) {
-    if (noteIndex < 0 || noteIndex >= _scoreNotes.length) return;
+    if (noteIndex < 0 || noteIndex >= _scoreOnsets.length) return;
     if (_state == FollowModeState.idle) {
       start();
     }
@@ -189,14 +212,14 @@ class FollowModeController {
 
   /// 从播放时间恢复（用于播放器 seek/currentTime 后重新对齐）
   void resumeFromTime(double currentTimeSeconds) {
-    if (_scoreNotes.isEmpty) return;
-    final noteIndex = _findNoteIndexAtOrAfter(currentTimeSeconds);
-    if (noteIndex == null) {
+    if (_scoreOnsets.isEmpty) return;
+    final onsetIndex = _findOnsetIndexAtOrAfter(currentTimeSeconds);
+    if (onsetIndex == null) {
       stop();
       return;
     }
-    resumeFromIndex(noteIndex);
-    if (_isTimeInsideLongRestBefore(noteIndex, currentTimeSeconds)) {
+    resumeFromIndex(onsetIndex);
+    if (_isTimeInsideLongRestBefore(onsetIndex, currentTimeSeconds)) {
       _setState(FollowModeState.waitingForOnset);
     }
   }
@@ -208,16 +231,19 @@ class FollowModeController {
   /// 处理 onset 事件
   void _handleOnset(OnsetEvent onset) {
     if (_state == FollowModeState.idle) return;
-    if (_expectedNoteIndex >= _scoreNotes.length) {
+    if (_isTrailingChordNote(onset)) return;
+    if (_expectedOnsetIndex >= _scoreOnsets.length) {
       stop();
       return;
     }
 
-    final expectedNote = _scoreNotes[_expectedNoteIndex];
-    final isMatch = _matchesExpectedNote(onset.midiNote, expectedNote);
+    final expectedOnset = _scoreOnsets[_expectedOnsetIndex];
+    final isMatch = expectedOnset.notes.any(
+      (note) => _matchesExpectedNote(onset.midiNote, note),
+    );
 
     if (isMatch) {
-      _onNoteMatched(onset, expectedNote);
+      _onNoteMatched(onset, expectedOnset);
     } else {
       _onNoteUnmatched(onset);
     }
@@ -230,8 +256,8 @@ class FollowModeController {
   }
 
   /// 音符匹配成功
-  void _onNoteMatched(OnsetEvent onset, MidiNote expectedNote) {
-    final matchedNoteIndex = _expectedNoteIndex;
+  void _onNoteMatched(OnsetEvent onset, _ScoreOnset expectedOnset) {
+    final matchedOnsetIndex = _expectedOnsetIndex;
     _unmatchedCount = 0;
 
     // 如果是从 WaitingForOnset 恢复，切回 Following
@@ -246,10 +272,10 @@ class FollowModeController {
           1000.0;
 
       // 期望间隔 = 当前音符 startTime - 上一个匹配音符 startTime
-      final prevIndex = _lastMatchedNoteIndex;
+      final prevIndex = _lastMatchedOnsetIndex;
       if (prevIndex != null && actualInterval > 0.01) {
         final expectedInterval =
-            expectedNote.startTime - _scoreNotes[prevIndex].startTime;
+            expectedOnset.startTime - _scoreOnsets[prevIndex].startTime;
 
         if (expectedInterval > 0.01) {
           final rawFactor = expectedInterval / actualInterval;
@@ -259,8 +285,8 @@ class FollowModeController {
     }
 
     _lastOnsetTimestamp = onset.timestamp;
-    _lastMatchedNoteIndex = matchedNoteIndex;
-    _expectedNoteIndex++;
+    _lastMatchedOnsetIndex = matchedOnsetIndex;
+    _expectedOnsetIndex++;
 
     // 检查下一个音符是否为休止符（间隔大）
     _checkForRest();
@@ -273,14 +299,14 @@ class FollowModeController {
     // 尝试向前搜索：演奏者可能跳过了一些音符
     final lookAhead = _findMatchInRange(
       onset.midiNote,
-      _expectedNoteIndex + 1,
-      _expectedNoteIndex + 4, // 最多向前看 3 个音符
+      _expectedOnsetIndex + 1,
+      _expectedOnsetIndex + 4, // 最多向前看 3 个起拍
     );
 
     if (lookAhead >= 0) {
-      // 找到匹配，跳过中间音符
-      _expectedNoteIndex = lookAhead;
-      _onNoteMatched(onset, _scoreNotes[lookAhead]);
+      // 找到匹配，跳过中间起拍
+      _expectedOnsetIndex = lookAhead;
+      _onNoteMatched(onset, _scoreOnsets[lookAhead]);
       return;
     }
 
@@ -299,12 +325,12 @@ class FollowModeController {
 
   /// 检查下一个期望音符前是否有休止符
   void _checkForRest() {
-    if (_expectedNoteIndex >= _scoreNotes.length) return;
-    if (_expectedNoteIndex == 0) return;
+    if (_expectedOnsetIndex >= _scoreOnsets.length) return;
+    if (_expectedOnsetIndex == 0) return;
 
-    final prevNote = _scoreNotes[_expectedNoteIndex - 1];
-    final nextNote = _scoreNotes[_expectedNoteIndex];
-    final gap = nextNote.startTime - prevNote.endTime;
+    final previousOnset = _scoreOnsets[_expectedOnsetIndex - 1];
+    final nextOnset = _scoreOnsets[_expectedOnsetIndex];
+    final gap = nextOnset.startTime - previousOnset.endTime;
 
     if (gap >= _config.restThresholdSeconds) {
       _setState(FollowModeState.waitingForOnset);
@@ -333,20 +359,22 @@ class FollowModeController {
 
   /// 在指定范围内查找匹配音符，返回索引，未找到返回 -1
   int _findMatchInRange(int onsetMidi, int fromIndex, int toIndex) {
-    final end = toIndex.clamp(0, _scoreNotes.length);
+    final end = toIndex.clamp(0, _scoreOnsets.length);
     final start = fromIndex.clamp(0, end);
     for (int i = start; i < end; i++) {
-      if (_matchesExpectedNote(onsetMidi, _scoreNotes[i])) {
+      if (_scoreOnsets[i].notes.any(
+        (note) => _matchesExpectedNote(onsetMidi, note),
+      )) {
         return i;
       }
     }
     return -1;
   }
 
-  int? _findNoteIndexAtOrAfter(double currentTimeSeconds) {
-    for (var i = 0; i < _scoreNotes.length; i++) {
-      final note = _scoreNotes[i];
-      if (note.endTime >= currentTimeSeconds) {
+  int? _findOnsetIndexAtOrAfter(double currentTimeSeconds) {
+    for (var i = 0; i < _scoreOnsets.length; i++) {
+      final onset = _scoreOnsets[i];
+      if (onset.endTime >= currentTimeSeconds) {
         return i;
       }
     }
@@ -354,22 +382,35 @@ class FollowModeController {
   }
 
   void _resetFollowPosition(int noteIndex) {
-    _expectedNoteIndex = noteIndex;
+    _expectedOnsetIndex = noteIndex;
     _unmatchedCount = 0;
     _lastOnsetTimestamp = null;
-    _lastMatchedNoteIndex = null;
+    _lastMatchedOnsetIndex = null;
   }
 
   bool _isTimeInsideLongRestBefore(int noteIndex, double currentTimeSeconds) {
-    final nextNote = _scoreNotes[noteIndex];
-    if (currentTimeSeconds >= nextNote.startTime) {
+    final nextOnset = _scoreOnsets[noteIndex];
+    if (currentTimeSeconds >= nextOnset.startTime) {
       return false;
     }
 
-    final restStart = noteIndex == 0 ? 0.0 : _scoreNotes[noteIndex - 1].endTime;
-    final gap = nextNote.startTime - restStart;
+    final restStart = noteIndex == 0
+        ? 0.0
+        : _scoreOnsets[noteIndex - 1].endTime;
+    final gap = nextOnset.startTime - restStart;
     return currentTimeSeconds >= restStart &&
         gap >= _config.restThresholdSeconds;
+  }
+
+  bool _isTrailingChordNote(OnsetEvent onset) {
+    final lastTimestamp = _lastOnsetTimestamp;
+    final lastIndex = _lastMatchedOnsetIndex;
+    if (lastTimestamp == null || lastIndex == null) return false;
+    final elapsedMs = onset.timestamp.difference(lastTimestamp).inMilliseconds;
+    if (elapsedMs < 0 || elapsedMs > _config.chordInputWindowMs) return false;
+    return _scoreOnsets[lastIndex].notes.any(
+      (note) => _matchesExpectedNote(onset.midiNote, note),
+    );
   }
 
   /// EMA 平滑更新 speedFactor 并通知回调
@@ -402,5 +443,23 @@ class FollowModeController {
   /// 释放资源
   void dispose() {
     stop(notifyCallbacks: false);
+  }
+}
+
+class _ScoreOnset {
+  final int startTick;
+  final double startTime;
+  final List<MidiNote> notes;
+  double endTime;
+
+  _ScoreOnset(MidiNote note)
+    : startTick = note.startTick,
+      startTime = note.startTime,
+      notes = [note],
+      endTime = note.endTime;
+
+  void add(MidiNote note) {
+    notes.add(note);
+    if (note.endTime > endTime) endTime = note.endTime;
   }
 }

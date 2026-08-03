@@ -41,7 +41,7 @@ class SettingsPage extends StatelessWidget {
                     const SizedBox(height: 14),
                     _FollowSettingsCard(settings: settings),
                     const SizedBox(height: 14),
-                    const _PrivacyCard(),
+                    const _MidiInputCard(),
                     const SizedBox(height: 14),
                     _DiagnosticsCard(logger: DiagnosticLogger.instance),
                     const SizedBox(height: 14),
@@ -73,7 +73,7 @@ class _SettingsHeader extends StatelessWidget {
           Text('排练偏好', style: luxuryDisplayStyle(context, size: 34)),
           const SizedBox(height: 10),
           const Text(
-            '集中管理播放、音色和跟随参数。跟随设置会在下次开启时生效。',
+            '集中管理播放、音色和 USB MIDI 跟随参数。设置会在下次开启跟随时生效。',
             style: TextStyle(
               fontSize: 14,
               height: 1.5,
@@ -203,30 +203,8 @@ class _FollowSettingsCard extends StatelessWidget {
           const _SectionHeading(label: 'FOLLOW', title: '实时跟随'),
           const SizedBox(height: 14),
           _ValueSlider(
-            title: '音高可信度',
-            description: '越高越保守，可减少噪声误判。',
-            value: settings.microphoneMinPrecision,
-            min: 0.4,
-            max: 0.95,
-            divisions: 11,
-            valueText: settings.microphoneMinPrecision.toStringAsFixed(2),
-            onChanged: settings.setMicrophoneMinPrecision,
-          ),
-          const SizedBox(height: 16),
-          _ValueSlider(
-            title: '起拍音量阈值',
-            description: '越低越灵敏；环境嘈杂时调高。',
-            value: settings.onsetVolumeThreshold,
-            min: 0.0001,
-            max: 0.005,
-            divisions: 49,
-            valueText: settings.onsetVolumeThreshold.toStringAsFixed(4),
-            onChanged: settings.setOnsetVolumeThreshold,
-          ),
-          const SizedBox(height: 16),
-          _ValueSlider(
             title: '音符匹配容差',
-            description: '识别音高与谱面可相差的半音数。',
+            description: 'USB MIDI 默认精确匹配；调高会放宽错音判定。',
             value: settings.noteMatchTolerance.toDouble(),
             min: 0,
             max: 4,
@@ -236,8 +214,8 @@ class _FollowSettingsCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           _SettingsSwitchRow(
-            title: '允许八度误检',
-            description: '同名音跨八度也视为匹配，适合手机麦克风。',
+            title: '允许跨八度匹配',
+            description: '开启后，同名音跨八度也会被视为匹配。',
             value: settings.allowOctaveError,
             onChanged: (value) => settings.setAllowOctaveError(value: value),
           ),
@@ -280,8 +258,8 @@ class _FollowSettingsCard extends StatelessWidget {
   }
 }
 
-class _PrivacyCard extends StatelessWidget {
-  const _PrivacyCard();
+class _MidiInputCard extends StatelessWidget {
+  const _MidiInputCard();
 
   @override
   Widget build(BuildContext context) {
@@ -289,10 +267,10 @@ class _PrivacyCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionHeading(label: 'PRIVACY', title: '麦克风隐私'),
+          _SectionHeading(label: 'MIDI INPUT', title: '电子琴输入'),
           SizedBox(height: 12),
           Text(
-            '只在本机分析音高和起拍，不上传、不保存录音。关闭跟随后会释放麦克风。',
+            '当前 demo 仅使用 iOS USB MIDI。电子琴自行发声，App 接收按键并播放其余伴奏，不采集麦克风音频。',
             style: TextStyle(
               fontSize: 14,
               height: 1.5,

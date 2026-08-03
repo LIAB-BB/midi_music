@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../../core/follow/follow_mode_controller.dart';
 import '../../core/midi/midi_player.dart';
+import '../../core/midi_input/midi_input.dart';
 import '../theme/luxury_theme.dart';
 import 'player_helpers.dart';
 
@@ -60,7 +61,8 @@ class PerformanceConsole extends StatelessWidget {
   final bool isFollowMode;
   final FollowModeState followState;
   final double followSpeedFactor;
-  final int? melodyTrackIndex;
+  final Set<int> performerTrackIndices;
+  final MidiInputState midiInputState;
   final Future<void> Function() onToggleFollow;
 
   const PerformanceConsole({
@@ -69,7 +71,8 @@ class PerformanceConsole extends StatelessWidget {
     required this.isFollowMode,
     required this.followState,
     required this.followSpeedFactor,
-    required this.melodyTrackIndex,
+    required this.performerTrackIndices,
+    required this.midiInputState,
     required this.onToggleFollow,
   });
 
@@ -83,8 +86,15 @@ class PerformanceConsole extends StatelessWidget {
     final followNote = switch (followState) {
       FollowModeState.following => '伴奏正在跟随你的速度。',
       FollowModeState.waitingForOnset => '等待下一次起拍。',
-      FollowModeState.idle => isFollowMode ? '跟随已开启，等待输入。' : '手动排练模式。',
+      FollowModeState.idle =>
+        isFollowMode
+            ? '跟随已开启，等待电子琴输入。'
+            : midiInputState.isConnected
+            ? 'USB MIDI 已就绪，可开启跟随。'
+            : '请将电子琴通过 USB MIDI 连接到 iPhone。',
     };
+    final midiName = midiInputState.primaryDeviceName;
+    final midiConnected = midiInputState.isConnected;
 
     return LuxuryPanel(
       child: Column(
@@ -116,16 +126,58 @@ class PerformanceConsole extends StatelessWidget {
               color: LuxuryPalette.textMuted,
             ),
           ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color:
+                  (midiConnected ? LuxuryPalette.emerald : LuxuryPalette.ruby)
+                      .withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color:
+                    (midiConnected ? LuxuryPalette.emerald : LuxuryPalette.ruby)
+                        .withValues(alpha: 0.24),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  midiConnected
+                      ? CupertinoIcons.check_mark_circled_solid
+                      : CupertinoIcons.link,
+                  size: 17,
+                  color: midiConnected
+                      ? LuxuryPalette.emerald
+                      : LuxuryPalette.ruby,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    midiConnected
+                        ? 'USB MIDI · $midiName'
+                        : midiInputState.errorMessage ?? 'USB MIDI · 未检测到设备',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: LuxuryPalette.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: 18),
           Row(
             children: [
               Expanded(
                 child: ConsoleCard(
-                  label: '主旋律',
-                  value: melodyTrackIndex == null
+                  label: '电子琴声部',
+                  value: performerTrackIndices.isEmpty
                       ? '未指定'
-                      : 'Track ${melodyTrackIndex! + 1}',
-                  accent: melodyTrackIndex == null
+                      : '${performerTrackIndices.length} 条轨道',
+                  accent: performerTrackIndices.isEmpty
                       ? LuxuryPalette.ruby
                       : LuxuryPalette.goldBright,
                 ),

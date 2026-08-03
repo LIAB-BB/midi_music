@@ -135,6 +135,42 @@ void main() {
     controller.dispose();
   });
 
+  test('同一 tick 的钢琴和弦按一个起拍处理', () async {
+    final pitchInput = StreamController<PitchData>.broadcast();
+    final onsetDetector = OnsetDetector();
+    final controller = FollowModeController(
+      onsetDetector: onsetDetector,
+      config: const FollowModeConfig(maxMeasuredSpeedFactor: 2.5),
+    );
+    final speeds = <double>[];
+    controller.onSpeedChanged = speeds.add;
+    onsetDetector.attachPitchStream(pitchInput.stream);
+    controller.loadScore([
+      _note(60, start: 0, end: 0.3),
+      _note(64, start: 0, end: 0.5),
+      _note(67, start: 0, end: 0.4),
+      _note(62, start: 1, end: 1.2),
+    ]);
+    controller.start();
+
+    final start = DateTime(2026);
+    pitchInput.add(_pitch(67, start));
+    await pumpEventQueue();
+    pitchInput.add(_pitch(60, start.add(const Duration(milliseconds: 15))));
+    await pumpEventQueue();
+    pitchInput.add(_pitch(64, start.add(const Duration(milliseconds: 30))));
+    await pumpEventQueue();
+    pitchInput.add(_pitch(62, start.add(const Duration(milliseconds: 800))));
+    await pumpEventQueue();
+
+    expect(speeds, hasLength(1));
+    expect(speeds.single, closeTo(1.075, 0.0001));
+
+    await pitchInput.close();
+    onsetDetector.dispose();
+    controller.dispose();
+  });
+
   test('跳过中间音符后按上一次成功匹配音符计算速度', () async {
     final pitchInput = StreamController<PitchData>.broadcast();
     final onsetDetector = OnsetDetector();

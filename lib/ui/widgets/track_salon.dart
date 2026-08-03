@@ -8,7 +8,7 @@ import 'player_helpers.dart';
 /// 单条轨道磁贴
 class TrackTile extends StatelessWidget {
   final MidiTrackInfo track;
-  final bool isMelody;
+  final bool isPerformerTrack;
   final VoidCallback onToggleMute;
   final ValueChanged<double> onVolumeChanged;
   final VoidCallback onSetMelody;
@@ -16,7 +16,7 @@ class TrackTile extends StatelessWidget {
   const TrackTile({
     super.key,
     required this.track,
-    required this.isMelody,
+    required this.isPerformerTrack,
     required this.onToggleMute,
     required this.onVolumeChanged,
     required this.onSetMelody,
@@ -32,12 +32,12 @@ class TrackTile extends StatelessWidget {
       duration: const Duration(milliseconds: 220),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
-        color: isMelody
+        color: isPerformerTrack
             ? LuxuryPalette.gold.withValues(alpha: 0.08)
             : CupertinoColors.white.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: isMelody
+          color: isPerformerTrack
               ? LuxuryPalette.gold.withValues(alpha: 0.4)
               : LuxuryPalette.divider,
         ),
@@ -93,16 +93,16 @@ class TrackTile extends StatelessWidget {
                   vertical: 8,
                 ),
                 minimumSize: const Size(30, 30),
-                color: isMelody
+                color: isPerformerTrack
                     ? LuxuryPalette.gold.withValues(alpha: 0.16)
                     : CupertinoColors.white.withValues(alpha: 0.04),
                 borderRadius: BorderRadius.circular(999),
                 onPressed: onSetMelody,
                 child: Text(
-                  isMelody ? '主旋律' : '设为主旋律',
+                  isPerformerTrack ? '电子琴声部' : '加入电子琴声部',
                   style: TextStyle(
                     fontSize: 12,
-                    color: isMelody
+                    color: isPerformerTrack
                         ? LuxuryPalette.goldBright
                         : LuxuryPalette.textMuted,
                   ),
@@ -156,16 +156,16 @@ class TrackTile extends StatelessWidget {
   }
 }
 
-/// 轨道总谱：轨道列表、静音/音量/主旋律管理
+/// 轨道总谱：轨道列表、静音/音量和电子琴声部组管理
 class TrackSalon extends StatelessWidget {
   final MidiPlayerController player;
-  final int? melodyTrackIndex;
+  final Set<int> performerTrackIndices;
   final ValueChanged<int> onSetMelody;
 
   const TrackSalon({
     super.key,
     required this.player,
-    required this.melodyTrackIndex,
+    required this.performerTrackIndices,
     required this.onSetMelody,
   });
 
@@ -199,7 +199,7 @@ class TrackSalon extends StatelessWidget {
           Text('轨道', style: luxuryDisplayStyle(context, size: 28)),
           const SizedBox(height: 8),
           const Text(
-            '设置主旋律、静音和音量。',
+            '选择一个或多个由电子琴演奏的轨道；跟随时这些轨道会一起静音。',
             style: TextStyle(
               fontSize: 14,
               height: 1.45,
@@ -222,7 +222,7 @@ class TrackSalon extends StatelessWidget {
                 final track = tracks[index];
                 return TrackTile(
                   track: track,
-                  isMelody: track.index == melodyTrackIndex,
+                  isPerformerTrack: performerTrackIndices.contains(track.index),
                   onToggleMute: () => player.toggleTrackMute(track.index),
                   onVolumeChanged: (value) =>
                       player.setTrackVolume(track.index, value),

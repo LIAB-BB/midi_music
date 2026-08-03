@@ -201,16 +201,17 @@ void main() {
       _fmt0Midi([
         // tempo 120 BPM at tick 0 (500000 us/beat)
         0x00, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20,
-        // note on/off with 480 ticks = 1 beat = 0.5s at 120bpm
+        // 第一个 480 ticks = 1 beat = 0.5s at 120 BPM
         0x00, 0x90, 0x3C, 0x50,
-        0x00,
+        0x83,
+        0x60, // delta 480
         0xFF,
         0x51,
         0x03,
         0x0F,
         0x42,
         0x40, // tempo 60 BPM (1000000 us/beat)
-        0x82, 0x00, 0x80, 0x3C, 0x00, // note off after ~480 ticks
+        0x83, 0x60, 0x80, 0x3C, 0x00, // 再经过 480 ticks 后 note off
         0x00, 0xFF, 0x2F, 0x00,
       ]),
     );
@@ -218,7 +219,8 @@ void main() {
     expect(song.tempoChanges.length, 2);
     expect(song.tempoChanges[0].bpm, closeTo(120, 0.1));
     expect(song.tempoChanges[1].bpm, closeTo(60, 0.1));
-    expect(song.totalDuration, greaterThan(0));
+    expect(song.tempoChanges[1].tick, 480);
+    expect(song.totalDuration, closeTo(1.5, 0.0001));
   });
 
   test('无 tempo 事件时使用默认 120 BPM', () {

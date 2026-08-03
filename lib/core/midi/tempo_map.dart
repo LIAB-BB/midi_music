@@ -15,17 +15,51 @@ class TempoMap {
   TempoMap({
     required this.ticksPerBeat,
     required List<TempoChange> tempoChanges,
-  }) : _tempoChanges = List.from(tempoChanges) {
-    // 确保至少有一个默认 tempo（120 BPM）
-    if (_tempoChanges.isEmpty) {
+  }) : _tempoChanges = _normalizeTempoChanges(tempoChanges) {
+    if (ticksPerBeat <= 0) {
+      throw ArgumentError.value(
+        ticksPerBeat,
+        'ticksPerBeat',
+        'must be greater than zero',
+      );
+    }
+
+    // MIDI 在第一个 Set Tempo 之前使用默认 120 BPM。
+    if (_tempoChanges.isEmpty || _tempoChanges.first.tick > 0) {
       _tempoChanges.add(
         TempoChange(
           tick: 0,
           microsecondsPerBeat: 500000, // 120 BPM
         ),
       );
+      _tempoChanges.sort((a, b) => a.tick.compareTo(b.tick));
     }
     _buildSegmentTimes();
+  }
+
+  static List<TempoChange> _normalizeTempoChanges(
+    List<TempoChange> tempoChanges,
+  ) {
+    final byTick = <int, TempoChange>{};
+    for (final change in tempoChanges) {
+      if (change.tick < 0) {
+        throw ArgumentError.value(change.tick, 'tempo tick', 'must be >= 0');
+      }
+      if (change.microsecondsPerBeat <= 0) {
+        throw ArgumentError.value(
+          change.microsecondsPerBeat,
+          'microsecondsPerBeat',
+          'must be greater than zero',
+        );
+      }
+      // 同一 tick 出现多个 tempo 时，采用文件中最后出现的值。
+      byTick[change.tick] = TempoChange(
+        tick: change.tick,
+        microsecondsPerBeat: change.microsecondsPerBeat,
+      );
+    }
+
+    return byTick.values.toList()..sort((a, b) => a.tick.compareTo(b.tick));
   }
 
   /// 预计算每个 tempo 段的起始时间

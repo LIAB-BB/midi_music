@@ -207,13 +207,19 @@ class MidiTrackInfo {
   /// 轨道总时长（tick）
   int get durationTick {
     if (notes.isEmpty) return 0;
-    return notes.last.endTick;
+    return notes.fold(
+      0,
+      (maxEnd, note) => note.endTick > maxEnd ? note.endTick : maxEnd,
+    );
   }
 
   /// 轨道总时长（秒）
   double get duration {
     if (notes.isEmpty) return 0.0;
-    return notes.last.endTime;
+    return notes.fold(
+      0.0,
+      (maxEnd, note) => note.endTime > maxEnd ? note.endTime : maxEnd,
+    );
   }
 
   @override

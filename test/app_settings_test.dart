@@ -4,10 +4,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/settings/app_settings.dart';
 
 void main() {
+  test('USB MIDI 跟随默认使用精确音符匹配', () {
+    final settings = AppSettingsController(storage: _MemorySettingsStorage());
+
+    expect(settings.followModeConfig.noteMatchTolerance, 0);
+    expect(settings.followModeConfig.allowOctaveError, isFalse);
+  });
+
   test('加载设置时会裁剪到安全范围并生成跟随配置', () async {
     final settings = AppSettingsController(
       storage: _MemorySettingsStorage(
         initialValues: {
+          'schemaVersion': AppSettingsController.settingsSchemaVersion,
           'defaultPlaybackSpeed': 8.0,
           'microphoneMinPrecision': 1.0,
           'onsetVolumeThreshold': 0.00001,
@@ -35,6 +43,23 @@ void main() {
     expect(settings.onsetDetectorConfig.volumeThreshold, 0.0001);
     expect(settings.followModeConfig.allowOctaveError, isFalse);
     expect(settings.followModeConfig.noteMatchTolerance, 4);
+  });
+
+  test('旧版麦克风容错设置迁移为 USB MIDI 精确匹配', () async {
+    final settings = AppSettingsController(
+      storage: _MemorySettingsStorage(
+        initialValues: {
+          'schemaVersion': 1,
+          'noteMatchTolerance': 2,
+          'allowOctaveError': true,
+        },
+      ),
+    );
+
+    await settings.load();
+
+    expect(settings.noteMatchTolerance, 0);
+    expect(settings.allowOctaveError, isFalse);
   });
 
   test('更新设置会持久化，恢复默认会写回推荐值', () async {
