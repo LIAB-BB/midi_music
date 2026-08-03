@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/import/pdf_omr_client.dart';
 import '../../core/import/score_import_service.dart';
 import '../../core/midi/midi_player.dart';
 import '../../core/settings/app_settings.dart';
@@ -18,6 +20,20 @@ const _allCategory = '精选';
 const _scoreCategories = [_allCategory, '古典', '练习曲', '爵士', '电影', '流行', '四手联弹'];
 
 const _scoreCards = [
+  _ScoreCardData(
+    title: '钢琴四重奏 K.478',
+    composer: 'W. A. Mozart · USB MIDI Demo',
+    category: '古典',
+    level: '进阶',
+    duration: '8:00',
+    saves: 'Demo',
+    coverHeight: 252,
+    accent: Color(0xFF8B6F9E),
+    seed: 13,
+    assetPath: 'assets/midi/mozart_k478_piano_quartet.mid',
+    pdfPageAssetPrefix: 'assets/scores/mozart_k478_piano_part/page',
+    pdfPageCount: 21,
+  ),
   _ScoreCardData(
     title: '月光奏鸣曲 第一乐章',
     composer: 'Beethoven',
@@ -199,12 +215,28 @@ class _HomePageState extends State<HomePage> {
       );
     } catch (e) {
       if (!mounted) return;
-      _showError('无法解析 MIDI 文件: $e');
+      _showError('无法导入乐谱文件：${_describeImportError(e)}');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  String _describeImportError(Object error) {
+    if (error is OmrServiceException) {
+      return error.message;
+    }
+    if (error is UnsupportedError) {
+      return error.message?.toString() ?? '暂不支持这类乐谱格式。';
+    }
+    if (error is FileSystemException) {
+      return '找不到或无法读取选择的乐谱文件。';
+    }
+    if (error is FormatException) {
+      return '文件内容无法解析，请确认乐谱文件格式有效。';
+    }
+    return '请确认文件格式有效后重试。';
   }
 
   void _showError(String message) {
@@ -604,6 +636,13 @@ class _ScoreCard extends StatelessWidget {
                     children: [
                       _MiniTag(label: score.category, color: score.accent),
                       const SizedBox(width: 6),
+                      _MiniTag(
+                        label: score.assetPath == null ? '预览' : 'MIDI',
+                        color: score.assetPath == null
+                            ? LuxuryPalette.textSubtle
+                            : LuxuryPalette.goldBright,
+                      ),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           score.level,
@@ -744,7 +783,7 @@ class _SheetPreview extends StatelessWidget {
                     vertical: 5,
                   ),
                   child: Text(
-                    score.category,
+                    score.assetPath == null ? '仅预览' : 'MIDI 可用',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -1056,6 +1095,8 @@ class _ScoreCardData {
   final Color accent;
   final int seed;
   final String? assetPath;
+  final String? pdfPageAssetPrefix;
+  final int? pdfPageCount;
 
   const _ScoreCardData({
     required this.title,
@@ -1068,6 +1109,8 @@ class _ScoreCardData {
     required this.accent,
     required this.seed,
     this.assetPath,
+    this.pdfPageAssetPrefix,
+    this.pdfPageCount,
   });
 
   PracticeScoreMetadata toPracticeMetadata() {
@@ -1081,6 +1124,8 @@ class _ScoreCardData {
       accent: accent,
       seed: seed,
       assetPath: assetPath,
+      pdfPageAssetPrefix: pdfPageAssetPrefix,
+      pdfPageCount: pdfPageCount,
     );
   }
 }

@@ -10,11 +10,12 @@ const String omrServiceBaseUrlFromEnvironment = String.fromEnvironment(
 
 class OmrServiceException implements Exception {
   final String message;
+  final Object? cause;
 
-  const OmrServiceException(this.message);
+  const OmrServiceException(this.message, {this.cause});
 
   @override
-  String toString() => 'OmrServiceException: $message';
+  String toString() => message;
 }
 
 class HttpPdfToMusicXmlConverter implements PdfToMusicXmlConverter {
@@ -34,8 +35,10 @@ class HttpPdfToMusicXmlConverter implements PdfToMusicXmlConverter {
 
   @override
   Future<String> convert(File pdfFile) async {
-    final jobId = await _createJob(pdfFile);
-    return _waitForMusicXml(jobId);
+    return _wrapNetworkErrors(() async {
+      final jobId = await _createJob(pdfFile);
+      return _waitForMusicXml(jobId);
+    });
   }
 
   Future<String> _createJob(File pdfFile) async {
@@ -122,6 +125,28 @@ class HttpPdfToMusicXmlConverter implements PdfToMusicXmlConverter {
       throw OmrServiceException('MusicXML 下载失败：${response.statusCode} $body');
     }
     return body;
+  }
+
+  Future<T> _wrapNetworkErrors<T>(Future<T> Function() request) async {
+    try {
+      return await request();
+    } on OmrServiceException {
+      rethrow;
+    } on TimeoutException catch (error) {
+      throw OmrServiceException(
+        'PDF 识谱服务响应超时，请检查网络是否稳定，或换一份页数更少、更清晰的 PDF 后重试。',
+        cause: error,
+      );
+    } on SocketException catch (error) {
+      throw OmrServiceException(
+        'PDF 识谱服务连接中断，请稍后重试；如果多次出现，请检查 OMR 服务是否重启或代理是否稳定。',
+        cause: error,
+      );
+    } on HttpException catch (error) {
+      throw OmrServiceException('PDF 识谱服务连接失败，请检查服务地址和网络。', cause: error);
+    } on FormatException catch (error) {
+      throw OmrServiceException('PDF 识谱服务返回内容异常，请稍后重试。', cause: error);
+    }
   }
 
   Uri _resolve(String path) {

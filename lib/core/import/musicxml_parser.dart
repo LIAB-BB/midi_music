@@ -153,28 +153,30 @@ class MusicXmlParser {
               channel: channel,
             );
             if (parsedNote.note != null) {
-              notes.add(parsedNote.note!);
+              final note = parsedNote.note!;
+              notes.add(note);
+              maxTick = math.max(maxTick, note.endTick);
               events
                 ..add(
                   TimelineEvent(
                     type: MidiEventType.noteOn,
-                    tick: parsedNote.note!.startTick,
+                    tick: note.startTick,
                     channel: channel,
                     trackIndex: trackIndex,
-                    data1: parsedNote.note!.noteNumber,
-                    data2: parsedNote.note!.velocity,
+                    data1: note.noteNumber,
+                    data2: note.velocity,
                   ),
                 )
                 ..add(
                   TimelineEvent(
                     type: MidiEventType.noteOff,
-                    tick: parsedNote.note!.endTick,
+                    tick: note.endTick,
                     channel: channel,
                     trackIndex: trackIndex,
-                    data1: parsedNote.note!.noteNumber,
+                    data1: note.noteNumber,
                   ),
                 );
-              previousNoteStartTick = parsedNote.note!.startTick;
+              previousNoteStartTick = note.startTick;
             }
             if (parsedNote.advanceTick > 0) {
               currentTick += parsedNote.advanceTick;

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -8,7 +7,11 @@ import 'package:provider/provider.dart';
 import '../../core/midi/midi_parser.dart';
 import '../../core/midi/midi_player.dart';
 import '../../core/settings/app_settings.dart';
+import '../../models/midi_track.dart';
+import '../widgets/midi_piano_roll.dart';
+import '../widgets/pdf_score_viewer.dart';
 import '../widgets/player_helpers.dart';
+import 'player_page.dart';
 import 'settings_page.dart';
 
 class PracticeScoreMetadata {
@@ -21,6 +24,8 @@ class PracticeScoreMetadata {
   final Color accent;
   final int seed;
   final String? assetPath;
+  final String? pdfPageAssetPrefix;
+  final int? pdfPageCount;
 
   const PracticeScoreMetadata({
     required this.title,
@@ -32,7 +37,12 @@ class PracticeScoreMetadata {
     required this.accent,
     required this.seed,
     this.assetPath,
+    this.pdfPageAssetPrefix,
+    this.pdfPageCount,
   });
+
+  bool get hasPdfScore =>
+      pdfPageAssetPrefix != null && pdfPageCount != null && pdfPageCount! > 0;
 }
 
 class ScorePracticePage extends StatefulWidget {
@@ -46,15 +56,18 @@ class ScorePracticePage extends StatefulWidget {
 
 class _ScorePracticePageState extends State<ScorePracticePage> {
   final MidiFileParser _parser = MidiFileParser();
-
   var _isLoadingScore = false;
-  var _isPreviewPlaying = false;
-  var _tempoFactor = 1.0;
-  var _loopEnabled = false;
-  var _annotationsVisible = true;
-  var _aiTempoEnabled = false;
 
-  /// 当前曲目是否已加载到全局播放器（按 songId 区分，避免误判其他曲目）。
+  @override
+  void initState() {
+    super.initState();
+    if (widget.score.assetPath != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_loadAssetScore());
+      });
+    }
+  }
+
   bool _isScoreLoaded(MidiPlayerController player) {
     return player.songData != null &&
         player.currentSongId == widget.score.title;
@@ -62,47 +75,37 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
 
   Future<bool> _loadAssetScore() async {
     final assetPath = widget.score.assetPath;
-    if (assetPath == null) {
-      _showAlert('曲库资源未接入', '这首曲目暂时只有谱面预览，请先导入 MIDI 文件排练。');
-      return false;
-    }
+    if (assetPath == null) return false;
+
+    final player = context.read<MidiPlayerController>();
+    if (_isScoreLoaded(player)) return true;
+    if (_isLoadingScore) return false;
 
     setState(() => _isLoadingScore = true);
-    var loaded = false;
     try {
       final data = await rootBundle.load(assetPath);
-      final bytes = data.buffer.asUint8List();
       final song = _parser.parseBytes(
-        bytes,
+        data.buffer.asUint8List(),
         fileName: assetPath.split('/').last,
       );
       if (!mounted) return false;
 
-      final player = context.read<MidiPlayerController>();
       final settings = context.read<AppSettingsController>();
       player.loadSong(song, songId: widget.score.title);
       player.setSpeed(settings.defaultPlaybackSpeed);
-      setState(() => _tempoFactor = player.playbackSpeed);
-      loaded = true;
+      return true;
     } catch (error) {
-      if (!mounted) return false;
-      _showAlert('载入失败', '无法载入内置 MIDI：$error');
-    } finally {
       if (mounted) {
-        setState(() => _isLoadingScore = false);
+        _showAlert('载入失败', '无法载入内置 MIDI：$error');
       }
+      return false;
+    } finally {
+      if (mounted) setState(() => _isLoadingScore = false);
     }
-    return loaded;
   }
 
   Future<void> _togglePlayback(MidiPlayerController player) async {
-    // 若当前曲目尚未加载（或加载的是别的曲子），先把这首加载进来再播放，
-    // 否则会出现「显示已载入却没声音 / 播放成上一首」的问题。
     if (!_isScoreLoaded(player)) {
-      if (widget.score.assetPath == null) {
-        setState(() => _isPreviewPlaying = !_isPreviewPlaying);
-        return;
-      }
       final loaded = await _loadAssetScore();
       if (!loaded || !mounted) return;
     }
@@ -118,15 +121,25 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   }
 
   void _seek(MidiPlayerController player, double value) {
-    if (player.songData == null) return;
-    player.seekTo(value * player.totalDuration);
+    if (_isScoreLoaded(player)) {
+      player.seekTo(value * player.totalDuration);
+    }
   }
 
   void _setTempo(MidiPlayerController player, double value) {
-    setState(() => _tempoFactor = value);
-    if (player.songData != null) {
-      player.setSpeed(value);
+    if (_isScoreLoaded(player)) player.setSpeed(value);
+  }
+
+  void _openPlayer(MidiPlayerController player) {
+    if (!_isScoreLoaded(player)) {
+      _showAlert('请先载入 MIDI', '曲目载入后才能进入 USB MIDI 演奏台。');
+      return;
     }
+    unawaited(
+      Navigator.of(
+        context,
+      ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())),
+    );
   }
 
   void _showAlert(String title, String message) {
@@ -149,7 +162,6 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   @override
   Widget build(BuildContext context) {
     final score = widget.score;
-
     return CupertinoPageScaffold(
       backgroundColor: const Color(0xFFF5EBD7),
       navigationBar: CupertinoNavigationBar(
@@ -180,10 +192,10 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       child: Consumer<MidiPlayerController>(
         builder: (context, player, _) {
           final hasLoadedSong = _isScoreLoaded(player);
+          final song = hasLoadedSong ? player.songData : null;
           final progress = hasLoadedSong && player.totalDuration > 0
               ? (player.currentTime / player.totalDuration).clamp(0.0, 1.0)
-              : (_isPreviewPlaying ? 0.18 : 0.0);
-          final tempo = hasLoadedSong ? player.playbackSpeed : _tempoFactor;
+              : 0.0;
 
           return Stack(
             children: [
@@ -201,10 +213,10 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
                       ),
                     ),
                     SliverToBoxAdapter(
-                      child: _ScorePaper(
+                      child: _ScoreDocumentView(
                         score: score,
-                        progress: progress,
-                        annotationsVisible: _annotationsVisible,
+                        song: song,
+                        currentTime: hasLoadedSong ? player.currentTime : 0,
                       ),
                     ),
                     SliverToBoxAdapter(
@@ -219,22 +231,10 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
                       padding: const EdgeInsets.fromLTRB(18, 14, 18, 142),
                       sliver: SliverToBoxAdapter(
                         child: _PracticeOptions(
-                          tempo: tempo,
-                          aiTempoEnabled: _aiTempoEnabled,
-                          loopEnabled: _loopEnabled,
-                          annotationsVisible: _annotationsVisible,
+                          tempo: hasLoadedSong ? player.playbackSpeed : 1.0,
+                          enabled: hasLoadedSong,
+                          currentBpm: hasLoadedSong ? player.currentBpm : null,
                           onTempoChanged: (value) => _setTempo(player, value),
-                          onToggleAiTempo: () {
-                            setState(() => _aiTempoEnabled = !_aiTempoEnabled);
-                          },
-                          onToggleLoop: () {
-                            setState(() => _loopEnabled = !_loopEnabled);
-                          },
-                          onToggleAnnotations: () {
-                            setState(
-                              () => _annotationsVisible = !_annotationsVisible,
-                            );
-                          },
                         ),
                       ),
                     ),
@@ -246,20 +246,10 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
                 right: 0,
                 bottom: 0,
                 child: _PracticeToolbar(
-                  isPlaying: player.isPlaying || _isPreviewPlaying,
-                  loopEnabled: _loopEnabled,
-                  annotationsVisible: _annotationsVisible,
-                  aiTempoEnabled: _aiTempoEnabled,
+                  isPlaying: hasLoadedSong && player.isPlaying,
+                  canOpenPlayer: hasLoadedSong,
                   onPlayPause: () => _togglePlayback(player),
-                  onToggleLoop: () {
-                    setState(() => _loopEnabled = !_loopEnabled);
-                  },
-                  onToggleAnnotations: () {
-                    setState(() => _annotationsVisible = !_annotationsVisible);
-                  },
-                  onToggleAiTempo: () {
-                    setState(() => _aiTempoEnabled = !_aiTempoEnabled);
-                  },
+                  onOpenPlayer: () => _openPlayer(player),
                 ),
               ),
             ],
@@ -274,7 +264,7 @@ class _PracticeHeader extends StatelessWidget {
   final PracticeScoreMetadata score;
   final bool hasLoadedSong;
   final bool isLoading;
-  final VoidCallback onLoadAssetScore;
+  final Future<bool> Function() onLoadAssetScore;
 
   const _PracticeHeader({
     required this.score,
@@ -322,6 +312,7 @@ class _PracticeHeader extends StatelessWidget {
           ),
           const SizedBox(width: 16),
           _LoadScoreButton(
+            hasAsset: score.assetPath != null,
             hasLoadedSong: hasLoadedSong,
             isLoading: isLoading,
             onPressed: onLoadAssetScore,
@@ -333,11 +324,13 @@ class _PracticeHeader extends StatelessWidget {
 }
 
 class _LoadScoreButton extends StatelessWidget {
+  final bool hasAsset;
   final bool hasLoadedSong;
   final bool isLoading;
-  final VoidCallback onPressed;
+  final Future<bool> Function() onPressed;
 
   const _LoadScoreButton({
+    required this.hasAsset,
     required this.hasLoadedSong,
     required this.isLoading,
     required this.onPressed,
@@ -345,12 +338,15 @@ class _LoadScoreButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final label = !hasAsset ? '无 MIDI' : (hasLoadedSong ? '已载入' : '载入');
     return CupertinoButton(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       minimumSize: const Size(0, 0),
       borderRadius: BorderRadius.circular(999),
-      color: hasLoadedSong ? const Color(0xFF385F4D) : const Color(0xFF2D241B),
-      onPressed: isLoading ? null : onPressed,
+      color: hasAsset
+          ? (hasLoadedSong ? const Color(0xFF385F4D) : const Color(0xFF2D241B))
+          : const Color(0xFF9A8971),
+      onPressed: !hasAsset || isLoading ? null : () => unawaited(onPressed()),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -358,15 +354,17 @@ class _LoadScoreButton extends StatelessWidget {
             const CupertinoActivityIndicator(radius: 8)
           else
             Icon(
-              hasLoadedSong
-                  ? CupertinoIcons.check_mark_circled_solid
-                  : CupertinoIcons.arrow_down_doc_fill,
+              hasAsset
+                  ? (hasLoadedSong
+                        ? CupertinoIcons.check_mark_circled_solid
+                        : CupertinoIcons.arrow_down_doc_fill)
+                  : CupertinoIcons.exclamationmark_circle,
               size: 15,
               color: CupertinoColors.white,
             ),
           const SizedBox(width: 6),
           Text(
-            hasLoadedSong ? '已载入' : '载入',
+            label,
             style: const TextStyle(fontSize: 12, color: CupertinoColors.white),
           ),
         ],
@@ -375,15 +373,15 @@ class _LoadScoreButton extends StatelessWidget {
   }
 }
 
-class _ScorePaper extends StatelessWidget {
+class _ScoreDocumentView extends StatelessWidget {
   final PracticeScoreMetadata score;
-  final double progress;
-  final bool annotationsVisible;
+  final MidiSongData? song;
+  final double currentTime;
 
-  const _ScorePaper({
+  const _ScoreDocumentView({
     required this.score,
-    required this.progress,
-    required this.annotationsVisible,
+    required this.song,
+    required this.currentTime,
   });
 
   @override
@@ -393,7 +391,7 @@ class _ScorePaper extends StatelessWidget {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: const Color(0xFFF9F1DF),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
               color: CupertinoColors.black.withValues(alpha: 0.12),
@@ -402,17 +400,76 @@ class _ScorePaper extends StatelessWidget {
             ),
           ],
         ),
-        child: AspectRatio(
-          aspectRatio: 0.72,
-          child: CustomPaint(
-            painter: _PracticeScorePainter(
-              title: score.title,
-              composer: score.composer,
-              accent: score.accent,
-              seed: score.seed,
-              progress: progress,
-              annotationsVisible: annotationsVisible,
-            ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: score.hasPdfScore
+              ? AspectRatio(
+                  aspectRatio: 595 / 842,
+                  child: PdfScoreViewer(
+                    pageAssetPrefix: score.pdfPageAssetPrefix!,
+                    pageCount: score.pdfPageCount!,
+                    label: '公版 PDF 钢琴分谱',
+                  ),
+                )
+              : AspectRatio(
+                  aspectRatio: 1.16,
+                  child: song == null
+                      ? _MissingMidiView(hasAsset: score.assetPath != null)
+                      : MidiPianoRoll(
+                          song: song!,
+                          currentTime: currentTime,
+                          accent: score.accent,
+                        ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MissingMidiView extends StatelessWidget {
+  final bool hasAsset;
+
+  const _MissingMidiView({required this.hasAsset});
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFE9DDC6),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFD3C09B)),
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                hasAsset
+                    ? CupertinoIcons.arrow_down_doc
+                    : CupertinoIcons.exclamationmark_triangle,
+                color: const Color(0xFF715B41),
+                size: 30,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                hasAsset ? '正在读取真实 MIDI 音符…' : '此卡片尚未接入真实 MIDI',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF443421),
+                ),
+              ),
+              const SizedBox(height: 7),
+              const Text(
+                '不会再以示意谱面替代真实曲目。',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: Color(0xFF7E6C55)),
+              ),
+            ],
           ),
         ),
       ),
@@ -436,7 +493,6 @@ class _PracticeTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasSong = isScoreLoaded && player.totalDuration > 0;
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
       child: Column(
@@ -457,7 +513,7 @@ class _PracticeTimeline extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                hasSong ? formatClock(player.totalDuration) : '预览模式',
+                hasSong ? formatClock(player.totalDuration) : '等待 MIDI',
                 style: const TextStyle(fontSize: 12, color: Color(0xFF7E6C55)),
               ),
             ],
@@ -470,23 +526,15 @@ class _PracticeTimeline extends StatelessWidget {
 
 class _PracticeOptions extends StatelessWidget {
   final double tempo;
-  final bool aiTempoEnabled;
-  final bool loopEnabled;
-  final bool annotationsVisible;
+  final bool enabled;
+  final double? currentBpm;
   final ValueChanged<double> onTempoChanged;
-  final VoidCallback onToggleAiTempo;
-  final VoidCallback onToggleLoop;
-  final VoidCallback onToggleAnnotations;
 
   const _PracticeOptions({
     required this.tempo,
-    required this.aiTempoEnabled,
-    required this.loopEnabled,
-    required this.annotationsVisible,
+    required this.enabled,
+    required this.currentBpm,
     required this.onTempoChanged,
-    required this.onToggleAiTempo,
-    required this.onToggleLoop,
-    required this.onToggleAnnotations,
   });
 
   @override
@@ -503,14 +551,21 @@ class _PracticeOptions extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '排练控制',
+              '真实 MIDI 数据',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF2A2118),
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 5),
+            Text(
+              enabled
+                  ? '播放位置会驱动卷帘高亮与时间窗口。当前 ${currentBpm!.toStringAsFixed(0)} BPM。'
+                  : '载入 MIDI 后将显示音符、时值、轨道和真实播放位置。',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF7E6C55)),
+            ),
+            const SizedBox(height: 12),
             Row(
               children: [
                 const Icon(CupertinoIcons.metronome, size: 18),
@@ -530,33 +585,8 @@ class _PracticeOptions extends StatelessWidget {
                     max: 1.5,
                     divisions: 20,
                     activeColor: const Color(0xFF5C4A36),
-                    onChanged: onTempoChanged,
+                    onChanged: enabled ? onTempoChanged : null,
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _OptionChip(
-                  label: 'AI 跟随',
-                  icon: CupertinoIcons.sparkles,
-                  selected: aiTempoEnabled,
-                  onPressed: onToggleAiTempo,
-                ),
-                _OptionChip(
-                  label: '循环',
-                  icon: CupertinoIcons.repeat,
-                  selected: loopEnabled,
-                  onPressed: onToggleLoop,
-                ),
-                _OptionChip(
-                  label: '标注',
-                  icon: CupertinoIcons.pencil,
-                  selected: annotationsVisible,
-                  onPressed: onToggleAnnotations,
                 ),
               ],
             ),
@@ -567,68 +597,17 @@ class _PracticeOptions extends StatelessWidget {
   }
 }
 
-class _OptionChip extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  const _OptionChip({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-      minimumSize: const Size(0, 0),
-      borderRadius: BorderRadius.circular(999),
-      color: selected ? const Color(0xFF2D241B) : const Color(0xFFE8DCC6),
-      onPressed: onPressed,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: selected ? CupertinoColors.white : const Color(0xFF4B3A28),
-          ),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: selected ? CupertinoColors.white : const Color(0xFF4B3A28),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _PracticeToolbar extends StatelessWidget {
   final bool isPlaying;
-  final bool loopEnabled;
-  final bool annotationsVisible;
-  final bool aiTempoEnabled;
+  final bool canOpenPlayer;
   final VoidCallback onPlayPause;
-  final VoidCallback onToggleLoop;
-  final VoidCallback onToggleAnnotations;
-  final VoidCallback onToggleAiTempo;
+  final VoidCallback onOpenPlayer;
 
   const _PracticeToolbar({
     required this.isPlaying,
-    required this.loopEnabled,
-    required this.annotationsVisible,
-    required this.aiTempoEnabled,
+    required this.canOpenPlayer,
     required this.onPlayPause,
-    required this.onToggleLoop,
-    required this.onToggleAnnotations,
-    required this.onToggleAiTempo,
+    required this.onOpenPlayer,
   });
 
   @override
@@ -650,29 +629,11 @@ class _PracticeToolbar extends StatelessWidget {
           height: 78,
           child: Row(
             children: [
-              _ToolbarItem(
+              const _ToolbarItem(
                 icon: CupertinoIcons.music_note_list,
-                label: '谱面',
+                label: '真实 MIDI',
                 selected: true,
-                onPressed: () {},
-              ),
-              _ToolbarItem(
-                icon: CupertinoIcons.hand_draw,
-                label: '指法',
-                selected: false,
-                onPressed: () {},
-              ),
-              _ToolbarItem(
-                icon: CupertinoIcons.arrow_up_arrow_down,
-                label: '移调',
-                selected: false,
-                onPressed: () {},
-              ),
-              _ToolbarItem(
-                icon: CupertinoIcons.repeat,
-                label: '循环',
-                selected: loopEnabled,
-                onPressed: onToggleLoop,
+                onPressed: null,
               ),
               CupertinoButton(
                 padding: EdgeInsets.zero,
@@ -703,28 +664,10 @@ class _PracticeToolbar extends StatelessWidget {
                 ),
               ),
               _ToolbarItem(
-                icon: CupertinoIcons.pencil,
-                label: '标注',
-                selected: annotationsVisible,
-                onPressed: onToggleAnnotations,
-              ),
-              _ToolbarItem(
-                icon: CupertinoIcons.sparkles,
-                label: '跟随',
-                selected: aiTempoEnabled,
-                onPressed: onToggleAiTempo,
-              ),
-              _ToolbarItem(
-                icon: CupertinoIcons.doc_text,
-                label: '视奏',
-                selected: false,
-                onPressed: () {},
-              ),
-              _ToolbarItem(
-                icon: CupertinoIcons.ellipsis,
-                label: '更多',
-                selected: false,
-                onPressed: () {},
+                icon: CupertinoIcons.music_note_2,
+                label: '演奏台',
+                selected: canOpenPlayer,
+                onPressed: canOpenPlayer ? onOpenPlayer : null,
               ),
             ],
           ),
@@ -738,7 +681,7 @@ class _ToolbarItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool selected;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   const _ToolbarItem({
     required this.icon,
@@ -782,411 +725,3 @@ class _ToolbarItem extends StatelessWidget {
     );
   }
 }
-
-class _PracticeScorePainter extends CustomPainter {
-  final String title;
-  final String composer;
-  final Color accent;
-  final int seed;
-  final double progress;
-  final bool annotationsVisible;
-
-  const _PracticeScorePainter({
-    required this.title,
-    required this.composer,
-    required this.accent,
-    required this.seed,
-    required this.progress,
-    required this.annotationsVisible,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final ink = Paint()..color = const Color(0xFF15110D);
-    final staff = Paint()
-      ..color = const Color(0xFF15110D)
-      ..strokeWidth = math.max(0.85, size.width / 760);
-    final thin = Paint()
-      ..color = const Color(0xFF15110D).withValues(alpha: 0.72)
-      ..strokeWidth = math.max(0.55, size.width / 980);
-    final cursorPaint = Paint()
-      ..color = accent.withValues(alpha: 0.26)
-      ..style = PaintingStyle.fill;
-    final annotationPaint = Paint()
-      ..color = accent.withValues(alpha: 0.2)
-      ..style = PaintingStyle.fill;
-
-    _drawTitle(canvas, size);
-
-    final left = size.width * 0.08;
-    final right = size.width * 0.95;
-    final firstTop = size.height * 0.18;
-    final systemGap = size.height * 0.205;
-    final staffGap = size.height * 0.055;
-    final lineGap = size.height * 0.0092;
-    final clefWidth = size.width * 0.06;
-    final keySigWidth = size.width * 0.085;
-    const systemCount = 4;
-    final cursorSystem = (progress * systemCount).floor().clamp(
-      0,
-      systemCount - 1,
-    );
-    final cursorLocal = (progress * systemCount - cursorSystem).clamp(0.0, 1.0);
-
-    for (var system = 0; system < systemCount; system += 1) {
-      final top = firstTop + system * systemGap;
-      final trebleTop = top;
-      final bassTop = top + staffGap;
-      final startX = left + size.width * 0.045;
-      // 谱号 + 调号占据起始一段，音符/小节线从这里之后才开始，避免互相重叠。
-      final contentLeft = startX + clefWidth + keySigWidth;
-      final span = right - contentLeft;
-
-      _drawBrace(canvas, left, trebleTop, bassTop + lineGap * 4, thin);
-      _drawTrebleClef(canvas, startX, trebleTop, lineGap, ink);
-      _drawBassClef(canvas, startX, bassTop, lineGap, ink);
-      _drawKeySignature(canvas, startX + clefWidth, trebleTop, ink);
-      _drawKeySignature(canvas, startX + clefWidth, bassTop, ink);
-
-      for (var line = 0; line < 5; line += 1) {
-        final trebleY = trebleTop + line * lineGap;
-        final bassY = bassTop + line * lineGap;
-        canvas.drawLine(Offset(startX, trebleY), Offset(right, trebleY), staff);
-        canvas.drawLine(Offset(startX, bassY), Offset(right, bassY), staff);
-      }
-
-      final barCount = system == 0 ? 5 : 4;
-      for (var bar = 0; bar <= barCount; bar += 1) {
-        final x = contentLeft + span * bar / barCount;
-        canvas.drawLine(
-          Offset(x, trebleTop),
-          Offset(x, bassTop + lineGap * 4),
-          thin,
-        );
-      }
-
-      if (system == cursorSystem) {
-        final x = contentLeft + span * cursorLocal;
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(
-              x - size.width * 0.006,
-              trebleTop - lineGap * 1.6,
-              size.width * 0.018,
-              staffGap + lineGap * 7.2,
-            ),
-            Radius.circular(size.width * 0.006),
-          ),
-          cursorPaint,
-        );
-      }
-
-      if (annotationsVisible && system < 3) {
-        final x = contentLeft + span * (0.18 + system * 0.12);
-        canvas.drawRRect(
-          RRect.fromRectAndRadius(
-            Rect.fromLTWH(x, bassTop - lineGap * 1.4, 18, 18),
-            const Radius.circular(4),
-          ),
-          annotationPaint,
-        );
-      }
-
-      _drawNotes(
-        canvas,
-        contentLeft,
-        right,
-        trebleTop,
-        lineGap,
-        system,
-        true,
-        ink,
-      );
-      _drawNotes(
-        canvas,
-        contentLeft,
-        right,
-        bassTop,
-        lineGap,
-        system,
-        false,
-        ink,
-      );
-
-      _drawMeasureNumber(canvas, system, left * 0.72, trebleTop);
-    }
-  }
-
-  void _drawTitle(Canvas canvas, Size size) {
-    _drawText(
-      canvas,
-      title,
-      Offset(size.width / 2, size.height * 0.055),
-      fontSize: math.max(18, size.width * 0.036),
-      color: const Color(0xFF15110D),
-      anchor: _TextAnchor.center,
-      weight: FontWeight.w600,
-    );
-    _drawText(
-      canvas,
-      composer,
-      Offset(size.width * 0.92, size.height * 0.105),
-      fontSize: math.max(10, size.width * 0.017),
-      color: const Color(0xFF2B231B),
-      anchor: _TextAnchor.right,
-    );
-    _drawText(
-      canvas,
-      'Allegretto',
-      Offset(size.width * 0.18, size.height * 0.155),
-      fontSize: math.max(11, size.width * 0.018),
-      color: const Color(0xFF15110D),
-      anchor: _TextAnchor.left,
-      weight: FontWeight.w600,
-    );
-  }
-
-  void _drawBrace(
-    Canvas canvas,
-    double x,
-    double top,
-    double bottom,
-    Paint paint,
-  ) {
-    final path = Path()
-      ..moveTo(x + 10, top)
-      ..cubicTo(x - 8, top + 18, x - 8, bottom - 18, x + 10, bottom);
-    canvas.drawPath(path, paint..style = PaintingStyle.stroke);
-  }
-
-  /// 矢量高音谱号（G 谱号）。用绘制代替 Unicode 字形，避免 iOS 缺字显示成 "?"。
-  void _drawTrebleClef(
-    Canvas canvas,
-    double x,
-    double top,
-    double gap,
-    Paint ink,
-  ) {
-    final stroke = Paint()
-      ..color = ink.color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(1.1, gap * 0.5)
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    final cx = x + gap * 1.4;
-    final path = Path()
-      ..moveTo(cx + gap * 0.8, top - gap * 0.4)
-      ..cubicTo(
-        cx - gap * 1.3,
-        top - gap * 0.2,
-        cx - gap * 1.2,
-        top + gap * 2.4,
-        cx + gap * 0.3,
-        top + gap * 2.7,
-      )
-      ..cubicTo(
-        cx + gap * 1.7,
-        top + gap * 3.0,
-        cx + gap * 1.4,
-        top + gap * 0.7,
-        cx - gap * 0.2,
-        top + gap * 1.0,
-      )
-      ..cubicTo(
-        cx - gap * 1.0,
-        top + gap * 1.2,
-        cx - gap * 0.3,
-        top + gap * 3.6,
-        cx + gap * 0.4,
-        top + gap * 4.2,
-      )
-      ..cubicTo(
-        cx + gap * 1.0,
-        top + gap * 4.7,
-        cx + gap * 0.5,
-        top + gap * 5.4,
-        cx - gap * 0.2,
-        top + gap * 5.1,
-      );
-    canvas.drawPath(path, stroke);
-    canvas.drawCircle(
-      Offset(cx + gap * 0.15, top + gap * 1.85),
-      gap * 0.55,
-      ink,
-    );
-  }
-
-  /// 矢量低音谱号（F 谱号）：弯钩 + 两个点。
-  void _drawBassClef(
-    Canvas canvas,
-    double x,
-    double top,
-    double gap,
-    Paint ink,
-  ) {
-    final stroke = Paint()
-      ..color = ink.color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(1.1, gap * 0.55)
-      ..strokeCap = StrokeCap.round;
-    final sx = x + gap * 0.6;
-    final path = Path()
-      ..moveTo(sx, top + gap * 0.7)
-      ..cubicTo(
-        sx + gap * 2.4,
-        top - gap * 0.2,
-        sx + gap * 2.8,
-        top + gap * 2.4,
-        sx + gap * 0.9,
-        top + gap * 3.1,
-      )
-      ..cubicTo(
-        sx + gap * 0.2,
-        top + gap * 3.4,
-        sx - gap * 0.3,
-        top + gap * 3.0,
-        sx - gap * 0.1,
-        top + gap * 2.5,
-      );
-    canvas.drawPath(path, stroke);
-    canvas.drawCircle(Offset(sx + gap * 0.4, top + gap * 0.7), gap * 0.5, ink);
-    canvas.drawCircle(Offset(sx + gap * 3.1, top + gap * 0.7), gap * 0.3, ink);
-    canvas.drawCircle(Offset(sx + gap * 3.1, top + gap * 1.7), gap * 0.3, ink);
-  }
-
-  /// 矢量四分休止符，替换 Unicode '𝄽'（同样会缺字成 "?"）。
-  void _drawRest(Canvas canvas, double cx, double midY, double gap, Paint ink) {
-    final stroke = Paint()
-      ..color = ink.color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = math.max(1.2, gap * 0.7)
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    final path = Path()
-      ..moveTo(cx - gap * 0.6, midY - gap * 1.6)
-      ..lineTo(cx + gap * 0.5, midY - gap * 0.4)
-      ..lineTo(cx - gap * 0.5, midY + gap * 0.6)
-      ..lineTo(cx + gap * 0.6, midY + gap * 1.8);
-    canvas.drawPath(path, stroke);
-  }
-
-  void _drawKeySignature(Canvas canvas, double x, double top, Paint paint) {
-    for (var i = 0; i < 3; i += 1) {
-      _drawText(
-        canvas,
-        '#',
-        Offset(x + 12 + i * 9, top - 8 + (i.isEven ? 0 : 6)),
-        fontSize: 17,
-        color: paint.color,
-        anchor: _TextAnchor.left,
-        weight: FontWeight.w700,
-      );
-    }
-  }
-
-  void _drawMeasureNumber(Canvas canvas, int system, double x, double y) {
-    final number = switch (system) {
-      0 => '',
-      1 => '5',
-      2 => '8',
-      _ => '11',
-    };
-    if (number.isEmpty) return;
-    _drawText(
-      canvas,
-      number,
-      Offset(x, y - 8),
-      fontSize: 12,
-      color: const Color(0xFF15110D),
-      anchor: _TextAnchor.left,
-    );
-  }
-
-  void _drawNotes(
-    Canvas canvas,
-    double left,
-    double right,
-    double top,
-    double gap,
-    int system,
-    bool treble,
-    Paint ink,
-  ) {
-    final width = right - left;
-    final noteCount = treble ? 14 : 8;
-    for (var i = 0; i < noteCount; i += 1) {
-      final t = (i + 0.5) / noteCount;
-      final x = left + width * t;
-      final step = (i * 2 + seed + system + (treble ? 1 : 4)) % 5;
-      final y = top + gap * step;
-      final isRest = !treble && i % 4 == 1;
-      if (isRest) {
-        _drawRest(canvas, x, top + gap * 2, gap, ink);
-        continue;
-      }
-
-      canvas.drawOval(
-        Rect.fromCenter(center: Offset(x, y), width: 9.0, height: 6.2),
-        ink,
-      );
-      // 高音谱表符干一律朝上、低音谱表朝下，避免符干伸进相邻谱表造成重叠。
-      final stemUp = treble;
-      final stemEnd = stemUp ? y - gap * 2.8 : y + gap * 2.8;
-      final stemX = stemUp ? x + 4 : x - 4;
-      canvas.drawLine(Offset(stemX, y), Offset(stemX, stemEnd), ink);
-      if (treble && i % 3 != 0) {
-        canvas.drawLine(
-          Offset(stemX, stemEnd),
-          Offset(stemX + 12, stemEnd + 2),
-          ink,
-        );
-      }
-      if (annotationsVisible && treble && i % 7 == 2) {
-        _drawText(
-          canvas,
-          '${(i + system) % 5 + 1}',
-          Offset(x, y - gap * 3.9),
-          fontSize: 10,
-          color: const Color(0xFF15110D),
-          anchor: _TextAnchor.center,
-        );
-      }
-    }
-  }
-
-  void _drawText(
-    Canvas canvas,
-    String text,
-    Offset offset, {
-    required double fontSize,
-    required Color color,
-    required _TextAnchor anchor,
-    FontWeight weight = FontWeight.normal,
-  }) {
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(fontSize: fontSize, color: color, fontWeight: weight),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    final dx = switch (anchor) {
-      _TextAnchor.left => offset.dx,
-      _TextAnchor.center => offset.dx - textPainter.width / 2,
-      _TextAnchor.right => offset.dx - textPainter.width,
-    };
-    textPainter.paint(canvas, Offset(dx, offset.dy));
-  }
-
-  @override
-  bool shouldRepaint(covariant _PracticeScorePainter oldDelegate) {
-    return oldDelegate.progress != progress ||
-        oldDelegate.annotationsVisible != annotationsVisible ||
-        oldDelegate.accent != accent ||
-        oldDelegate.seed != seed ||
-        oldDelegate.title != title ||
-        oldDelegate.composer != composer;
-  }
-}
-
-enum _TextAnchor { left, center, right }

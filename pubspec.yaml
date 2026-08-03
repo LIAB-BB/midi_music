@@ -66,6 +66,8 @@ flutter:
   assets:
     - assets/soundfonts/
     - assets/midi/
+    - assets/scores/
+    - assets/scores/mozart_k478_piano_part/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
