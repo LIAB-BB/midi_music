@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -96,21 +97,91 @@ void main() {
     expect(await converter.convert(pdf), _simpleMusicXml);
   });
 
-  test('HttpPdfToMusicXmlConverter 将请求超时转为 OMR 业务错误', () async {
+  test('HttpPdfToMusicXmlConverter 支持中文 PDF 文件名', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final requestBody = Completer<String>();
+    final requestHeaders = Completer<HttpHeaders>();
+    addTearDown(() async {
+      await server.close(force: true);
+    });
+    server.listen((request) async {
+      if (request.method == 'POST' && request.uri.path == '/v1/omr/jobs') {
+        requestHeaders.complete(request.headers);
+        final bytes = await request.fold<List<int>>(
+          <int>[],
+          (buffer, chunk) => buffer..addAll(chunk),
+        );
+        requestBody.complete(latin1.decode(bytes));
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write('{"jobId":"job-1"}');
+        await request.response.close();
+        return;
+      }
+      if (request.method == 'GET' && request.uri.path == '/v1/omr/jobs/job-1') {
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write(
+            jsonEncode({'status': 'succeeded', 'musicXml': _simpleMusicXml}),
+          );
+        await request.response.close();
+        return;
+      }
+      request.response.statusCode = HttpStatus.notFound;
+      await request.response.close();
+    });
+
+    final tempDir = await Directory.systemTemp.createTemp('omr_unicode_');
+    addTearDown(() async {
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+    final pdf = File('${tempDir.path}/德彪西-梦幻曲L.76(68)-piano.pdf');
+    await pdf.writeAsBytes([0x25, 0x50, 0x44, 0x46]);
+
+    final converter = HttpPdfToMusicXmlConverter(
+      baseUrl: Uri.parse('http://${server.address.host}:${server.port}'),
+      pollInterval: Duration.zero,
+    );
+
+    expect(await converter.convert(pdf), _simpleMusicXml);
+    final body = await requestBody.future;
+    expect(body, isNot(contains('德彪西')));
+    expect(body, contains('filename='));
+    expect(
+      body,
+      contains(
+        "filename*=UTF-8''"
+        '%E5%BE%B7%E5%BD%AA%E8%A5%BF-%E6%A2%A6%E5%B9%BB%E6%9B%B2'
+        'L.76%2868%29-piano.pdf',
+      ),
+    );
+    final headers = await requestHeaders.future;
+    expect(headers.contentLength, greaterThan(0));
+    expect(headers.value(HttpHeaders.transferEncodingHeader), isNull);
+  });
+
+  test('HttpPdfToMusicXmlConverter 超时时返回可读上下文', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(() async {
       await server.close(force: true);
     });
     server.listen((request) async {
-      await request.drain<void>();
-      await Future<void>.delayed(const Duration(seconds: 1));
-      request.response
-        ..headers.contentType = ContentType.json
-        ..write('{"jobId":"job-1"}');
+      if (request.method == 'POST' && request.uri.path == '/v1/omr/jobs') {
+        await request.drain<void>();
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+        request.response
+          ..headers.contentType = ContentType.json
+          ..write('{"jobId":"job-1"}');
+        await request.response.close();
+        return;
+      }
+      request.response.statusCode = HttpStatus.notFound;
       await request.response.close();
     });
 
-    final pdf = File('${Directory.systemTemp.path}/omr_client_timeout.pdf');
+    final pdf = File('${Directory.systemTemp.path}/omr_timeout_test.pdf');
     await pdf.writeAsBytes([0x25, 0x50, 0x44, 0x46]);
     addTearDown(() {
       if (pdf.existsSync()) {
@@ -120,8 +191,7 @@ void main() {
 
     final converter = HttpPdfToMusicXmlConverter(
       baseUrl: Uri.parse('http://${server.address.host}:${server.port}'),
-      timeout: const Duration(milliseconds: 10),
-      pollInterval: Duration.zero,
+      timeout: const Duration(milliseconds: 20),
     );
 
     await expectLater(
@@ -130,7 +200,34 @@ void main() {
         isA<OmrServiceException>().having(
           (error) => error.message,
           'message',
-          contains('PDF 识谱服务响应超时'),
+          contains('创建 PDF 识谱任务超时'),
+        ),
+      ),
+    );
+  });
+
+  test('HttpPdfToMusicXmlConverter 上传前拦截过大的 PDF', () async {
+    final pdf = File('${Directory.systemTemp.path}/omr_oversized_test.pdf');
+    final handle = await pdf.open(mode: FileMode.write);
+    await handle.truncate(31 * 1024 * 1024);
+    await handle.close();
+    addTearDown(() {
+      if (pdf.existsSync()) {
+        pdf.deleteSync();
+      }
+    });
+
+    final converter = HttpPdfToMusicXmlConverter(
+      baseUrl: Uri.parse('http://127.0.0.1:1'),
+    );
+
+    await expectLater(
+      converter.convert(pdf),
+      throwsA(
+        isA<OmrServiceException>().having(
+          (error) => error.message,
+          'message',
+          contains('PDF 文件过大'),
         ),
       ),
     );

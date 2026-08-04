@@ -89,7 +89,7 @@ docs/
 
 ```bash
 # 克隆项目
-git clone https://github.com/2018x5zzt/midi_music.git
+git clone https://github.com/LIAB-BB/midi_music.git
 cd midi_music
 
 # 安装依赖
