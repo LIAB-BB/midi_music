@@ -40,6 +40,7 @@ dependencies:
   flutter_audio_capture: ^1.1.11
   pitch_detector_dart: ^0.0.7
   permission_handler: ^11.3.0
+  webview_flutter: 4.14.1
 
 dev_dependencies:
   flutter_test:
@@ -68,6 +69,7 @@ flutter:
     - assets/midi/
     - assets/scores/
     - assets/scores/mozart_k478_piano_part/
+    - assets/score_renderer/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
