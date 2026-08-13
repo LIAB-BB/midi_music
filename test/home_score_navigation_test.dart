@@ -27,7 +27,9 @@ void main() {
   testWidgets('MusicXML 导入后进入交互谱面页且只由该页加载一次', (tester) async {
     final session = interactiveSession();
     final player = readyPlayer();
-    const picker = _FakeScorePicker('/tmp/score.musicxml');
+    final picker = _FakeScorePicker(
+      () => SynchronousFuture('/tmp/score.musicxml'),
+    );
     final importer = _FakeScoreImportService(session: session);
     var notifyCount = 0;
     player.addListener(() => notifyCount += 1);
@@ -46,11 +48,27 @@ void main() {
     expect(importer.paths, ['/tmp/score.musicxml']);
   });
 
-  testWidgets('取消导入时停留在乐库且不调用导入服务', (tester) async {
+  testWidgets('文件选择未完成时快速双击只发起一次导入', (tester) async {
+    final pending = Completer<String?>();
+    final picker = _FakeScorePicker(() => pending.future);
     final importer = _FakeScoreImportService(session: interactiveSession());
-    await tester.pumpWidget(
-      _appWithHome(picker: const _FakeScorePicker(null), importer: importer),
-    );
+    await tester.pumpWidget(_appWithHome(picker: picker, importer: importer));
+
+    await tester.tap(find.byKey(const Key('import-score')));
+    await tester.tap(find.byKey(const Key('import-score')));
+
+    expect(picker.pickCount, 1);
+    expect(importer.paths, isEmpty);
+
+    pending.complete(null);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('import-score')), findsOneWidget);
+  });
+
+  testWidgets('取消导入后恢复按钮并允许再次选择', (tester) async {
+    final picker = _FakeScorePicker(() => SynchronousFuture(null));
+    final importer = _FakeScoreImportService(session: interactiveSession());
+    await tester.pumpWidget(_appWithHome(picker: picker, importer: importer));
 
     await tester.tap(find.byKey(const Key('import-score')));
     await tester.pumpAndSettle();
@@ -58,6 +76,32 @@ void main() {
     expect(find.byType(HomePage), findsOneWidget);
     expect(find.byType(ScorePracticePage), findsNothing);
     expect(importer.paths, isEmpty);
+    expect(find.byKey(const Key('import-score')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('import-score')));
+    await tester.pumpAndSettle();
+    expect(picker.pickCount, 2);
+  });
+
+  testWidgets('文件选择异常显示错误且关闭后允许重试', (tester) async {
+    final picker = _FakeScorePicker(
+      () => Future<String?>.error(StateError('picker failed')),
+    );
+    await tester.pumpWidget(_appWithHome(picker: picker));
+
+    await tester.tap(find.byKey(const Key('import-score')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('错误'), findsOneWidget);
+    expect(find.textContaining('请确认文件格式有效后重试'), findsOneWidget);
+    await tester.tap(find.text('确定'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('import-score')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('import-score')));
+    await tester.pumpAndSettle();
+    expect(picker.pickCount, 2);
+    expect(find.text('错误'), findsOneWidget);
   });
 
   testWidgets('导入解析异常沿用可读错误提示并停留在乐库', (tester) async {
@@ -66,7 +110,7 @@ void main() {
     );
     await tester.pumpWidget(
       _appWithHome(
-        picker: const _FakeScorePicker('/tmp/bad.musicxml'),
+        picker: _FakeScorePicker(() => SynchronousFuture('/tmp/bad.musicxml')),
         importer: importer,
       ),
     );
@@ -112,12 +156,16 @@ ScoreSurface _fakeSurface(ValueChanged<ScoreRendererMessage> onMessage) {
 }
 
 class _FakeScorePicker implements ScoreFilePicker {
-  final String? path;
+  final Future<String?> Function() result;
+  int pickCount = 0;
 
-  const _FakeScorePicker(this.path);
+  _FakeScorePicker(this.result);
 
   @override
-  Future<String?> pickScorePath() => SynchronousFuture(path);
+  Future<String?> pickScorePath() {
+    pickCount += 1;
+    return result();
+  }
 }
 
 class _FakeScoreImportService extends ScoreImportService {

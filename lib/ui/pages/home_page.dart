@@ -216,13 +216,13 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _pickAndLoadScore() async {
-    final filePath = await _scoreFilePicker.pickScorePath();
-    if (filePath == null) return;
-
-    if (!mounted) return;
+    if (_isLoading) return;
     setState(() => _isLoading = true);
 
     try {
+      final filePath = await _scoreFilePicker.pickScorePath();
+      if (!mounted || filePath == null) return;
+
       final session = await _scoreImportService.importFile(filePath);
       if (!mounted) return;
 

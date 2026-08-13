@@ -147,9 +147,11 @@ flutter test
 - `CoreMidiInputPlugin.swift` — 直接使用 iOS CoreMIDI，自动连接当前全部 MIDI 输入源，处理热插拔与 running status；当前产品仅使用 Note On
 
 ### UI Layer (`lib/ui/`)
-- `pages/home_page.dart` — 首页，文件选择器（`file_picker`），通过 `ScoreImportService` 加载 MIDI/MusicXML/PDF 并跳转播放页，SoundFont 状态展示
-- `pages/score_practice_page.dart` — 曲库练习页。仅对当前 `songId` 对应曲目开放播放、seek 和调速；装饰性谱面明确标记为示意内容，未接线的循环、跟随、指法、移调和视奏入口不展示
-- `pages/player_page.dart` — 播放器页面。初始化 USB MIDI、展示连接状态并管理 `MidiFollowModeSession`；用户 seek 后同步跟随会话重对齐
+- `pages/home_page.dart` — 首页。通过可注入的 `ScoreFilePicker` 与 `ScoreImportService` 选择并导入 MIDI/MusicXML/PDF；所有格式统一进入 `ScorePracticePage`，首页不预加载播放器会话
+- `pages/score_practice_page.dart` — 统一谱面练习页。以单一 `InteractiveScoreView` 和固定 `ScoreTransportBar` 组成主界面；MusicXML 显示可交互谱面，MIDI-only 显示“仅伴奏”空态，`initialSession` 是首页导入会话的唯一加载点
+- `pages/player_page.dart` — 保留的旧高级演奏台。初始化 USB MIDI、展示连接状态并管理 `MidiFollowModeSession`；用户 seek 后同步跟随会话重对齐，但首页导入不再导航至此页
+- `widgets/interactive_score_view.dart` — 离线 MusicXML 谱面表面，负责加载/错误/仅伴奏状态并通过受控 renderer port 与本地 OSMD 桥接
+- `widgets/score_transport_bar.dart` — 练习页固定控制栏，提供前后小节、播放/暂停、速度和 AB 循环
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调
 - `widgets/transport_deck.dart` — TransportDeck（运输按钮）、TransportButton、ConsoleNote；回退/快进/归零支持外部 `onSeek` 回调
 - `widgets/performance_console.dart` — PerformanceConsole（跟随模式开关/手动速度滑块）、ConsoleCard
