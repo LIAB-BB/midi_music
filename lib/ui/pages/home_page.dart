@@ -199,11 +199,11 @@ class _HomePageState extends State<HomePage> {
     setState(() => _isLoading = true);
 
     try {
-      final songData = await _scoreImportService.importFile(filePath);
+      final session = await _scoreImportService.importFile(filePath);
       if (!mounted) return;
 
       final player = context.read<MidiPlayerController>();
-      player.loadSong(songData);
+      player.loadSong(session.songData);
       player.setSpeed(
         context.read<AppSettingsController>().defaultPlaybackSpeed,
       );

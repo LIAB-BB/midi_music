@@ -8,6 +8,7 @@ import 'package:midi_music/core/import/pdf_omr_client.dart';
 import 'package:midi_music/core/import/pdf_to_musicxml_converter.dart';
 import 'package:midi_music/core/import/score_import_service.dart';
 import 'package:midi_music/models/midi_track.dart';
+import 'package:midi_music/models/score_session.dart';
 
 void main() {
   test('MusicXML 转换为播放器可用的 MIDI 数据', () {
@@ -38,20 +39,16 @@ void main() {
     );
   });
 
-  test('ScoreImportService 可通过 PDF OMR 接口导入 PDF', () async {
-    final pdf = File('${Directory.systemTemp.path}/score_import_test.pdf');
-    await pdf.writeAsBytes([0x25, 0x50, 0x44, 0x46]);
-    addTearDown(() {
-      if (pdf.existsSync()) {
-        pdf.deleteSync();
-      }
-    });
-
+  test('PDF OMR 会话保留转换后的 MusicXML', () async {
+    final tempDir = await Directory.systemTemp.createTemp('score-session-pdf-');
+    addTearDown(() => tempDir.delete(recursive: true));
+    final pdfFile = File('${tempDir.path}/fixture.pdf');
+    await pdfFile.writeAsBytes(const [0x25, 0x50, 0x44, 0x46]);
     final service = ScoreImportService(pdfConverter: _FakePdfConverter());
-    final song = await service.importFile(pdf.path);
-
-    expect(song.fileName, 'score_import_test.musicxml');
-    expect(song.noteTracks.single.notes.first.noteNumber, 60);
+    final session = await service.importFile(pdfFile.path);
+    expect(session.sourceType, ScoreSourceType.pdfOmr);
+    expect(session.musicXml, _simpleMusicXml);
+    expect(session.hasInteractiveScore, isTrue);
   });
 
   test('HttpPdfToMusicXmlConverter 按任务协议获取 MusicXML', () async {

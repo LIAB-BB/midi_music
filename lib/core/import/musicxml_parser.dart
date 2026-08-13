@@ -2,7 +2,33 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import '../../models/midi_track.dart';
+import '../../models/score_session.dart';
 import '../midi/tempo_map.dart';
+
+class MusicXmlParseResult {
+  final MidiSongData songData;
+  final String musicXml;
+  final List<ScoreMeasureBoundary> measures;
+  final ScoreMappingStatus mappingStatus;
+  final Set<ScoreWarning> warnings;
+
+  const MusicXmlParseResult({
+    required this.songData,
+    required this.musicXml,
+    required this.measures,
+    required this.mappingStatus,
+    required this.warnings,
+  });
+
+  ScoreSession toSession(ScoreSourceType sourceType) => ScoreSession(
+    songData: songData,
+    musicXml: musicXml,
+    sourceType: sourceType,
+    measures: measures,
+    mappingStatus: mappingStatus,
+    warnings: warnings,
+  );
+}
 
 /// 将 MusicXML 的谱面结构转换为播放器可用的 MIDI 时间线数据。
 ///
@@ -21,7 +47,56 @@ class MusicXmlParser {
     return parseString(xml, fileName: file.uri.pathSegments.last);
   }
 
-  MidiSongData parseString(String xml, {String fileName = 'score.musicxml'}) {
+  MidiSongData parseString(String xml, {String fileName = 'score.musicxml'}) =>
+      parseDocumentString(xml, fileName: fileName).songData;
+
+  MusicXmlParseResult parseDocumentString(
+    String xml, {
+    String fileName = 'score.musicxml',
+  }) {
+    final document = _parseDocument(xml, fileName: fileName);
+    final primary = document.parts.first.measures;
+    final validated = <ScoreMeasureBoundary>[];
+    var hasMismatch = false;
+    for (var index = 0; index < primary.length; index++) {
+      final measure = primary[index];
+      final matchesAllParts = document.parts.every((part) {
+        if (index >= part.measures.length) return false;
+        final other = part.measures[index];
+        return other.startTick == measure.startTick &&
+            other.endTick == measure.endTick;
+      });
+      hasMismatch = hasMismatch || !matchesAllParts;
+      validated.add(
+        ScoreMeasureBoundary(
+          ordinal: measure.ordinal,
+          label: measure.label,
+          startTick: measure.startTick,
+          endTick: measure.endTick,
+          isInteractive: matchesAllParts,
+        ),
+      );
+    }
+    hasMismatch =
+        hasMismatch ||
+        document.parts.any((part) => part.measures.length != primary.length);
+    return MusicXmlParseResult(
+      songData: document.songData,
+      musicXml: xml,
+      measures: validated,
+      mappingStatus: validated.isNotEmpty && !hasMismatch
+          ? ScoreMappingStatus.complete
+          : validated.any((measure) => measure.isInteractive)
+          ? ScoreMappingStatus.partial
+          : ScoreMappingStatus.unavailable,
+      warnings: {
+        if (document.hasComplexRepetition) ScoreWarning.complexRepetition,
+        if (hasMismatch) ScoreWarning.inconsistentPartMeasures,
+      },
+    );
+  }
+
+  _ParsedDocument _parseDocument(String xml, {required String fileName}) {
     final normalizedXml = _stripComments(xml);
     final partNames = _parsePartNames(normalizedXml);
     final parts = _parseParts(normalizedXml);
@@ -36,6 +111,7 @@ class MusicXmlParser {
       TimeSignatureChange(tick: 0, numerator: 4, denominator: 4),
     ];
     final tracks = <MidiTrackInfo>[];
+    final parsedParts = <_ParsedPart>[];
     var maxTick = 0;
 
     for (var partIndex = 0; partIndex < parts.length; partIndex++) {
@@ -46,6 +122,7 @@ class MusicXmlParser {
         tempoChanges: tempoChanges,
         timeSignatureChanges: timeSignatureChanges,
       );
+      parsedParts.add(parsedPart);
       tracks.add(parsedPart.track);
       maxTick = math.max(maxTick, parsedPart.maxTick);
     }
@@ -71,16 +148,20 @@ class MusicXmlParser {
       signature.time = tempoMap.tickToSeconds(signature.tick);
     }
 
-    return MidiSongData(
-      fileName: fileName,
-      format: 1,
-      ticksPerBeat: ticksPerBeat,
-      tracks: tracks,
-      timeline: timeline,
-      tempoChanges: tempoChanges,
-      timeSignatureChanges: timeSignatureChanges,
-      totalTicks: maxTick,
-      totalDuration: tempoMap.tickToSeconds(maxTick),
+    return _ParsedDocument(
+      songData: MidiSongData(
+        fileName: fileName,
+        format: 1,
+        ticksPerBeat: ticksPerBeat,
+        tracks: tracks,
+        timeline: timeline,
+        tempoChanges: tempoChanges,
+        timeSignatureChanges: timeSignatureChanges,
+        totalTicks: maxTick,
+        totalDuration: tempoMap.tickToSeconds(maxTick),
+      ),
+      parts: parsedParts,
+      hasComplexRepetition: _hasComplexRepetition(normalizedXml),
     );
   }
 
@@ -106,9 +187,15 @@ class MusicXmlParser {
     var currentTick = 0;
     var previousNoteStartTick = 0;
     var maxTick = 0;
+    final measures = <ScoreMeasureBoundary>[];
+    var ordinal = 1;
 
-    for (final measureXml in _elements(part.body, 'measure')) {
-      final attributesXml = _firstElement(measureXml, 'attributes');
+    for (final measure in _measureElements(part.body)) {
+      final measureStartTick = currentTick;
+      var measureEndTick = currentTick;
+      previousNoteStartTick = measureStartTick;
+
+      final attributesXml = _firstElement(measure.body, 'attributes');
       if (attributesXml != null) {
         final parsedDivisions = _firstInt(attributesXml, 'divisions');
         if (parsedDivisions != null && parsedDivisions > 0) {
@@ -121,7 +208,7 @@ class MusicXmlParser {
           if (beats != null && beatType != null) {
             timeSignatureChanges.add(
               TimeSignatureChange(
-                tick: currentTick,
+                tick: measureStartTick,
                 numerator: beats,
                 denominator: beatType,
               ),
@@ -130,19 +217,19 @@ class MusicXmlParser {
         }
       }
 
-      for (final directionXml in _elements(measureXml, 'direction')) {
+      for (final directionXml in _elements(measure.body, 'direction')) {
         final tempo = _parseSoundTempo(directionXml);
         if (tempo != null && tempo > 0) {
           tempoChanges.add(
             TempoChange(
-              tick: currentTick,
+              tick: measureStartTick,
               microsecondsPerBeat: (60000000 / tempo).round(),
             ),
           );
         }
       }
 
-      for (final token in _measurePlaybackTokens(measureXml)) {
+      for (final token in _measurePlaybackTokens(measure.body)) {
         switch (token.name) {
           case 'note':
             final parsedNote = _parseNoteToken(
@@ -156,6 +243,7 @@ class MusicXmlParser {
               final note = parsedNote.note!;
               notes.add(note);
               maxTick = math.max(maxTick, note.endTick);
+              measureEndTick = math.max(measureEndTick, note.endTick);
               events
                 ..add(
                   TimelineEvent(
@@ -178,14 +266,12 @@ class MusicXmlParser {
                 );
               previousNoteStartTick = note.startTick;
             }
-            if (parsedNote.advanceTick > 0) {
-              currentTick += parsedNote.advanceTick;
-              maxTick = math.max(maxTick, currentTick);
-            }
+            currentTick += parsedNote.advanceTick;
+            measureEndTick = math.max(measureEndTick, currentTick);
             break;
           case 'backup':
             currentTick = math.max(
-              0,
+              measureStartTick,
               currentTick -
                   _durationToTicks(
                     _firstInt(token.body, 'duration') ?? 0,
@@ -198,11 +284,21 @@ class MusicXmlParser {
               _firstInt(token.body, 'duration') ?? 0,
               divisions,
             );
-            maxTick = math.max(maxTick, currentTick);
+            measureEndTick = math.max(measureEndTick, currentTick);
             break;
         }
       }
-      maxTick = math.max(maxTick, currentTick);
+      currentTick = measureEndTick;
+      maxTick = math.max(maxTick, measureEndTick);
+      measures.add(
+        ScoreMeasureBoundary(
+          ordinal: ordinal,
+          label: _attribute(measure.attributes, 'number') ?? '$ordinal',
+          startTick: measureStartTick,
+          endTick: measureEndTick,
+        ),
+      );
+      ordinal++;
     }
 
     notes.sort((a, b) => a.startTick.compareTo(b.startTick));
@@ -226,6 +322,7 @@ class MusicXmlParser {
         events: events,
       ),
       maxTick: maxTick,
+      measures: measures,
     );
   }
 
@@ -335,6 +432,37 @@ class MusicXmlParser {
       );
     }
     return tokens;
+  }
+
+  Iterable<_MusicXmlMeasure> _measureElements(String xml) {
+    final pattern = RegExp(
+      r'<measure\b([^>]*)>([\s\S]*?)</measure>',
+      caseSensitive: false,
+    );
+    return pattern
+        .allMatches(xml)
+        .map(
+          (match) => _MusicXmlMeasure(
+            attributes: match.group(1) ?? '',
+            body: match.group(2) ?? '',
+          ),
+        );
+  }
+
+  bool _hasComplexRepetition(String xml) {
+    if (RegExp(
+      r'<(?:repeat|ending|segno|coda)\b',
+      caseSensitive: false,
+    ).hasMatch(xml)) {
+      return true;
+    }
+    return _elements(xml, 'direction').any((direction) {
+      final words = _elements(direction, 'words').join(' ');
+      return RegExp(
+        r'\bD\s*\.\s*[CS]\s*\.',
+        caseSensitive: false,
+      ).hasMatch(words);
+    });
   }
 
   Iterable<String> _elements(String xml, String name) {
@@ -472,6 +600,13 @@ class _MusicXmlToken {
   const _MusicXmlToken(this.name, this.body);
 }
 
+class _MusicXmlMeasure {
+  final String attributes;
+  final String body;
+
+  const _MusicXmlMeasure({required this.attributes, required this.body});
+}
+
 class _ParsedNote {
   final MidiNote? note;
   final int advanceTick;
@@ -482,6 +617,23 @@ class _ParsedNote {
 class _ParsedPart {
   final MidiTrackInfo track;
   final int maxTick;
+  final List<ScoreMeasureBoundary> measures;
 
-  const _ParsedPart({required this.track, required this.maxTick});
+  const _ParsedPart({
+    required this.track,
+    required this.maxTick,
+    required this.measures,
+  });
+}
+
+class _ParsedDocument {
+  final MidiSongData songData;
+  final List<_ParsedPart> parts;
+  final bool hasComplexRepetition;
+
+  const _ParsedDocument({
+    required this.songData,
+    required this.parts,
+    required this.hasComplexRepetition,
+  });
 }

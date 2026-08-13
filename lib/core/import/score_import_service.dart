@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import '../../models/midi_track.dart';
+import '../../models/score_session.dart';
 import '../midi/midi_parser.dart';
 import 'musicxml_parser.dart';
 import 'pdf_omr_client.dart';
@@ -25,15 +25,18 @@ class ScoreImportService {
                    baseUrl: Uri.parse(omrServiceBaseUrlFromEnvironment),
                  ));
 
-  Future<MidiSongData> importFile(String filePath) async {
+  Future<ScoreSession> importFile(String filePath) async {
     final extension = _extensionOf(filePath);
     switch (extension) {
       case '.mid':
       case '.midi':
-        return _midiParser.parseFile(filePath);
+        return ScoreSession.midiOnly(await _midiParser.parseFile(filePath));
       case '.xml':
       case '.musicxml':
-        return _musicXmlParser.parseFile(filePath);
+        final xml = await File(filePath).readAsString();
+        return _musicXmlParser
+            .parseDocumentString(xml, fileName: _fileName(filePath))
+            .toSession(ScoreSourceType.musicXml);
       case '.pdf':
         return _importPdf(filePath);
       default:
@@ -41,7 +44,7 @@ class ScoreImportService {
     }
   }
 
-  Future<MidiSongData> _importPdf(String filePath) async {
+  Future<ScoreSession> _importPdf(String filePath) async {
     final converter = _pdfConverter;
     if (converter == null) {
       throw UnsupportedError(
@@ -53,12 +56,17 @@ class ScoreImportService {
     if (!await pdfFile.exists()) {
       throw FileSystemException('PDF file not found', filePath);
     }
-    final musicXml = await converter.convert(pdfFile);
-    return _musicXmlParser.parseString(
-      musicXml,
-      fileName: '${_basenameWithoutExtension(filePath)}.musicxml',
-    );
+    final xml = await converter.convert(pdfFile);
+    return _musicXmlParser
+        .parseDocumentString(
+          xml,
+          fileName: '${_basenameWithoutExtension(filePath)}.musicxml',
+        )
+        .toSession(ScoreSourceType.pdfOmr);
   }
+
+  String _fileName(String filePath) =>
+      filePath.split(Platform.pathSeparator).last;
 
   String _extensionOf(String filePath) {
     final fileName = filePath.split(Platform.pathSeparator).last;
