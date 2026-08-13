@@ -17,6 +17,12 @@ class ScorePlaybackCoordinator {
   final MidiPlayerController player;
   final ScoreRendererPort port;
   int? _lastHighlightedOrdinal;
+  bool _hasSynchronizedRenderer = false;
+  bool _syncPending = false;
+  int? _pendingOrdinal;
+  bool _pendingScrollIntoView = false;
+  bool _resyncAfterPending = false;
+  bool _forceAfterPending = false;
   bool _autoFollow = true;
   List<ScoreMeasureRect> _measureRects = const [];
 
@@ -65,14 +71,58 @@ class ScorePlaybackCoordinator {
 
   void syncFromPlayer({bool force = false}) {
     final ordinal = player.currentMeasureOrdinal;
-    if (ordinal == null) {
-      unawaited(port.clearHighlight());
+    if (_syncPending) {
+      final matchesPending =
+          ordinal == _pendingOrdinal &&
+          (ordinal == null || _pendingScrollIntoView == _autoFollow);
+      if (!matchesPending || force) {
+        _resyncAfterPending = true;
+        _forceAfterPending = _forceAfterPending || force;
+      }
       return;
     }
-    if (!force && ordinal == _lastHighlightedOrdinal) {
+    if (!force &&
+        _hasSynchronizedRenderer &&
+        ordinal == _lastHighlightedOrdinal) {
       return;
     }
-    _lastHighlightedOrdinal = ordinal;
-    unawaited(port.highlightMeasure(ordinal, scrollIntoView: _autoFollow));
+    _syncPending = true;
+    _pendingOrdinal = ordinal;
+    _pendingScrollIntoView = _autoFollow;
+    unawaited(
+      _sendRendererSync(ordinal, scrollIntoView: _pendingScrollIntoView),
+    );
+  }
+
+  Future<void> _sendRendererSync(
+    int? ordinal, {
+    required bool scrollIntoView,
+  }) async {
+    var succeeded = false;
+    try {
+      if (ordinal == null) {
+        await port.clearHighlight();
+      } else {
+        await port.highlightMeasure(ordinal, scrollIntoView: scrollIntoView);
+      }
+      succeeded = true;
+    } catch (_) {
+      // The renderer may be temporarily unavailable. Leave the last successful
+      // state unchanged so the next player sync can retry this command.
+    } finally {
+      if (succeeded) {
+        _hasSynchronizedRenderer = true;
+        _lastHighlightedOrdinal = ordinal;
+      }
+      _syncPending = false;
+      _pendingOrdinal = null;
+      final resync = _resyncAfterPending;
+      final force = _forceAfterPending;
+      _resyncAfterPending = false;
+      _forceAfterPending = false;
+      if (resync) {
+        syncFromPlayer(force: force);
+      }
+    }
   }
 }
