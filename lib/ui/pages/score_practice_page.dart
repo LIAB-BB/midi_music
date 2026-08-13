@@ -11,6 +11,7 @@ import '../../core/midi/midi_player.dart';
 import '../../core/score/score_playback_coordinator.dart';
 import '../../core/score/score_renderer_protocol.dart';
 import '../../core/settings/app_settings.dart';
+import '../../models/midi_track.dart';
 import '../../models/score_session.dart';
 import '../widgets/interactive_score_view.dart';
 import '../widgets/score_transport_bar.dart';
@@ -71,6 +72,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   OverlayEntry? _transientMessage;
   Timer? _transientMessageTimer;
   bool _didScheduleInitialLoad = false;
+  bool _isImporting = false;
 
   bool get _hasComplexRepetition =>
       _player?.scoreSession?.warnings.contains(
@@ -118,6 +120,10 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       return;
     }
 
+    player.loadScore(
+      _emptyMidiSession(widget.score.title),
+      songId: widget.score.title,
+    );
     final assetPath = widget.score.assetPath;
     if (assetPath == null) return;
     try {
@@ -149,6 +155,9 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     if (result == ScoreMessageHandlingResult.unmappableMeasure) {
       _showTransientMessage('谱面与伴奏小节不一致，无法跳转到这一小节。');
     }
+    if (message.type == ScoreRendererMessageType.ready) {
+      _coordinator?.syncFromPlayer(force: true);
+    }
   }
 
   void _resumeScoreFollow() {
@@ -157,21 +166,25 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   }
 
   Future<void> _importMusicXmlForCurrentScore() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['musicxml', 'xml'],
-      allowMultiple: false,
-    );
-    if (!mounted || result == null || result.files.isEmpty) return;
-    final path = result.files.single.path;
-    if (path == null) return;
-
+    if (_isImporting) return;
+    _isImporting = true;
     try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['musicxml', 'xml'],
+        allowMultiple: false,
+      );
+      if (!mounted || result == null || result.files.isEmpty) return;
+      final path = result.files.single.path;
+      if (path == null) return;
+
       final session = await _importService.importFile(path);
       if (!mounted) return;
       _player?.loadScore(session, songId: widget.score.title, filePath: path);
     } catch (error) {
       if (mounted) _showAlert('导入失败', '无法导入 MusicXML：$error');
+    } finally {
+      _isImporting = false;
     }
   }
 
@@ -280,6 +293,20 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     );
   }
 }
+
+ScoreSession _emptyMidiSession(String title) => ScoreSession.midiOnly(
+  MidiSongData(
+    fileName: title,
+    format: 1,
+    ticksPerBeat: 480,
+    tracks: const [],
+    timeline: const [],
+    tempoChanges: const [],
+    timeSignatureChanges: const [],
+    totalTicks: 0,
+    totalDuration: 0,
+  ),
+);
 
 class _ScorePageActions extends StatelessWidget {
   final VoidCallback onOpenSettings;

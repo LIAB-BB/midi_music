@@ -117,44 +117,55 @@ class _ScoreTransportBarState extends State<ScoreTransportBar> {
               _TransportButton(
                 key: const Key('score-speed'),
                 icon: CupertinoIcons.speedometer,
+                semanticLabel: '播放速度',
                 label: '${player.playbackSpeed}x',
                 onPressed: _chooseSpeed,
               ),
               _TransportButton(
                 key: const Key('score-previous-measure'),
                 icon: CupertinoIcons.backward_end_fill,
+                semanticLabel: '上一小节',
                 onPressed: _previousMeasure,
               ),
-              CupertinoButton(
+              Semantics(
                 key: const Key('score-play-pause'),
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(58, 58),
-                onPressed: _togglePlayback,
-                child: Container(
-                  width: 58,
-                  height: 58,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: CupertinoColors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    player.isPlaying
-                        ? CupertinoIcons.pause_fill
-                        : CupertinoIcons.play_fill,
-                    size: 28,
-                    color: const Color(0xFF403640),
+                label: player.isPlaying ? '暂停' : '播放',
+                button: true,
+                onTap: _togglePlayback,
+                child: ExcludeSemantics(
+                  child: CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(58, 58),
+                    onPressed: _togglePlayback,
+                    child: Container(
+                      width: 58,
+                      height: 58,
+                      alignment: Alignment.center,
+                      decoration: const BoxDecoration(
+                        color: CupertinoColors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        player.isPlaying
+                            ? CupertinoIcons.pause_fill
+                            : CupertinoIcons.play_fill,
+                        size: 28,
+                        color: const Color(0xFF403640),
+                      ),
+                    ),
                   ),
                 ),
               ),
               _TransportButton(
                 key: const Key('score-next-measure'),
                 icon: CupertinoIcons.forward_end_fill,
+                semanticLabel: '下一小节',
                 onPressed: _nextMeasure,
               ),
               _TransportButton(
                 key: const Key('score-ab-loop'),
                 icon: CupertinoIcons.repeat,
+                semanticLabel: 'AB 循环',
                 label: player.loopStartTime == null
                     ? 'AB'
                     : (player.loopEndTime == null ? 'A' : 'AB'),
@@ -171,6 +182,7 @@ class _ScoreTransportBarState extends State<ScoreTransportBar> {
 
 class _TransportButton extends StatelessWidget {
   final IconData icon;
+  final String semanticLabel;
   final String? label;
   final bool selected;
   final VoidCallback onPressed;
@@ -178,6 +190,7 @@ class _TransportButton extends StatelessWidget {
   const _TransportButton({
     super.key,
     required this.icon,
+    required this.semanticLabel,
     this.label,
     this.selected = false,
     required this.onPressed,
@@ -185,33 +198,40 @@ class _TransportButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      minimumSize: const Size(44, 44),
-      onPressed: onPressed,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 22,
-            color: selected
-                ? CupertinoColors.white
-                : _ScoreTransportBarState._foregroundColor,
-          ),
-          if (label case final label?) ...[
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: TextStyle(
+    return Semantics(
+      label: semanticLabel,
+      button: true,
+      onTap: onPressed,
+      child: ExcludeSemantics(
+        child: CupertinoButton(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          minimumSize: const Size(44, 44),
+          onPressed: onPressed,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 22,
                 color: selected
                     ? CupertinoColors.white
                     : _ScoreTransportBarState._foregroundColor,
-                fontSize: 10,
               ),
-            ),
-          ],
-        ],
+              if (label case final label?) ...[
+                const SizedBox(height: 3),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: selected
+                        ? CupertinoColors.white
+                        : _ScoreTransportBarState._foregroundColor,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

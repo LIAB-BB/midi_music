@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
@@ -86,11 +89,27 @@ void main() {
     expect(surface.port.highlighted, isEmpty);
     surface.emit(const ScoreRendererMessage.ready());
     await tester.pump();
-    player.seekToMeasure(2);
+    expect(surface.port.highlighted, [1]);
+    expect(surface.port.scrollFlags, [isTrue]);
+
+    surface.emit(const ScoreRendererMessage.ready());
     await tester.pump();
 
-    expect(surface.port.highlighted, [2]);
-    expect(surface.port.scrollFlags, [isTrue]);
+    expect(surface.port.highlighted, [1, 1]);
+    expect(surface.port.scrollFlags, [isTrue, isTrue]);
+  });
+
+  testWidgets('没有初始会话时首帧后隔离全局旧曲目', (tester) async {
+    final player = readyPlayer()..loadScore(interactiveSession());
+    await tester.pumpWidget(
+      _page(player, _ScoreSurfaceHarness(), initialSession: null),
+    );
+    await tester.pump();
+
+    expect(player.currentSongId, 'Interactive Fixture');
+    expect(player.scoreSession?.sourceType, ScoreSourceType.midiOnly);
+    expect(player.scoreSession?.musicXml, isNull);
+    expect(find.text('仅伴奏'), findsOneWidget);
   });
 
   testWidgets('initialSession 只在页面首帧加载一次', (tester) async {
@@ -150,9 +169,70 @@ void main() {
     expect(find.text('谱面与伴奏小节不一致，无法跳转到这一小节。'), findsOneWidget);
     expect(find.byType(CupertinoAlertDialog), findsNothing);
   });
+
+  testWidgets('MusicXML 文件选择异常显示导入失败', (tester) async {
+    FilePicker.platform = _FakeFilePicker(
+      () => Future<FilePickerResult?>.error(StateError('picker failed')),
+    );
+    final player = readyPlayer()..loadScore(midiOnlySession());
+    await tester.pumpWidget(_page(player, _ScoreSurfaceHarness()));
+
+    await tester.tap(find.text('导入 MusicXML'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('导入失败'), findsOneWidget);
+    expect(find.textContaining('picker failed'), findsOneWidget);
+  });
+
+  testWidgets('MusicXML 文件选择未完成时忽略重复导入', (tester) async {
+    final pending = Completer<FilePickerResult?>();
+    final picker = _FakeFilePicker(() => pending.future);
+    FilePicker.platform = picker;
+    final player = readyPlayer()..loadScore(midiOnlySession());
+    await tester.pumpWidget(_page(player, _ScoreSurfaceHarness()));
+
+    await tester.tap(find.text('导入 MusicXML'));
+    await tester.tap(find.text('导入 MusicXML'));
+    expect(picker.pickCount, 1);
+
+    pending.complete(null);
+    await tester.pump();
+  });
+
+  testWidgets('核心播放按钮提供动态中文语义', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final player = readyPlayer()..loadScore(interactiveSession());
+    await tester.pumpWidget(_page(player, _ScoreSurfaceHarness()));
+
+    expect(
+      tester.getSemantics(find.byKey(const Key('score-previous-measure'))),
+      matchesSemantics(label: '上一小节', isButton: true, hasTapAction: true),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const Key('score-play-pause'))),
+      matchesSemantics(label: '播放', isButton: true, hasTapAction: true),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const Key('score-next-measure'))),
+      matchesSemantics(label: '下一小节', isButton: true, hasTapAction: true),
+    );
+
+    await tester.tap(find.byKey(const Key('score-play-pause')));
+    await tester.pump();
+    expect(
+      tester.getSemantics(find.byKey(const Key('score-play-pause'))),
+      matchesSemantics(label: '暂停', isButton: true, hasTapAction: true),
+    );
+    player.stop();
+    semantics.dispose();
+  });
 }
 
-Widget _page(MidiPlayerController player, _ScoreSurfaceHarness surface) {
+Widget _page(
+  MidiPlayerController player,
+  _ScoreSurfaceHarness surface, {
+  Object? initialSession = _usePlayerSession,
+}) {
   return MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: player),
@@ -172,12 +252,16 @@ Widget _page(MidiPlayerController player, _ScoreSurfaceHarness surface) {
           accent: Color(0xFFA2773F),
           seed: 1,
         ),
-        initialSession: player.scoreSession,
+        initialSession: identical(initialSession, _usePlayerSession)
+            ? player.scoreSession
+            : initialSession as ScoreSession?,
         surfaceFactory: surface.create,
       ),
     ),
   );
 }
+
+const _usePlayerSession = Object();
 
 class _ScoreSurfaceHarness {
   final RecordingRendererPort port = RecordingRendererPort();
@@ -199,5 +283,31 @@ class _MemorySettingsStorage implements AppSettingsStorage {
   @override
   Future<void> write(Map<String, Object?> values) async {
     this.values = Map<String, Object?>.from(values);
+  }
+}
+
+class _FakeFilePicker extends FilePicker {
+  final Future<FilePickerResult?> Function() result;
+  int pickCount = 0;
+
+  _FakeFilePicker(this.result);
+
+  @override
+  Future<FilePickerResult?> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    void Function(FilePickerStatus)? onFileLoading,
+    bool allowCompression = true,
+    int compressionQuality = 30,
+    bool allowMultiple = false,
+    bool withData = false,
+    bool withReadStream = false,
+    bool lockParentWindow = false,
+    bool readSequential = false,
+  }) {
+    pickCount += 1;
+    return result();
   }
 }
