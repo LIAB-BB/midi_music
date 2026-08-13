@@ -115,7 +115,7 @@ flutter test
 
 ### 上线前验收
 
-自动化测试通过后，发布或交付试用版前还需要用 iPhone 和真实电子琴完成一轮人工验收，重点覆盖 USB MIDI 热插拔、SoundFont、轨道静音、播放控制和跟随模式。
+自动化测试通过后，发布或交付试用版前还需要完成人工验收。当前核心发布必测为 SoundFont、MIDI-only 的固定播放控制，以及交互 MusicXML 谱面。真实电子琴 USB、轨道静音和跟随属于高级演奏台专项：仅在本版本提供该产品入口或调试入口时验收，且不阻断当前首页可达的核心发布路径。
 
 详见 [`docs/release_checklist.md`](docs/release_checklist.md)。
 
@@ -134,7 +134,7 @@ flutter run --dart-define=OMR_SERVICE_BASE_URL=https://your-api.example.com
 
 ## 🎯 变速跟随模式
 
-变速跟随是本 App 的核心特色功能，让伴奏跟着演奏者的节奏走。
+变速跟随由保留的高级演奏台提供，让伴奏跟着演奏者的节奏走。当前首页没有前往该页的产品入口；以下说明仅适用于提供高级演奏台产品入口或调试入口的专项验收。
 
 ### 工作原理
 
@@ -148,6 +148,8 @@ flutter run --dart-define=OMR_SERVICE_BASE_URL=https://your-api.example.com
 4. **MidiFollowModeSession** — 串联 MIDI 输入、跟随控制器和播放器；开始时静音选中的电子琴声部组，退出时恢复原状态
 
 ### 使用方式
+
+前置条件：通过高级演奏台产品入口或调试入口进入 `PlayerPage`。当前普通首页导入会进入 `ScorePracticePage`，不能直接使用以下 USB 跟随流程。
 
 1. 在播放器页面的轨道列表中，选择一个或多个由电子琴演奏的轨道；钢琴双手通常需要同时选择
 2. 将 class-compliant USB MIDI 电子琴直接连接到 iPhone，确认页面显示设备名
