@@ -3,10 +3,14 @@
   const score = document.getElementById('score');
   const layer = document.getElementById('measure-layer');
   let osmd = null;
+  let generation = 0;
   let down = null;
   let maxTravel = 0;
+  let maxPointerCount = 0;
+  let primaryPointerId = null;
   let activeOrdinal = null;
   let resizeTimer = null;
+  const activePointers = new Set();
 
   const post = (type, payload = {}) => {
     if (window.ScoreBridge && window.ScoreBridge.postMessage) {
@@ -19,9 +23,25 @@
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   };
 
-  const measureRects = () => {
+  const parseMusicXml = (xml) => {
+    const document = new DOMParser().parseFromString(xml, 'application/xml');
+    if (document.querySelector('parsererror')) {
+      throw new Error('无法解析 MusicXML 文档');
+    }
+    return document;
+  };
+
+  const resetRenderSurface = () => {
+    clearTimeout(resizeTimer);
+    osmd = null;
+    activeOrdinal = null;
+    score.replaceChildren();
+    layer.replaceChildren();
+  };
+
+  const measureRects = (renderer) => {
     const unit = opensheetmusicdisplay.EngravingRules.unit;
-    return osmd.GraphicSheet.MeasureList.map((staffMeasures, index) => {
+    return renderer.GraphicSheet.MeasureList.map((staffMeasures, index) => {
       const boxes = staffMeasures
         .filter(Boolean)
         .map((measure) => measure.PositionAndShape)
@@ -47,9 +67,10 @@
     }
   };
 
-  const rebuildLayer = (complete) => {
+  const rebuildLayer = (renderer, complete, renderGeneration) => {
+    if (renderGeneration !== generation) return;
     layer.replaceChildren();
-    const rects = measureRects();
+    const rects = measureRects(renderer);
     for (const rect of rects) {
       const hit = document.createElement('div');
       hit.className = 'measure-hit';
@@ -66,8 +87,11 @@
     post('layout', { complete, measures: rects });
   };
 
-  const render = async (xml) => {
-    osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(score, {
+  const render = async (xml, renderGeneration) => {
+    const isCurrent = () => renderGeneration === generation;
+    if (!isCurrent()) return;
+    const document = parseMusicXml(xml);
+    const renderer = new opensheetmusicdisplay.OpenSheetMusicDisplay(score, {
       backend: 'svg',
       autoResize: false,
       drawTitle: true,
@@ -75,52 +99,97 @@
       pageBackgroundColor: '#f8f0dc',
       drawUpToMeasureNumber: 12,
     });
-    osmd.setLogLevel('warn');
-    await osmd.load(xml);
-    osmd.render();
-    rebuildLayer(false);
+    renderer.setLogLevel('warn');
+    await renderer.load(document);
+    if (!isCurrent()) return;
+    osmd = renderer;
+    renderer.render();
+    rebuildLayer(renderer, false, renderGeneration);
+    if (!isCurrent()) return;
     post('ready');
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    osmd.setOptions({ drawUpToMeasureNumber: 1000000 });
-    osmd.renderAndScrollBack();
-    rebuildLayer(true);
+    if (!isCurrent()) return;
+    renderer.setOptions({ drawUpToMeasureNumber: 1000000 });
+    renderer.renderAndScrollBack();
+    rebuildLayer(renderer, true, renderGeneration);
   };
 
   document.addEventListener('pointerdown', (event) => {
+    activePointers.add(event.pointerId);
+    maxPointerCount = Math.max(maxPointerCount, activePointers.size);
+    if (!event.isPrimary || down) return;
+    primaryPointerId = event.pointerId;
     down = {
       x: event.clientX,
       y: event.clientY,
       at: performance.now(),
-      pointerCount: event.isPrimary ? 1 : 2,
     };
     maxTravel = 0;
+    maxPointerCount = activePointers.size;
   }, { passive: true });
 
   document.addEventListener('pointermove', (event) => {
-    if (!down) return;
+    if (!down || event.pointerId !== primaryPointerId) return;
     maxTravel = Math.max(
       maxTravel,
       Math.hypot(event.clientX - down.x, event.clientY - down.y),
     );
   }, { passive: true });
 
-  document.addEventListener('pointerup', (event) => {
-    if (!down) return;
+  const finishGesture = (event) => {
+    activePointers.delete(event.pointerId);
+    if (!down || event.pointerId !== primaryPointerId) return;
     const gesture = {
       x: event.clientX + window.scrollX,
       y: event.clientY + window.scrollY,
       travel: maxTravel,
       durationMs: Math.round(performance.now() - down.at),
-      pointerCount: down.pointerCount,
+      pointerCount: Math.min(10, Math.max(1, maxPointerCount)),
     };
     down = null;
+    primaryPointerId = null;
+    maxTravel = 0;
+    maxPointerCount = activePointers.size;
     post('gestureEnd', gesture);
+  };
+
+  document.addEventListener('pointerup', (event) => {
+    finishGesture(event);
+  }, { passive: true });
+
+  const cancelGesture = (event) => {
+    if (!down) {
+      activePointers.delete(event.pointerId);
+      return;
+    }
+    const gesture = {
+      x: event.clientX + window.scrollX,
+      y: event.clientY + window.scrollY,
+      travel: Math.max(maxTravel, 11),
+      durationMs: Math.round(performance.now() - down.at),
+      pointerCount: Math.min(10, Math.max(1, maxPointerCount)),
+    };
+    down = null;
+    primaryPointerId = null;
+    maxTravel = 0;
+    maxPointerCount = 0;
+    activePointers.clear();
+    post('gestureEnd', gesture);
+  };
+
+  document.addEventListener('pointercancel', (event) => {
+    cancelGesture(event);
   }, { passive: true });
 
   window.scoreBridge = Object.freeze({
     async loadMusicXmlBase64(encoded) {
-      try { await render(decodeUtf8(encoded)); }
-      catch (error) { post('error', { message: String(error).slice(0, 500) }); }
+      const renderGeneration = ++generation;
+      resetRenderSurface();
+      try { await render(decodeUtf8(encoded), renderGeneration); }
+      catch (error) {
+        if (renderGeneration !== generation) return;
+        post('error', { message: String(error).slice(0, 500) });
+      }
     },
     highlightMeasure(ordinal, scrollIntoView) {
       activeOrdinal = Number(ordinal);
@@ -134,10 +203,12 @@
 
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
+    const resizeGeneration = generation;
+    const renderer = osmd;
     resizeTimer = setTimeout(() => {
-      if (!osmd) return;
-      osmd.renderAndScrollBack();
-      rebuildLayer(true);
+      if (!renderer || renderer !== osmd || resizeGeneration !== generation) return;
+      renderer.renderAndScrollBack();
+      rebuildLayer(renderer, true, resizeGeneration);
     }, 150);
   });
 

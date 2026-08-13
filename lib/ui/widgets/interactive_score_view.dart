@@ -41,6 +41,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
   ScoreSurface? _surface;
   bool _isLoading = false;
   bool _pageReady = false;
+  bool _portAnnounced = false;
   String? _errorMessage;
 
   @override
@@ -62,6 +63,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
       setState(() {
         _surface = null;
         _pageReady = false;
+        _portAnnounced = false;
         _isLoading = false;
         _errorMessage = null;
       });
@@ -111,8 +113,19 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
       )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (_) {
+          onPageFinished: (url) {
+            if (!mounted || !identical(_surface?.port, port)) return;
+            final uri = Uri.tryParse(url);
+            if (uri == null ||
+                !uri.path.endsWith('/assets/score_renderer/index.html')) {
+              return;
+            }
+            if (_pageReady) return;
             _pageReady = true;
+            if (!_portAnnounced) {
+              _portAnnounced = true;
+              widget.onPortReady?.call(port);
+            }
             final musicXml = widget.musicXml;
             if (musicXml != null) unawaited(port.loadMusicXml(musicXml));
           },
@@ -134,7 +147,6 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
         controller: controller,
       ),
     );
-    _announcePort();
   }
 
   void _announcePortAndLoad() {
