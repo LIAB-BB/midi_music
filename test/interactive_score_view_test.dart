@@ -201,6 +201,72 @@ void main() {
     expect(readyPorts, hasLength(1));
   });
 
+  testWidgets('过期 surface 消息不得污染新 surface', (tester) async {
+    final ports = [RecordingRendererPort(), RecordingRendererPort()];
+    final emitters = <ValueChanged<ScoreRendererMessage>>[];
+    final received = <ScoreRendererMessage>[];
+    final readyPorts = <Object>[];
+    var surfaceCount = 0;
+
+    Widget build(String? xml) => CupertinoApp(
+      home: InteractiveScoreView(
+        musicXml: xml,
+        onMessage: received.add,
+        onPortReady: readyPorts.add,
+        surfaceFactory: (onMessage) {
+          emitters.add(onMessage);
+          final index = surfaceCount++;
+          return ScoreSurface(
+            port: ports[index],
+            child: SizedBox(key: Key('fake-score-surface-$index')),
+          );
+        },
+      ),
+    );
+
+    await tester.pumpWidget(build('<score-partwise id="a"/>'));
+    await tester.pumpWidget(build(null));
+    await tester.pumpWidget(build('<score-partwise id="b"/>'));
+    await tester.pump();
+
+    expect(find.byKey(const Key('fake-score-surface-1')), findsOneWidget);
+    expect(find.text('正在排版乐谱'), findsOneWidget);
+
+    final emitA = emitters[0];
+    emitA(const ScoreRendererMessage.ready());
+    emitA(const ScoreRendererMessage.error('过期错误'));
+    emitA(
+      const ScoreRendererMessage.layout(
+        complete: true,
+        measureRects: [
+          ScoreMeasureRect(ordinal: 1, left: 0, top: 0, width: 10, height: 10),
+        ],
+      ),
+    );
+    emitA(
+      const ScoreRendererMessage.gestureEnd(
+        x: 5,
+        y: 5,
+        travel: 0,
+        durationMs: 100,
+        pointerCount: 1,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('正在排版乐谱'), findsOneWidget);
+    expect(find.text('过期错误'), findsNothing);
+    expect(received, isEmpty);
+    expect(readyPorts, isEmpty);
+
+    emitters[1](const ScoreRendererMessage.ready());
+    await tester.pump();
+
+    expect(find.text('正在排版乐谱'), findsNothing);
+    expect(received, [const ScoreRendererMessage.ready()]);
+    expect(readyPorts, [same(ports[1])]);
+  });
+
   testWidgets('生产端口在初始加载后等待桥接 ready 再开放', (tester) async {
     final platform = _TestWebViewPlatform();
     WebViewPlatform.instance = platform;

@@ -43,6 +43,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
   bool _pageReady = false;
   bool _portAnnounced = false;
   String? _errorMessage;
+  Object? _surfaceToken;
 
   @override
   void initState() {
@@ -61,6 +62,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
     final musicXml = widget.musicXml;
     if (musicXml == null) {
       setState(() {
+        _surfaceToken = null;
         _surface = null;
         _pageReady = false;
         _portAnnounced = false;
@@ -87,10 +89,14 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
   }
 
   void _createSurface() {
+    final surfaceToken = Object();
+    _surfaceToken = surfaceToken;
     _portAnnounced = false;
     final factory = widget.surfaceFactory;
     if (factory != null) {
-      _surface = factory(_acceptMessage);
+      _surface = factory(
+        (message) => _acceptMessage(message, surfaceToken: surfaceToken),
+      );
       _pageReady = true;
       final musicXml = widget.musicXml;
       if (musicXml != null) unawaited(_surface!.port.loadMusicXml(musicXml));
@@ -107,7 +113,11 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
         'ScoreBridge',
         onMessageReceived: (message) {
           try {
-            _acceptMessage(ScoreRendererMessage.parse(message.message));
+            _acceptMessage(
+              ScoreRendererMessage.parse(message.message),
+              surfaceToken: surfaceToken,
+              sourcePort: port,
+            );
           } on FormatException {
             // 丢弃非法本地桥接消息，不触发播放器操作。
           }
@@ -116,7 +126,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) {
-            if (!mounted || !identical(_surface?.port, port)) return;
+            if (!_isCurrentSurface(surfaceToken, sourcePort: port)) return;
             final uri = Uri.tryParse(url);
             if (uri == null ||
                 !uri.path.endsWith('/assets/score_renderer/index.html')) {
@@ -147,8 +157,18 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
     );
   }
 
-  void _acceptMessage(ScoreRendererMessage message) {
-    if (!mounted) return;
+  bool _isCurrentSurface(Object surfaceToken, {ScoreRendererPort? sourcePort}) {
+    return mounted &&
+        identical(_surfaceToken, surfaceToken) &&
+        (sourcePort == null || identical(_surface?.port, sourcePort));
+  }
+
+  void _acceptMessage(
+    ScoreRendererMessage message, {
+    required Object surfaceToken,
+    ScoreRendererPort? sourcePort,
+  }) {
+    if (!_isCurrentSurface(surfaceToken, sourcePort: sourcePort)) return;
     switch (message.type) {
       case ScoreRendererMessageType.ready:
         setState(() {
