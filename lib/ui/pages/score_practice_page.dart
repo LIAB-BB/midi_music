@@ -52,12 +52,14 @@ class ScorePracticePage extends StatefulWidget {
   final PracticeScoreMetadata score;
   final ScoreSession? initialSession;
   final ScoreSurfaceFactory? surfaceFactory;
+  final ScoreImportService? importService;
 
   const ScorePracticePage({
     super.key,
     required this.score,
     this.initialSession,
     this.surfaceFactory,
+    this.importService,
   });
 
   @override
@@ -66,7 +68,7 @@ class ScorePracticePage extends StatefulWidget {
 
 class _ScorePracticePageState extends State<ScorePracticePage> {
   final MidiFileParser _parser = MidiFileParser();
-  final ScoreImportService _importService = ScoreImportService();
+  late final ScoreImportService _importService;
   MidiPlayerController? _player;
   ScorePlaybackCoordinator? _coordinator;
   ScoreSession? _displaySession;
@@ -74,6 +76,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   Timer? _transientMessageTimer;
   bool _didScheduleInitialLoad = false;
   bool _isImporting = false;
+  int _sessionLoadGeneration = 0;
 
   bool get _hasComplexRepetition =>
       _displaySession?.warnings.contains(ScoreWarning.complexRepetition) ??
@@ -82,6 +85,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   @override
   void initState() {
     super.initState();
+    _importService = widget.importService ?? ScoreImportService();
     _displaySession = widget.initialSession;
   }
 
@@ -130,13 +134,14 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     if (mounted) setState(() => _displaySession = emptySession);
     final assetPath = widget.score.assetPath;
     if (assetPath == null) return;
+    final loadGeneration = _sessionLoadGeneration;
     try {
       final data = await rootBundle.load(assetPath);
       final song = _parser.parseBytes(
         data.buffer.asUint8List(),
         fileName: assetPath.split('/').last,
       );
-      if (!mounted) return;
+      if (!mounted || loadGeneration != _sessionLoadGeneration) return;
       final session = ScoreSession.midiOnly(song);
       player.loadScore(session, songId: widget.score.title);
       player.setSpeed(
@@ -186,6 +191,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
 
       final session = await _importService.importFile(path);
       if (!mounted) return;
+      _sessionLoadGeneration += 1;
       _player?.loadScore(session, songId: widget.score.title, filePath: path);
       setState(() => _displaySession = session);
     } catch (error) {

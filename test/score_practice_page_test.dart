@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:midi_music/core/import/score_import_service.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
 import 'package:midi_music/core/score/score_renderer_protocol.dart';
 import 'package:midi_music/core/settings/app_settings.dart';
@@ -207,6 +211,83 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('手动 MusicXML 成功后延迟内置伴奏不得覆盖', (tester) async {
+    const assetPath = 'assets/midi/delayed-fixture.mid';
+    final assetGate = Completer<void>();
+    final midiBytes = File(
+      'assets/midi/Beethoven-Moonlight-Sonata.mid',
+    ).readAsBytesSync();
+    tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+      'flutter/assets',
+      (message) async {
+        final key = String.fromCharCodes(
+          message!.buffer.asUint8List(
+            message.offsetInBytes,
+            message.lengthInBytes,
+          ),
+        );
+        if (key != assetPath) return null;
+        await assetGate.future;
+        return ByteData.sublistView(Uint8List.fromList(midiBytes));
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+        'flutter/assets',
+        null,
+      );
+    });
+
+    final selectedFile = FilePickerResult([
+      PlatformFile(
+        name: 'interactive_score.musicxml',
+        size: 1,
+        path: '/tmp/interactive_score.musicxml',
+      ),
+    ]);
+    final picker = _FakeFilePicker(() => SynchronousFuture(selectedFile));
+    FilePicker.platform = picker;
+
+    final player = readyPlayer();
+    final surface = _ScoreSurfaceHarness();
+    final importedSession = interactiveSession();
+    await tester.pumpWidget(
+      _page(
+        player,
+        surface,
+        initialSession: null,
+        assetPath: assetPath,
+        importService: _FakeScoreImportService(importedSession),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('导入 MusicXML'));
+    await tester.pump();
+    await tester.runAsync(() async {
+      for (var attempt = 0; attempt < 100; attempt += 1) {
+        if (player.scoreSession?.musicXml != null) return;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pump();
+    expect(picker.pickCount, 1);
+    expect(find.text('导入失败'), findsNothing);
+    expect(find.text('仅伴奏'), findsNothing);
+    expect(surface.createCount, greaterThan(0));
+
+    assetGate.complete();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+
+    expect(player.scoreSession?.musicXml, isNotNull);
+    expect(player.scoreSession?.sourceType, ScoreSourceType.musicXml);
+    expect(surface.createCount, 1);
+    expect(find.text('仅伴奏'), findsNothing);
+  });
+
   testWidgets('核心播放按钮提供动态中文语义', (tester) async {
     final semantics = tester.ensureSemantics();
     final player = readyPlayer()..loadScore(interactiveSession());
@@ -240,6 +321,8 @@ Widget _page(
   MidiPlayerController player,
   _ScoreSurfaceHarness surface, {
   Object? initialSession = _usePlayerSession,
+  String? assetPath,
+  ScoreImportService? importService,
 }) {
   return MultiProvider(
     providers: [
@@ -250,20 +333,22 @@ Widget _page(
     ],
     child: CupertinoApp(
       home: ScorePracticePage(
-        score: const PracticeScoreMetadata(
+        score: PracticeScoreMetadata(
           title: 'Interactive Fixture',
           composer: 'Fixture Composer',
           category: '古典',
           level: '中级',
           duration: '1:00',
           saves: '0',
-          accent: Color(0xFFA2773F),
+          accent: const Color(0xFFA2773F),
           seed: 1,
+          assetPath: assetPath,
         ),
         initialSession: identical(initialSession, _usePlayerSession)
             ? player.scoreSession
             : initialSession as ScoreSession?,
         surfaceFactory: surface.create,
+        importService: importService,
       ),
     ),
   );
@@ -320,4 +405,14 @@ class _FakeFilePicker extends FilePicker {
     pickCount += 1;
     return result();
   }
+}
+
+class _FakeScoreImportService extends ScoreImportService {
+  final ScoreSession session;
+
+  _FakeScoreImportService(this.session);
+
+  @override
+  Future<ScoreSession> importFile(String filePath) =>
+      SynchronousFuture<ScoreSession>(session);
 }
