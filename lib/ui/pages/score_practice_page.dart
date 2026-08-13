@@ -69,16 +69,21 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   final ScoreImportService _importService = ScoreImportService();
   MidiPlayerController? _player;
   ScorePlaybackCoordinator? _coordinator;
+  ScoreSession? _displaySession;
   OverlayEntry? _transientMessage;
   Timer? _transientMessageTimer;
   bool _didScheduleInitialLoad = false;
   bool _isImporting = false;
 
   bool get _hasComplexRepetition =>
-      _player?.scoreSession?.warnings.contains(
-        ScoreWarning.complexRepetition,
-      ) ??
+      _displaySession?.warnings.contains(ScoreWarning.complexRepetition) ??
       false;
+
+  @override
+  void initState() {
+    super.initState();
+    _displaySession = widget.initialSession;
+  }
 
   @override
   void didChangeDependencies() {
@@ -120,10 +125,9 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       return;
     }
 
-    player.loadScore(
-      _emptyMidiSession(widget.score.title),
-      songId: widget.score.title,
-    );
+    final emptySession = _emptyMidiSession(widget.score.title);
+    player.loadScore(emptySession, songId: widget.score.title);
+    if (mounted) setState(() => _displaySession = emptySession);
     final assetPath = widget.score.assetPath;
     if (assetPath == null) return;
     try {
@@ -133,10 +137,12 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
         fileName: assetPath.split('/').last,
       );
       if (!mounted) return;
-      player.loadScore(ScoreSession.midiOnly(song), songId: widget.score.title);
+      final session = ScoreSession.midiOnly(song);
+      player.loadScore(session, songId: widget.score.title);
       player.setSpeed(
         context.read<AppSettingsController>().defaultPlaybackSpeed,
       );
+      setState(() => _displaySession = session);
     } catch (error) {
       if (mounted) _showAlert('载入失败', '无法载入内置 MIDI：$error');
     }
@@ -181,6 +187,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       final session = await _importService.importFile(path);
       if (!mounted) return;
       _player?.loadScore(session, songId: widget.score.title, filePath: path);
+      setState(() => _displaySession = session);
     } catch (error) {
       if (mounted) _showAlert('导入失败', '无法导入 MusicXML：$error');
     } finally {
@@ -274,7 +281,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
               child: KeyedSubtree(
                 key: const Key('interactive-score-view'),
                 child: InteractiveScoreView(
-                  musicXml: player.scoreSession?.musicXml,
+                  musicXml: _displaySession?.musicXml,
                   onMessage: _handleRendererMessage,
                   onPortReady: _attachRendererPort,
                   onImportMusicXml: _importMusicXmlForCurrentScore,

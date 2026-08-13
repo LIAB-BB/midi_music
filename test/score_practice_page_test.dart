@@ -99,17 +99,25 @@ void main() {
     expect(surface.port.scrollFlags, [isTrue, isTrue]);
   });
 
-  testWidgets('没有初始会话时首帧后隔离全局旧曲目', (tester) async {
+  testWidgets('没有初始会话时首帧不展示全局旧谱', (tester) async {
     final player = readyPlayer()..loadScore(interactiveSession());
-    await tester.pumpWidget(
-      _page(player, _ScoreSurfaceHarness(), initialSession: null),
-    );
-    await tester.pump();
+    final surface = _ScoreSurfaceHarness();
+    await tester.pumpWidget(_page(player, surface, initialSession: null));
 
-    expect(player.currentSongId, 'Interactive Fixture');
-    expect(player.scoreSession?.sourceType, ScoreSourceType.midiOnly);
-    expect(player.scoreSession?.musicXml, isNull);
+    expect(surface.createCount, 0);
     expect(find.text('仅伴奏'), findsOneWidget);
+  });
+
+  testWidgets('初始会话在首帧创建对应谱面 surface', (tester) async {
+    final player = readyPlayer()..loadScore(midiOnlySession());
+    final surface = _ScoreSurfaceHarness();
+    final session = interactiveSession();
+
+    await tester.pumpWidget(_page(player, surface, initialSession: session));
+
+    expect(surface.createCount, 1);
+    expect(surface.port.loadedXml, [session.musicXml]);
+    expect(find.text('仅伴奏'), findsNothing);
   });
 
   testWidgets('initialSession 只在页面首帧加载一次', (tester) async {
@@ -266,8 +274,10 @@ const _usePlayerSession = Object();
 class _ScoreSurfaceHarness {
   final RecordingRendererPort port = RecordingRendererPort();
   late ValueChanged<ScoreRendererMessage> emit;
+  int createCount = 0;
 
   ScoreSurface create(ValueChanged<ScoreRendererMessage> onMessage) {
+    createCount += 1;
     emit = onMessage;
     return ScoreSurface(port: port, child: const SizedBox());
   }
