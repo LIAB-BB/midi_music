@@ -238,7 +238,7 @@ class MidiPlayerController extends ChangeNotifier {
   }
 
   void _loadSongData(MidiSongData song, {String? songId, String? filePath}) {
-    stop();
+    _resetPlaybackPosition();
     _songData = song;
     _currentSongId = songId;
     _currentFilePath = filePath;
@@ -304,6 +304,11 @@ class MidiPlayerController extends ChangeNotifier {
   /// 停止
   void stop() {
     if (_isDisposed) return;
+    _resetPlaybackPosition();
+    _notifyListenersIfActive();
+  }
+
+  void _resetPlaybackPosition() {
     _state = PlaybackState.stopped;
     _ticker?.cancel();
     _ticker = null;
@@ -312,7 +317,6 @@ class MidiPlayerController extends ChangeNotifier {
     _currentEventIndex = 0;
     _safeAllNotesOff('Stop allNotesOff');
     _clearActiveNotes();
-    _notifyListenersIfActive();
   }
 
   /// 跳转到指定时间（秒）

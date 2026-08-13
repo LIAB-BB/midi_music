@@ -111,16 +111,18 @@ flutter test
 
 ### Models (`lib/models/`)
 - `midi_track.dart` — 全部数据模型：`MidiEventType`（枚举）、`MidiNote`（音符）、`TimelineEvent`（时间线事件，带 `trackIndex`、`Comparable`，通过 `_eventPriority` 确保同 tick 时 NoteOff 优先于 NoteOn）、`MidiTrackInfo`（轨道，支持多 channel、静音/音量）、`MidiSongData`（歌曲）、`TempoChange`/`TimeSignatureChange`
+- `score_session.dart` — `ScoreSession` 统一保留谱面原文、`MidiSongData`、来源/映射状态与 `ScoreMeasureBoundary` 真实小节边界；MIDI-only 会话不伪造可交互谱面
 
 ### MIDI Playback (`lib/core/midi/`)
 - `midi_engine.dart` — `MidiPlaybackEngine` 抽象 + `MidiEngine` 实现。封装 `flutter_midi_pro`，按 channel 串行化操作队列（`_channelOperations`），通过 `_operationGeneration` 代际机制确保 `allNotesOff` 时取消未完成的排队操作
 - `midi_parser.dart` — `MidiFileParser`，使用 `dart_midi_pro` 解析 MIDI 文件。FIFO 配对重叠音符（`_PendingNote` 链表），后台 isolate 执行（`compute`）
 - `tempo_map.dart` — tick ↔ 秒互转，支持多 tempo 变化点，自动补齐 tick 0 默认 tempo、排序并合并同 tick 事件，二分查找，批量顺序应用优化
-- `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存
+- `measure_map.dart` — `MeasureMap` 在 MIDI-only 会话中按拍号推算小节，在谱面会话中优先消费显式 MusicXML 真实边界；安全查询会拒绝越界或不可交互小节
+- `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、`loadScore()`/`loadSong()` 原子替换会话与小节映射，并提供 `currentMeasureOrdinal`、`seekToMeasure()` 及前后可交互小节导航；按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存
 
 ### Score Import (`lib/core/import/`)
 - `score_import_service.dart` — 乐谱导入分流服务。支持 MIDI、MusicXML 和 PDF；PDF 通过 `PdfToMusicXmlConverter` 先转 MusicXML，再进入统一播放数据模型
-- `musicxml_parser.dart` — 轻量 MusicXML → `MidiSongData` 转换器。覆盖 MVP 所需的 partwise MusicXML：音高、休止、和弦、divisions、拍号和 tempo；钢琴二重奏按多个 part 转为多个轨道；总时长取所有音符最大 `endTick`
+- `musicxml_parser.dart` — 轻量 MusicXML → `ScoreSession`/`MidiSongData` 解析器。保留 MusicXML 原文并生成按书写顺序的真实小节边界，覆盖 MVP 所需的 partwise MusicXML：音高、休止、和弦、divisions、拍号和 tempo；钢琴二重奏按多个 part 转为多个轨道，不一致的小节标记为不可交互；总时长取所有音符最大 `endTick`
 - `pdf_omr_client.dart` — HTTP OMR 客户端。通过 `OMR_SERVICE_BASE_URL` 配置服务端地址，创建 `/v1/omr/jobs` 任务并轮询 MusicXML 结果
 - `pdf_to_musicxml_converter.dart` — PDF 到 MusicXML 转换抽象，隔离本地测试 Fake 和服务端 OMR 实现
 

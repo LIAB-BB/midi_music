@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:midi_music/core/midi/midi_player.dart';
 
 import 'helpers/score_test_fixtures.dart';
 
@@ -58,4 +59,57 @@ void main() {
     expect(player.seekToNextMeasure(), isFalse);
     expect(player.currentMeasureOrdinal, 1);
   });
+
+  test('loadScore 切换到 loadSong 时只通知原子 MIDI-only 快照', () {
+    final player = readyPlayer()..loadScore(interactiveSession());
+    addTearDown(player.dispose);
+    final midiOnly = midiOnlySession();
+    final snapshots = <_PlayerSnapshot>[];
+    player.addListener(() => snapshots.add(_PlayerSnapshot.capture(player)));
+
+    player.loadSong(midiOnly.songData);
+
+    expect(snapshots.every((snapshot) => snapshot.isConsistent), isTrue);
+    expect(snapshots, hasLength(1));
+    expect(snapshots.single.hasExplicitMeasures, isFalse);
+  });
+
+  test('loadSong 切换到 loadScore 时只通知原子谱面快照', () {
+    final player = readyPlayer()..loadSong(midiOnlySession().songData);
+    addTearDown(player.dispose);
+    final score = interactiveSession();
+    final snapshots = <_PlayerSnapshot>[];
+    player.addListener(() => snapshots.add(_PlayerSnapshot.capture(player)));
+
+    player.loadScore(score);
+
+    expect(snapshots.every((snapshot) => snapshot.isConsistent), isTrue);
+    expect(snapshots, hasLength(1));
+    expect(snapshots.single.hasExplicitMeasures, isTrue);
+  });
+}
+
+class _PlayerSnapshot {
+  final bool sessionSongMatches;
+  final bool measureMapSongMatches;
+  final bool hasExplicitMeasures;
+
+  const _PlayerSnapshot({
+    required this.sessionSongMatches,
+    required this.measureMapSongMatches,
+    required this.hasExplicitMeasures,
+  });
+
+  bool get isConsistent => sessionSongMatches && measureMapSongMatches;
+
+  factory _PlayerSnapshot.capture(
+    MidiPlayerController player,
+  ) => _PlayerSnapshot(
+    sessionSongMatches: identical(
+      player.scoreSession?.songData,
+      player.songData,
+    ),
+    measureMapSongMatches: identical(player.measureMap?.song, player.songData),
+    hasExplicitMeasures: player.measureMap?.scoreMeasures.isNotEmpty ?? false,
+  );
 }
