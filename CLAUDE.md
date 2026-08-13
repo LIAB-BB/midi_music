@@ -56,6 +56,8 @@ flutter test
 | `lib/core/midi/midi_player.dart` | 🔒 中 | 核心播放控制器，`ChangeNotifier`，改动注意线程安全 |
 | `lib/core/midi/midi_parser.dart` | 🔒 中 | 解析在后台 isolate 执行（`compute`），加字段注意序列化 |
 | `lib/core/midi/tempo_map.dart` | 🔒 高 | 纯算法模块，tick ↔ 秒互转，有充分测试，改动安全 |
+| `lib/models/score_session.dart` | 🔒 高 | 谱面会话边界；原文、播放数据和小节映射必须保持一致 |
+| `lib/core/score/` | 🔒 高 | 受控谱面桥接与播放同步边界，网页层不得直接操作播放器 |
 | `lib/core/follow/follow_mode_controller.dart` | 🔄 中 | 跟随算法核心，参数调优为主战场 |
 | `lib/core/follow/follow_mode_session.dart` | 🔄 中 | 会话生命周期协调层，改动注意并发安全 |
 | `lib/core/follow/midi_follow_mode_session.dart` | 🔒 高 | 当前 iOS USB MIDI 跟随会话，管理多条电子琴轨静音恢复 |
@@ -120,6 +122,13 @@ flutter test
 - `measure_map.dart` — `MeasureMap` 在 MIDI-only 会话中按拍号推算小节，在谱面会话中优先消费显式 MusicXML 真实边界；安全查询会拒绝越界或不可交互小节
 - `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、`loadScore()`/`loadSong()` 原子替换会话与小节映射，并提供 `currentMeasureOrdinal`、`seekToMeasure()` 及前后可交互小节导航；按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存
 
+### Interactive Score (`lib/core/score/`)
+- `ScoreSession` 是谱面原文、播放数据与小节映射的唯一会话边界。
+- `ScorePlaybackCoordinator` 是网页谱面事件进入播放器的唯一入口。
+- OSMD 仅负责离线排版、命中候选与高亮；它不能直接调用播放器。
+- 纯 MIDI 不自动转谱，只显示“仅伴奏”。
+- `score_renderer_protocol.dart` 校验本地 renderer 消息的类型、范围和小节号；不可信或不可映射的小节不得触发跳转。
+
 ### Score Import (`lib/core/import/`)
 - `score_import_service.dart` — 乐谱导入分流服务。支持 MIDI、MusicXML 和 PDF；PDF 通过 `PdfToMusicXmlConverter` 先转 MusicXML，再进入统一播放数据模型
 - `musicxml_parser.dart` — 轻量 MusicXML → `ScoreSession`/`MidiSongData` 解析器。保留 MusicXML 原文并生成按书写顺序的真实小节边界，覆盖 MVP 所需的 partwise MusicXML：音高、休止、和弦、divisions、拍号和 tempo；钢琴二重奏按多个 part 转为多个轨道，不一致的小节标记为不可交互；总时长取所有音符最大 `endTick`
@@ -158,8 +167,8 @@ flutter test
 - `widgets/track_salon.dart` — TrackSalon（轨道列表）、TrackTile（单轨道磁贴）
 - `widgets/soundfont_banner.dart` — SoundfontBanner（音色下载/重试横幅）
 - `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
-- `widgets/midi_piano_roll.dart` — 解析后 MIDI 的实时钢琴卷帘；每个矩形对应一个 `MidiNote`，用于演奏台与导入曲目视图
-- `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，支持翻页与双指缩放
+- `widgets/midi_piano_roll.dart` — 解析后 MIDI 的实时钢琴卷帘组件，保留给旧高级演奏台；不是练习页主视图
+- `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，保留组件不作为练习页主视图；PDF 导入须先经 OMR 生成 MusicXML
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
 ### Tests (`test/`，共 83 用例)
@@ -185,8 +194,11 @@ flutter test
 - `chopin_nocturne.mid` — 肖邦夜曲（Format 1，14 tracks，PPQ=384）
 - `beethoven_moonlight_2.mid` — 贝多芬月光第二乐章（Format 1，11 tracks，PPQ=96）
 
+### Assets (`assets/score_renderer/`)
+- 离线 OSMD 运行时、桥接页与许可证随 Flutter asset bundle 打包；运行时不加载远程脚本。
+
 ### Assets (`assets/scores/`)
-- `mozart_k478_piano_part.pdf` 与 `mozart_k478_piano_part/page-01.png` 至 `page-21.png` — K.478 同源公版钢琴分谱及其离线页面渲染；来源、许可和使用边界见 `docs/demo_assets.md`
+- `mozart_k478_piano_part.pdf` 与 `mozart_k478_piano_part/page-01.png` 至 `page-21.png` — K.478 同源公版钢琴分谱及相关资源；可作为 OMR 输入或素材留存，不是练习页直接展示的谱面来源；来源、许可和使用边界见 `docs/demo_assets.md`
 
 ---
 

@@ -4,7 +4,8 @@
 
 ## ✨ 核心功能
 
-- **乐谱文件导入** — 解析标准 MIDI 文件（Format 0/1）和基础 MusicXML；PDF 导入预留 OMR 识谱接口，识别后统一转换为播放数据
+- **交互五线谱** — MusicXML 在 App 内离线排版；点击小节可跳转，播放时高亮当前小节
+- **统一导入管线** — MusicXML 直接进入交互谱面；PDF 经 OMR 转为 MusicXML；MIDI-only 曲目标记为“仅伴奏”
 - **MIDI 文件播放** — 支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
 - **SoundFont 音色引擎** — 基于 FluidSynth (Android) / AVFoundation (iOS)，加载 SF2/SF3 音色库
 - **轨道控制** — 按轨道控制音量和静音；共享通道上的同音重叠及通道级控制事件目前存在限制
@@ -19,7 +20,7 @@
 | Cupertino Widgets | iOS 风格 UI |
 | flutter_midi_pro | MIDI 引擎（FluidSynth/AVFoundation） |
 | dart_midi_pro | MIDI 文件解析 |
-| MusicXML 轻量解析器 | 将 OMR 或外部工具生成的 MusicXML 转为播放数据 |
+| MusicXML 解析器 + 离线 OSMD | 保留原文、生成播放小节映射并离线排版交互五线谱 |
 | iOS CoreMIDI | USB MIDI 设备发现和按键输入 |
 | Provider | 状态管理 |
 
@@ -41,6 +42,7 @@ lib/
 │   ├── import/
 │   │   ├── musicxml_parser.dart       # MusicXML 转播放时间线
 │   │   └── score_import_service.dart  # MIDI/MusicXML/PDF 导入分流
+│   ├── score/                         # 谱面桥接协议与播放同步
 │   └── follow/
 │       ├── pitch_input.dart           # 音高输入抽象
 │       ├── microphone_input.dart      # 麦克风音频输入
@@ -50,11 +52,15 @@ lib/
 │       ├── follow_mode_session.dart   # 旧麦克风跟随会话（当前 UI 不使用）
 │       └── follow_playback_target.dart # 跟随播放目标抽象
 ├── models/
-│   └── midi_track.dart                # MIDI 轨道模型
+│   ├── midi_track.dart                # MIDI 轨道模型
+│   └── score_session.dart             # 谱面原文、播放数据与小节映射会话
 └── ui/
     ├── pages/
     │   ├── home_page.dart             # 首页（文件选择）
-    │   └── player_page.dart           # 播放器页面
+    │   ├── score_practice_page.dart   # 交互谱面练习页
+    │   └── player_page.dart           # 保留的高级演奏台
+    ├── widgets/
+    │   └── interactive_score_view.dart # 离线交互五线谱
     └── theme/
         └── luxury_theme.dart          # 黑金主题组件
 test/
@@ -70,9 +76,8 @@ assets/
 ├── midi/
     ├── mozart_k478_piano_quartet.mid # USB MIDI demo（钢琴四重奏）
     └── Beethoven-Moonlight-Sonata.mid # 其他测试用 MIDI 文件
-└── scores/
-    ├── mozart_k478_piano_part.pdf # K.478 公版钢琴分谱源文件
-    └── mozart_k478_piano_part/    # 离线翻页使用的 PDF 页面图像
+├── score_renderer/                    # 离线 OSMD 运行时
+└── scores/                            # 示例 PDF 与其 OMR 输入资源
 docs/
 └── release_checklist.md               # 上线前人工验收清单
 ```
@@ -114,7 +119,7 @@ flutter test
 
 ### 准备资源文件
 
-App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录。App 支持从设备文件系统选择 MIDI、MusicXML 和 PDF；其中 PDF 需要接入 OMR 服务先生成 MusicXML。
+App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录。App 支持从设备文件系统选择 MIDI、MusicXML 和 PDF：MusicXML 直接进入离线交互谱面，PDF 需要先经 OMR 服务生成 MusicXML，纯 MIDI 保持可播放的“仅伴奏”状态。
 
 PDF 识谱服务通过 Dart define 配置：
 
