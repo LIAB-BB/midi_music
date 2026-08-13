@@ -78,10 +78,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('月光奏鸣曲 第一乐章'), findsWidgets);
-    expect(find.text('真实 MIDI 钢琴卷帘'), findsOneWidget);
-    expect(find.byKey(const Key('midi-piano-roll')), findsOneWidget);
-    expect(find.text('示意谱面 · 非实际 MIDI 记谱'), findsNothing);
-    expect(find.text('已载入'), findsOneWidget);
+    expect(find.text('仅伴奏'), findsOneWidget);
+    expect(find.byKey(const Key('interactive-score-view')), findsOneWidget);
+    expect(find.byKey(const Key('midi-piano-roll')), findsNothing);
+    expect(find.byKey(const Key('pdf-score-viewer')), findsNothing);
+    expect(find.byKey(const Key('score-transport-bar')), findsOneWidget);
   });
 
   testWidgets('K.478 uses the reviewed public-domain PDF piano part', (
@@ -103,9 +104,10 @@ void main() {
     await tester.tap(find.byKey(const Key('score-card-13')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('pdf-score-viewer')), findsOneWidget);
-    expect(find.text('公版 PDF 钢琴分谱'), findsOneWidget);
-    expect(find.text('1 / 21'), findsOneWidget);
+    expect(find.text('仅伴奏'), findsOneWidget);
+    expect(find.byKey(const Key('interactive-score-view')), findsOneWidget);
+    expect(find.byKey(const Key('pdf-score-viewer')), findsNothing);
+    expect(find.byKey(const Key('midi-piano-roll')), findsNothing);
   });
 
   testWidgets('Settings page can be opened from home', (
