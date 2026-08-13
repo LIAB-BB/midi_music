@@ -38,11 +38,9 @@ class MidiEngine implements MidiPlaybackEngine {
 
   @visibleForTesting
   MidiEngine.readyForTesting({
-    required MidiPro midiPro,
-    required int soundfontId,
-  }) : _midiPro = midiPro,
-       _soundfontId = soundfontId,
-       _isReady = true;
+    required this._midiPro,
+    required this._soundfontId,
+  }) : _isReady = true;
 
   @override
   bool get isReady => _isReady;

@@ -68,11 +68,9 @@ class MidiPlayerController extends ChangeNotifier {
 
   MidiPlayerController({
     MidiPlaybackEngine? engine,
-    Future<File> Function()? soundfontFileProvider,
-    Future<void> Function(File targetFile)? soundfontDownloader,
-  }) : _engine = engine ?? MidiEngine(),
-       _soundfontFileProvider = soundfontFileProvider,
-       _soundfontDownloader = soundfontDownloader;
+    this._soundfontFileProvider,
+    this._soundfontDownloader,
+  }) : _engine = engine ?? MidiEngine();
 
   // Getters
   PlaybackState get state => _state;

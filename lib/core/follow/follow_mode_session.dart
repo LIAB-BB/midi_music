@@ -83,18 +83,13 @@ class FollowModeSession {
   }
 
   FollowModeSession._({
-    required FollowPlaybackTarget playbackTarget,
-    required MidiTrackInfo melodyTrack,
-    required PitchInput pitchInput,
-    required OnsetDetector onsetDetector,
-    required FollowModeController followController,
-    required FollowModeSessionConfig config,
-  }) : _playbackTarget = playbackTarget,
-       _melodyTrack = melodyTrack,
-       _pitchInput = pitchInput,
-       _onsetDetector = onsetDetector,
-       _followController = followController,
-       _config = config;
+    required this._playbackTarget,
+    required this._melodyTrack,
+    required this._pitchInput,
+    required this._onsetDetector,
+    required this._followController,
+    required this._config,
+  });
 
   static MidiTrackInfo? findMelodyTrack(MidiSongData song, int trackIndex) {
     for (final track in song.tracks) {

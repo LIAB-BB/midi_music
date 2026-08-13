@@ -142,10 +142,9 @@ class FollowModeController {
        _config = config ?? const FollowModeConfig();
 
   FollowModeController.fromOnsetStream({
-    required Stream<OnsetEvent> onsetStream,
+    required this._onsetStream,
     FollowModeConfig? config,
-  }) : _onsetStream = onsetStream,
-       _config = config ?? const FollowModeConfig();
+  }) : _config = config ?? const FollowModeConfig();
 
   /// 更新配置
   void updateConfig(FollowModeConfig config) {
