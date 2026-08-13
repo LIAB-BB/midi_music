@@ -67,7 +67,7 @@ flutter test
 | `lib/core/follow/pitch_input.dart` | 🔒 高 | 抽象接口，改了所有实现都得跟着改 |
 | `lib/core/follow/follow_playback_target.dart` | 🔒 高 | 抽象接口，同上 |
 | `lib/ui/pages/home_page.dart` | 🔄 低 | 首页 UI，改动影响范围小 |
-| `lib/ui/pages/player_page.dart` | 🔄 低 | 播放页 UI，1410 行太大，后续会拆分 |
+| `lib/ui/pages/player_page.dart` | 🔄 低 | 保留的高级演奏台，当前约 587 行；首页不再导航到此页 |
 | `lib/ui/theme/luxury_theme.dart` | 🔒 高 | 主题定义，改动影响全部 UI |
 | `lib/main.dart` + `lib/app.dart` | 🔒 高 | 入口，极少改动 |
 
@@ -171,7 +171,7 @@ flutter test
 - `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，保留组件不作为练习页主视图；PDF 导入须先经 OMR 生成 MusicXML
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，共 83 用例)
+### Tests (`test/`，当前全量 176 项)
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
@@ -182,6 +182,10 @@ flutter test
 - `follow_mode_session_test.dart` — 跟随会话生命周期测试（9 用例，含长休止暂停恢复、按播放时间重对齐、seek 到长休止暂停等待、连续未匹配自动重对齐、dispose 回调清理）
 - `microphone_input_test.dart` — 麦克风输入生命周期测试（4 用例）
 - `player_seek_widgets_test.dart` — 播放页 seek 控件合同测试（2 用例）
+- `score_session_test.dart` / `musicxml_import_test.dart` — `ScoreSession`、MusicXML 原文保留、真实小节边界与 PDF OMR 导入回归
+- `score_renderer_protocol_test.dart` / `interactive_score_view_test.dart` / `score_renderer_assets_test.dart` — 本地 OSMD 桥接消息校验、谱面表面与 asset bundle 回归
+- `score_playback_coordinator_test.dart` / `score_measure_navigation_test.dart` — 小节命中、播放同步、自动跟随与小节导航回归
+- `score_practice_page_test.dart` / `home_score_navigation_test.dart` — 练习页固定控制栏、MIDI-only 状态和首页导入导航回归
 - `widget_test.dart` — App smoke test
 
 测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
@@ -223,7 +227,7 @@ flutter test
 - **SoundFont**: 首次运行自动从 CDN 下载 TimGM6mb.sf2（~6MB），缓存到应用目录，3 个后备 URL
 - **依赖注入**: `MidiPlayerController`、`MidiEngine`、`MicrophoneInput` 等均支持通过构造函数注入替代实现，便于测试
 - **异步错误处理**: 引擎操作（NoteOn/NoteOff/ProgramChange）通过 `_fireAndForget()` 统一调度，失败时触达 `onPlaybackError` 回调；UI 端以红色横幅展示 4 秒后自动消失
-- **PlayerPage 已拆分**: 原先 1410 行的单文件已拆为 7 个文件（1 页面 + 5 组件 + 1 工具），改 UI 时优先找对应的 widget 文件
+- **PlayerPage 现状**: 保留的高级演奏台当前约 587 行；首页不再导航到此页，改动 UI 时优先定位对应页面或 widget
 
 ---
 
@@ -239,3 +243,4 @@ flutter test
 | file_picker | ^8.0.0 | 文件选择 |
 | permission_handler | ^11.3.0 | 权限管理 |
 | path_provider | ^2.1.0 | 应用目录路径 |
+| webview_flutter | 4.14.1 | iOS/Android 本地 OSMD 谱面 WebView |

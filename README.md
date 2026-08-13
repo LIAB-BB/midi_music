@@ -16,7 +16,7 @@
 
 | 技术 | 用途 |
 |------|------|
-| Flutter 3.41+ | 跨平台框架 |
+| Flutter 3.44+ | 跨平台框架 |
 | Cupertino Widgets | iOS 风格 UI |
 | flutter_midi_pro | MIDI 引擎（FluidSynth/AVFoundation） |
 | dart_midi_pro | MIDI 文件解析 |
@@ -64,14 +64,14 @@ lib/
     └── theme/
         └── luxury_theme.dart          # 黑金主题组件
 test/
-├── follow_mode_controller_test.dart
-├── follow_mode_session_test.dart
-├── microphone_input_test.dart
-├── midi_engine_test.dart
-├── midi_parse_test.dart
-├── midi_player_controller_test.dart
-├── midi_timeline_test.dart
-└── widget_test.dart
+├── musicxml_import_test.dart           # MusicXML / PDF OMR 导入
+├── score_session_test.dart             # 谱面会话与真实小节边界
+├── score_measure_navigation_test.dart  # 小节导航
+├── score_renderer_protocol_test.dart   # 渲染桥接消息校验
+├── score_playback_coordinator_test.dart # 谱面与播放同步
+├── score_practice_page_test.dart       # 练习页控制栏与状态
+├── home_score_navigation_test.dart     # 首页导入导航
+└── …                                  # MIDI、跟随与 App 回归测试
 assets/
 ├── midi/
     ├── mozart_k478_piano_quartet.mid # USB MIDI demo（钢琴四重奏）
@@ -86,9 +86,11 @@ docs/
 
 ### 环境要求
 
-- Flutter 3.41+
-- Dart 3.11+
+- Flutter 3.44+
+- Dart 3.12+
 - iOS 13.6+
+
+当前验证基线：Flutter 3.44.1 / Dart 3.12.1。
 
 ### 安装与运行
 
