@@ -27,8 +27,6 @@ class PracticeScoreMetadata {
   final Color accent;
   final int seed;
   final String? assetPath;
-  final String? pdfPageAssetPrefix;
-  final int? pdfPageCount;
 
   const PracticeScoreMetadata({
     required this.title,
@@ -40,12 +38,20 @@ class PracticeScoreMetadata {
     required this.accent,
     required this.seed,
     this.assetPath,
-    this.pdfPageAssetPrefix,
-    this.pdfPageCount,
   });
 
-  bool get hasPdfScore =>
-      pdfPageAssetPrefix != null && pdfPageCount != null && pdfPageCount! > 0;
+  factory PracticeScoreMetadata.imported(String fileName) {
+    return PracticeScoreMetadata(
+      title: fileName,
+      composer: '导入乐谱',
+      category: '导入',
+      level: '',
+      duration: '',
+      saves: '',
+      accent: const Color(0xFFA2773F),
+      seed: 0,
+    );
+  }
 }
 
 class ScorePracticePage extends StatefulWidget {

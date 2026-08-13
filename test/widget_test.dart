@@ -85,7 +85,7 @@ void main() {
     expect(find.byKey(const Key('score-transport-bar')), findsOneWidget);
   });
 
-  testWidgets('K.478 uses the reviewed public-domain PDF piano part', (
+  testWidgets('K.478 is presented as accompaniment only', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -105,6 +105,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('仅伴奏'), findsOneWidget);
+    expect(find.textContaining('PDF'), findsNothing);
     expect(find.byKey(const Key('interactive-score-view')), findsOneWidget);
     expect(find.byKey(const Key('pdf-score-viewer')), findsNothing);
     expect(find.byKey(const Key('midi-piano-roll')), findsNothing);

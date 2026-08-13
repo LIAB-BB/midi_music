@@ -9,9 +9,8 @@ import 'package:provider/provider.dart';
 import '../../core/import/pdf_omr_client.dart';
 import '../../core/import/score_import_service.dart';
 import '../../core/midi/midi_player.dart';
-import '../../core/settings/app_settings.dart';
 import '../theme/luxury_theme.dart';
-import 'player_page.dart';
+import '../widgets/interactive_score_view.dart';
 import 'score_practice_page.dart';
 import 'settings_page.dart';
 
@@ -31,8 +30,6 @@ const _scoreCards = [
     accent: Color(0xFF8B6F9E),
     seed: 13,
     assetPath: 'assets/midi/mozart_k478_piano_quartet.mid',
-    pdfPageAssetPrefix: 'assets/scores/mozart_k478_piano_part/page',
-    pdfPageCount: 21,
   ),
   _ScoreCardData(
     title: '月光奏鸣曲 第一乐章',
@@ -172,27 +169,54 @@ const _scoreCards = [
   ),
 ];
 
+abstract class ScoreFilePicker {
+  Future<String?> pickScorePath();
+}
+
+class _PlatformScoreFilePicker implements ScoreFilePicker {
+  @override
+  Future<String?> pickScorePath() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['mid', 'midi', 'musicxml', 'xml', 'pdf'],
+      allowMultiple: false,
+    );
+    if (result == null || result.files.isEmpty) return null;
+    return result.files.single.path;
+  }
+}
+
 class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+  final ScoreImportService? importService;
+  final ScoreFilePicker? filePicker;
+  final ScoreSurfaceFactory? practiceSurfaceFactory;
+
+  const HomePage({
+    super.key,
+    this.importService,
+    this.filePicker,
+    this.practiceSurfaceFactory,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
-  final ScoreImportService _scoreImportService = ScoreImportService();
+  late final ScoreImportService _scoreImportService;
+  late final ScoreFilePicker _scoreFilePicker;
   var _isLoading = false;
   var _selectedCategory = _allCategory;
 
-  Future<void> _pickAndLoadScore() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['mid', 'midi', 'musicxml', 'xml', 'pdf'],
-      allowMultiple: false,
-    );
-    if (result == null || result.files.isEmpty) return;
+  @override
+  void initState() {
+    super.initState();
+    _scoreImportService = widget.importService ?? ScoreImportService();
+    _scoreFilePicker = widget.filePicker ?? _PlatformScoreFilePicker();
+  }
 
-    final filePath = result.files.single.path;
+  Future<void> _pickAndLoadScore() async {
+    final filePath = await _scoreFilePicker.pickScorePath();
     if (filePath == null) return;
 
     if (!mounted) return;
@@ -202,16 +226,14 @@ class _HomePageState extends State<HomePage> {
       final session = await _scoreImportService.importFile(filePath);
       if (!mounted) return;
 
-      final player = context.read<MidiPlayerController>();
-      player.loadSong(session.songData);
-      player.setSpeed(
-        context.read<AppSettingsController>().defaultPlaybackSpeed,
-      );
-
-      unawaited(
-        Navigator.of(
-          context,
-        ).push(CupertinoPageRoute<void>(builder: (_) => const PlayerPage())),
+      await Navigator.of(context).push(
+        CupertinoPageRoute<void>(
+          builder: (_) => ScorePracticePage(
+            score: PracticeScoreMetadata.imported(session.songData.fileName),
+            initialSession: session,
+            surfaceFactory: widget.practiceSurfaceFactory,
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -783,7 +805,7 @@ class _SheetPreview extends StatelessWidget {
                     vertical: 5,
                   ),
                   child: Text(
-                    score.assetPath == null ? '仅预览' : 'MIDI 可用',
+                    score.assetPath == null ? '仅预览' : '仅伴奏',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -1035,6 +1057,7 @@ class _PrimaryActionButton extends StatelessWidget {
         ],
       ),
       child: CupertinoButton(
+        key: const Key('import-score'),
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
         borderRadius: BorderRadius.circular(18),
         onPressed: onPressed,
@@ -1095,8 +1118,6 @@ class _ScoreCardData {
   final Color accent;
   final int seed;
   final String? assetPath;
-  final String? pdfPageAssetPrefix;
-  final int? pdfPageCount;
 
   const _ScoreCardData({
     required this.title,
@@ -1109,8 +1130,6 @@ class _ScoreCardData {
     required this.accent,
     required this.seed,
     this.assetPath,
-    this.pdfPageAssetPrefix,
-    this.pdfPageCount,
   });
 
   PracticeScoreMetadata toPracticeMetadata() {
@@ -1124,8 +1143,6 @@ class _ScoreCardData {
       accent: accent,
       seed: seed,
       assetPath: assetPath,
-      pdfPageAssetPrefix: pdfPageAssetPrefix,
-      pdfPageCount: pdfPageCount,
     );
   }
 }
