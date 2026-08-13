@@ -150,30 +150,45 @@ void main() {
     expect(importCount, 1);
   });
 
-  testWidgets('测试工厂端口构造即就绪且仅在 XML 变化时重载', (tester) async {
+  testWidgets('测试工厂等待谱面 ready 后只宣布端口一次', (tester) async {
     final port = RecordingRendererPort();
     final readyPorts = <Object>[];
+    late ValueChanged<ScoreRendererMessage> emit;
 
     Widget build(String xml) => CupertinoApp(
       home: InteractiveScoreView(
         musicXml: xml,
         onMessage: (_) {},
         onPortReady: readyPorts.add,
-        surfaceFactory: (_) => ScoreSurface(
-          port: port,
-          child: const SizedBox(key: Key('fake-score-surface')),
-        ),
+        surfaceFactory: (onMessage) {
+          emit = onMessage;
+          return ScoreSurface(
+            port: port,
+            child: const SizedBox(key: Key('fake-score-surface')),
+          );
+        },
       ),
     );
 
     await tester.pumpWidget(build('<score-partwise id="one"/>'));
     await tester.pump();
-    expect(readyPorts, [same(port)]);
+    expect(readyPorts, isEmpty);
     expect(port.loadedXml, ['<score-partwise id="one"/>']);
+
+    emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+    expect(readyPorts, [same(port)]);
+
+    emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+    expect(readyPorts, hasLength(1));
 
     await tester.pumpWidget(build('<score-partwise id="one"/>'));
     await tester.pump();
     expect(port.loadedXml, hasLength(1));
+    emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+    expect(readyPorts, hasLength(1));
 
     await tester.pumpWidget(build('<score-partwise id="two"/>'));
     await tester.pump();
@@ -181,9 +196,12 @@ void main() {
       '<score-partwise id="one"/>',
       '<score-partwise id="two"/>',
     ]);
+    emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+    expect(readyPorts, hasLength(1));
   });
 
-  testWidgets('生产端口只在本地页完成后宣布且加载一次', (tester) async {
+  testWidgets('生产端口在初始加载后等待桥接 ready 再开放', (tester) async {
     final platform = _TestWebViewPlatform();
     WebViewPlatform.instance = platform;
     final readyPorts = <Object>[];
@@ -193,7 +211,10 @@ void main() {
         home: InteractiveScoreView(
           musicXml: '<score-partwise/>',
           onMessage: (_) {},
-          onPortReady: readyPorts.add,
+          onPortReady: (port) {
+            readyPorts.add(port);
+            port.highlightMeasure(2, scrollIntoView: true);
+          },
         ),
       ),
     );
@@ -210,15 +231,31 @@ void main() {
       'file:///flutter_assets/assets/score_renderer/index.html',
     );
     await tester.pump();
-    expect(readyPorts, hasLength(1));
+    expect(readyPorts, isEmpty);
     expect(platform.controller.scripts, hasLength(1));
+    expect(platform.controller.scripts.single, contains('loadMusicXmlBase64'));
+
+    platform.controller.emitBridgeMessage('{"type":"ready"}');
+    await tester.pump();
+    expect(readyPorts, hasLength(1));
+    expect(platform.controller.scripts, hasLength(2));
+    expect(platform.controller.scripts[0], contains('loadMusicXmlBase64'));
+    expect(
+      platform.controller.scripts[1],
+      contains('highlightMeasure(2, true)'),
+    );
+
+    platform.controller.emitBridgeMessage('{"type":"ready"}');
+    await tester.pump();
+    expect(readyPorts, hasLength(1));
+    expect(platform.controller.scripts, hasLength(2));
 
     platform.navigationDelegate.onPageFinished!(
       'file:///flutter_assets/assets/score_renderer/index.html',
     );
     await tester.pump();
     expect(readyPorts, hasLength(1));
-    expect(platform.controller.scripts, hasLength(1));
+    expect(platform.controller.scripts, hasLength(2));
   });
 }
 
@@ -252,6 +289,7 @@ class _TestPlatformWebViewController extends PlatformWebViewController {
   _TestPlatformWebViewController(super.params) : super.implementation();
 
   final scripts = <String>[];
+  JavaScriptChannelParams? scoreBridgeChannel;
 
   @override
   Future<void> setJavaScriptMode(JavaScriptMode javaScriptMode) async {}
@@ -260,7 +298,9 @@ class _TestPlatformWebViewController extends PlatformWebViewController {
   Future<void> setBackgroundColor(Color color) async {}
 
   @override
-  Future<void> addJavaScriptChannel(JavaScriptChannelParams params) async {}
+  Future<void> addJavaScriptChannel(JavaScriptChannelParams params) async {
+    if (params.name == 'ScoreBridge') scoreBridgeChannel = params;
+  }
 
   @override
   Future<void> setPlatformNavigationDelegate(
@@ -273,6 +313,10 @@ class _TestPlatformWebViewController extends PlatformWebViewController {
   @override
   Future<void> runJavaScript(String javaScript) async {
     scripts.add(javaScript);
+  }
+
+  void emitBridgeMessage(String message) {
+    scoreBridgeChannel!.onMessageReceived(JavaScriptMessage(message: message));
   }
 }
 

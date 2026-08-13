@@ -87,11 +87,13 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
   }
 
   void _createSurface() {
+    _portAnnounced = false;
     final factory = widget.surfaceFactory;
     if (factory != null) {
       _surface = factory(_acceptMessage);
       _pageReady = true;
-      _announcePortAndLoad();
+      final musicXml = widget.musicXml;
+      if (musicXml != null) unawaited(_surface!.port.loadMusicXml(musicXml));
       return;
     }
 
@@ -122,10 +124,6 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
             }
             if (_pageReady) return;
             _pageReady = true;
-            if (!_portAnnounced) {
-              _portAnnounced = true;
-              widget.onPortReady?.call(port);
-            }
             final musicXml = widget.musicXml;
             if (musicXml != null) unawaited(port.loadMusicXml(musicXml));
           },
@@ -149,21 +147,6 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
     );
   }
 
-  void _announcePortAndLoad() {
-    _announcePort();
-    final musicXml = widget.musicXml;
-    if (musicXml != null) unawaited(_surface!.port.loadMusicXml(musicXml));
-  }
-
-  void _announcePort() {
-    final port = _surface!.port;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && identical(_surface?.port, port)) {
-        widget.onPortReady?.call(port);
-      }
-    });
-  }
-
   void _acceptMessage(ScoreRendererMessage message) {
     if (!mounted) return;
     switch (message.type) {
@@ -172,6 +155,10 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
           _isLoading = false;
           _errorMessage = null;
         });
+        if (!_portAnnounced && _surface != null) {
+          _portAnnounced = true;
+          widget.onPortReady?.call(_surface!.port);
+        }
       case ScoreRendererMessageType.error:
         setState(() {
           _isLoading = false;
