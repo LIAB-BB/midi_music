@@ -6,7 +6,21 @@ import 'package:midi_music/core/midi/midi_engine.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
 import 'package:midi_music/models/midi_track.dart';
 
+import 'helpers/score_test_fixtures.dart';
+
 void main() {
+  test('loadSong 保持 MIDI-only 会话和推算小节映射', () {
+    final player = readyPlayer();
+    addTearDown(player.dispose);
+    final session = midiOnlySession();
+
+    player.loadSong(session.songData);
+
+    expect(player.scoreSession?.sourceType, session.sourceType);
+    expect(player.measureMap, isNotNull);
+    expect(player.currentMeasureOrdinal, 1);
+  });
+
   test('重复准备音色时等待同一个下载任务', () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'midi-player-sf2-test-',

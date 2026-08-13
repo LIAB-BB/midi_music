@@ -6,7 +6,9 @@ import 'package:path_provider/path_provider.dart';
 import '../diagnostics/app_error.dart';
 import '../diagnostics/diagnostic_logger.dart';
 import '../../models/midi_track.dart';
+import '../../models/score_session.dart';
 import 'midi_engine.dart';
+import 'measure_map.dart';
 import 'tempo_map.dart';
 
 /// 播放状态
@@ -45,6 +47,8 @@ class MidiPlayerController extends ChangeNotifier {
   LoopWrappedCallback? onLoopWrapped;
   MidiSongData? _songData;
   TempoMap? _tempoMap;
+  ScoreSession? _scoreSession;
+  MeasureMap? _measureMap;
   String? _currentSongId;
   String? _currentFilePath;
 
@@ -83,6 +87,8 @@ class MidiPlayerController extends ChangeNotifier {
   String? get currentSongId => _currentSongId;
   String? get currentFilePath => _currentFilePath;
   TempoMap? get tempoMap => _tempoMap;
+  ScoreSession? get scoreSession => _scoreSession;
+  MeasureMap? get measureMap => _measureMap;
   MidiPlaybackEngine get engine => _engine;
   bool get isReady => _engine.isReady && _songData != null;
   SoundfontSetupState get soundfontState => _soundfontState;
@@ -105,6 +111,12 @@ class MidiPlayerController extends ChangeNotifier {
     return tempoMap
         .secondsToTick(_currentTime)
         .clamp(0, _songData?.totalTicks ?? 0);
+  }
+
+  int? get currentMeasureOrdinal {
+    final map = _measureMap;
+    if (map == null || _songData == null) return null;
+    return map.timeToMeasureBeat(_currentTime).measureNumber;
   }
 
   /// 总时长（秒）
@@ -207,6 +219,25 @@ class MidiPlayerController extends ChangeNotifier {
   /// 加载歌曲数据
   void loadSong(MidiSongData song, {String? songId, String? filePath}) {
     if (_isDisposed) return;
+    _scoreSession = ScoreSession.midiOnly(song);
+    _loadSongData(song, songId: songId, filePath: filePath);
+    _measureMap = MeasureMap(song: song, tempoMap: _tempoMap!);
+    _notifyListenersIfActive();
+  }
+
+  void loadScore(ScoreSession session, {String? songId, String? filePath}) {
+    if (_isDisposed) return;
+    _scoreSession = session;
+    _loadSongData(session.songData, songId: songId, filePath: filePath);
+    _measureMap = MeasureMap(
+      song: session.songData,
+      tempoMap: _tempoMap!,
+      scoreMeasures: session.measures,
+    );
+    _notifyListenersIfActive();
+  }
+
+  void _loadSongData(MidiSongData song, {String? songId, String? filePath}) {
     stop();
     _songData = song;
     _currentSongId = songId;
@@ -217,7 +248,29 @@ class MidiPlayerController extends ChangeNotifier {
       tempoChanges: song.tempoChanges,
     );
     _applyProgramStateAtCurrentPosition();
-    _notifyListenersIfActive();
+  }
+
+  bool seekToMeasure(int ordinal) {
+    final seconds = _measureMap?.tryMeasureToTime(ordinal);
+    if (seconds == null) return false;
+    seekTo(seconds);
+    return true;
+  }
+
+  bool seekToPreviousMeasure() {
+    final current = currentMeasureOrdinal;
+    final previous = current == null
+        ? null
+        : _measureMap?.previousInteractiveOrdinal(current);
+    return previous != null && seekToMeasure(previous);
+  }
+
+  bool seekToNextMeasure() {
+    final current = currentMeasureOrdinal;
+    final next = current == null
+        ? null
+        : _measureMap?.nextInteractiveOrdinal(current);
+    return next != null && seekToMeasure(next);
   }
 
   /// 播放

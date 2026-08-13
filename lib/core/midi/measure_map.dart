@@ -1,24 +1,29 @@
 import '../../models/midi_track.dart';
+import '../../models/score_session.dart';
 import 'tempo_map.dart';
 
 /// 小节信息，按 MIDI tick 派生而来。
 class MeasureInfo {
   final int number;
+  final String label;
   final int startTick;
   final int endTick;
   final double startTime;
   final double endTime;
   final int numerator;
   final int denominator;
+  final bool isInteractive;
 
   const MeasureInfo({
     required this.number,
+    required this.label,
     required this.startTick,
     required this.endTick,
     required this.startTime,
     required this.endTime,
     required this.numerator,
     required this.denominator,
+    this.isInteractive = true,
   });
 
   int get lengthTick => endTick - startTick;
@@ -46,9 +51,14 @@ class MeasurePosition {
 class MeasureMap {
   final MidiSongData song;
   final TempoMap tempoMap;
+  final List<ScoreMeasureBoundary> scoreMeasures;
   late final List<MeasureInfo> _measures = _buildMeasures();
 
-  MeasureMap({required this.song, required this.tempoMap});
+  MeasureMap({
+    required this.song,
+    required this.tempoMap,
+    this.scoreMeasures = const [],
+  });
 
   List<MeasureInfo> get measures => List.unmodifiable(_measures);
 
@@ -70,6 +80,34 @@ class MeasureMap {
   double measureToTime(int measureNumber) {
     final measure = _measureByNumber(measureNumber);
     return measure.startTime;
+  }
+
+  double? tryMeasureToTime(int ordinal) {
+    for (final measure in _measures) {
+      if (measure.number == ordinal && measure.isInteractive) {
+        return measure.startTime;
+      }
+    }
+    return null;
+  }
+
+  int? previousInteractiveOrdinal(int ordinal) {
+    for (var index = _measures.length - 1; index >= 0; index--) {
+      final measure = _measures[index];
+      if (measure.number < ordinal && measure.isInteractive) {
+        return measure.number;
+      }
+    }
+    return null;
+  }
+
+  int? nextInteractiveOrdinal(int ordinal) {
+    for (final measure in _measures) {
+      if (measure.number > ordinal && measure.isInteractive) {
+        return measure.number;
+      }
+    }
+    return null;
   }
 
   int measureToTick(int measureNumber) {
@@ -123,6 +161,25 @@ class MeasureMap {
   }
 
   List<MeasureInfo> _buildMeasures() {
+    if (scoreMeasures.isNotEmpty) {
+      return scoreMeasures
+          .map((boundary) {
+            final signature = _signatureAt(boundary.startTick);
+            return MeasureInfo(
+              number: boundary.ordinal,
+              label: boundary.label,
+              startTick: boundary.startTick,
+              endTick: boundary.endTick,
+              startTime: tempoMap.tickToSeconds(boundary.startTick),
+              endTime: tempoMap.tickToSeconds(boundary.endTick),
+              numerator: signature.numerator,
+              denominator: signature.denominator,
+              isInteractive: boundary.isInteractive,
+            );
+          })
+          .toList(growable: false);
+    }
+
     final signatures = _normalizedTimeSignatures();
     final measures = <MeasureInfo>[];
     var signatureIndex = 0;
@@ -154,6 +211,7 @@ class MeasureMap {
       measures.add(
         MeasureInfo(
           number: measureNumber,
+          label: '$measureNumber',
           startTick: currentTick,
           endTick: endTick,
           startTime: tempoMap.tickToSeconds(currentTick),
@@ -178,6 +236,16 @@ class MeasureMap {
       );
     }
     return sorted;
+  }
+
+  TimeSignatureChange _signatureAt(int tick) {
+    final signatures = _normalizedTimeSignatures();
+    var signature = signatures.first;
+    for (final candidate in signatures.skip(1)) {
+      if (candidate.tick > tick) break;
+      signature = candidate;
+    }
+    return signature;
   }
 
   int _measureLengthTicks({required int numerator, required int denominator}) {
