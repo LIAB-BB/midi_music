@@ -498,25 +498,35 @@ class _ResetCard extends StatelessWidget {
       showCupertinoDialog<void>(
         context: context,
         builder: (dialogContext) {
-          var resetStarted = false;
-          return CupertinoAlertDialog(
-            title: const Text('恢复默认设置？'),
-            content: const Text('这会重置播放默认速度和跟随模式参数。'),
-            actions: [
-              CupertinoDialogAction(
-                child: const Text('取消'),
-                onPressed: () => Navigator.of(dialogContext).pop(),
-              ),
-              CupertinoDialogAction(
-                isDestructiveAction: true,
-                child: const Text('恢复'),
-                onPressed: () {
-                  if (resetStarted) return;
-                  resetStarted = true;
-                  unawaited(_reset(dialogContext));
-                },
-              ),
-            ],
+          var isResetting = false;
+          return StatefulBuilder(
+            builder: (context, setDialogState) => CupertinoAlertDialog(
+              title: const Text('恢复默认设置？'),
+              content: const Text('这会重置播放默认速度和跟随模式参数。'),
+              actions: [
+                CupertinoDialogAction(
+                  onPressed: isResetting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                CupertinoDialogAction(
+                  isDestructiveAction: true,
+                  onPressed: isResetting
+                      ? null
+                      : () {
+                          setDialogState(() => isResetting = true);
+                          unawaited(
+                            _reset(dialogContext).whenComplete(() {
+                              if (!dialogContext.mounted) return;
+                              setDialogState(() => isResetting = false);
+                            }),
+                          );
+                        },
+                  child: Text(isResetting ? '恢复中…' : '恢复'),
+                ),
+              ],
+            ),
           );
         },
       ),
