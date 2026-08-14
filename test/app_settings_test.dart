@@ -175,6 +175,49 @@ void main() {
     );
   });
 
+  test('读取时先过滤无效单曲项，第 101 个有效项仍被恢复', () async {
+    final rawSelections = <String, Object?>{
+      '00-invalid': const <String>[],
+      for (var index = 0; index < 100; index++) 'song:$index': ['part'],
+    };
+    final settings = AppSettingsController(
+      storage: _MemorySettingsStorage(
+        initialValues: {
+          'schemaVersion': 3,
+          'songScorePartSelections': rawSelections,
+        },
+      ),
+    );
+
+    await settings.load();
+
+    expect(settings.scorePartSelectionForSong('song:99'), {'part'});
+  });
+
+  test('满额时保留本次单曲写入，并统一 trim 和 clear 的持久化键', () async {
+    final storage = _MemorySettingsStorage();
+    final settings = AppSettingsController(storage: storage);
+    for (var index = 0; index < 100; index++) {
+      settings.setScorePartSelectionForSong('song:$index', {'part'});
+    }
+    settings.setScorePartSelectionForSong('zz:new', {'new'});
+    await settings.flush();
+
+    expect(settings.scorePartSelectionForSong(' zz:new '), {'new'});
+    expect(settings.scorePartSelectionForSong('song:99'), isNull);
+    expect((storage.values['songScorePartSelections'] as Map)['zz:new'], [
+      'new',
+    ]);
+
+    settings.clearScorePartSelectionForSong(' zz:new ');
+    await settings.flush();
+    expect(settings.scorePartSelectionForSong('zz:new'), isNull);
+    expect(
+      (storage.values['songScorePartSelections'] as Map).containsKey('zz:new'),
+      isFalse,
+    );
+  });
+
   test('load 读取异常时仍共享 Future、只读取和通知一次', () async {
     final storage = _ThrowingReadSettingsStorage();
     final settings = AppSettingsController(storage: storage);

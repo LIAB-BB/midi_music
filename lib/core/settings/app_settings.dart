@@ -326,7 +326,7 @@ class AppSettingsController extends ChangeNotifier {
   }
 
   Set<String>? scorePartSelectionForSong(String fingerprint) {
-    final selection = _songScorePartSelections[fingerprint];
+    final selection = _songScorePartSelections[fingerprint.trim()];
     return selection == null ? null : Set<String>.unmodifiable(selection);
   }
 
@@ -347,19 +347,22 @@ class AppSettingsController extends ChangeNotifier {
       return;
     }
     _update(() {
-      _songScorePartSelections = _sortedSongScorePartSelections({
-        ..._songScorePartSelections,
-        normalizedFingerprint: normalizedPartIds,
-      });
+      final updated = Map<String, Set<String>>.from(_songScorePartSelections)
+        ..[normalizedFingerprint] = normalizedPartIds;
+      _songScorePartSelections = _sortedSongScorePartSelections(
+        updated,
+        preserveKey: normalizedFingerprint,
+      );
     });
   }
 
   void clearScorePartSelectionForSong(String fingerprint) {
-    if (!_songScorePartSelections.containsKey(fingerprint)) return;
+    final normalizedFingerprint = fingerprint.trim();
+    if (!_songScorePartSelections.containsKey(normalizedFingerprint)) return;
     _update(() {
       _songScorePartSelections = Map<String, Set<String>>.from(
         _songScorePartSelections,
-      )..remove(fingerprint);
+      )..remove(normalizedFingerprint);
     });
   }
 
@@ -601,11 +604,12 @@ class AppSettingsController extends ChangeNotifier {
             .where((entry) => entry.key.isNotEmpty)
             .toList()
           ..sort((left, right) => left.key.compareTo(right.key));
-    for (final entry in entries.take(maxSongScorePartSelections)) {
+    for (final entry in entries) {
       final value = entry.value;
       if (value is! List) continue;
       final ids = _normalizedPartIds(value.whereType<String>().toSet());
       if (ids.isNotEmpty) selections[entry.key] = ids;
+      if (selections.length == maxSongScorePartSelections) break;
     }
     return Map<String, Set<String>>.unmodifiable(selections);
   }
@@ -622,9 +626,15 @@ class AppSettingsController extends ChangeNotifier {
   }
 
   Map<String, Set<String>> _sortedSongScorePartSelections(
-    Map<String, Set<String>> selections,
-  ) {
+    Map<String, Set<String>> selections, {
+    String? preserveKey,
+  }) {
     final sortedKeys = selections.keys.toList()..sort();
+    if (preserveKey != null && sortedKeys.length > maxSongScorePartSelections) {
+      final evictedKey = sortedKeys.lastWhere((key) => key != preserveKey);
+      selections.remove(evictedKey);
+      return _sortedSongScorePartSelections(selections);
+    }
     return Map<String, Set<String>>.unmodifiable({
       for (final key in sortedKeys.take(maxSongScorePartSelections))
         key: _normalizedPartIds(selections[key]!),

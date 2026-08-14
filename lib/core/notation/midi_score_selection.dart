@@ -48,9 +48,34 @@ class MidiScoreSelectionResolver {
       );
     }
 
+    final recommended = _validPartIds(catalog.recommendedPartIds, available);
+    if (recommended.isNotEmpty) {
+      return MidiScoreSelection(
+        partIds: recommended,
+        origin: catalog.recommendedOrigin,
+      );
+    }
+
+    final piano = _partIdsForKind(available, MidiPartKind.piano);
+    if (piano.isNotEmpty) {
+      return MidiScoreSelection(
+        partIds: piano,
+        origin: MidiSelectionOrigin.automaticPiano,
+      );
+    }
+    final ensemble = {
+      for (final entry in available.entries)
+        if (entry.value.kind != MidiPartKind.percussion) entry.key,
+    };
+    if (ensemble.isNotEmpty) {
+      return MidiScoreSelection(
+        partIds: ensemble,
+        origin: MidiSelectionOrigin.automaticEnsemble,
+      );
+    }
     return MidiScoreSelection(
-      partIds: _validPartIds(catalog.recommendedPartIds, available),
-      origin: catalog.recommendedOrigin,
+      partIds: available.keys.toSet(),
+      origin: MidiSelectionOrigin.percussionFallback,
     );
   }
 
@@ -61,5 +86,13 @@ class MidiScoreSelectionResolver {
     if (candidates != null)
       for (final id in candidates)
         if (available.containsKey(id)) id,
+  };
+
+  Set<String> _partIdsForKind(
+    Map<String, MidiScorePart> available,
+    MidiPartKind kind,
+  ) => {
+    for (final entry in available.entries)
+      if (entry.value.kind == kind) entry.key,
   };
 }

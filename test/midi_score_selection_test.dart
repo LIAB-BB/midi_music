@@ -54,6 +54,41 @@ void main() {
     expect(() => result.partIds.add('other'), throwsUnsupportedError);
   });
 
+  test('推荐项全失效时仍按可用钢琴、合奏和打击乐回退', () {
+    final invalidRecommendedPiano = _catalogWithRecommendation([
+      _part('piano', MidiPartKind.piano),
+      _part('empty', MidiPartKind.strings, noteCount: 0),
+    ]);
+    final invalidRecommendedEnsemble = _catalogWithRecommendation([
+      _part('strings', MidiPartKind.strings),
+      _part('drums', MidiPartKind.percussion),
+    ]);
+    final invalidRecommendedPercussion = _catalogWithRecommendation([
+      _part('drums', MidiPartKind.percussion),
+    ]);
+
+    final resolver = MidiScoreSelectionResolver();
+    final piano = resolver.resolve(
+      invalidRecommendedPiano,
+      globalDefaultKinds: {},
+    );
+    final ensemble = resolver.resolve(
+      invalidRecommendedEnsemble,
+      globalDefaultKinds: {},
+    );
+    final percussion = resolver.resolve(
+      invalidRecommendedPercussion,
+      globalDefaultKinds: {},
+    );
+
+    expect(piano.partIds, {'piano'});
+    expect(piano.origin, MidiSelectionOrigin.automaticPiano);
+    expect(ensemble.partIds, {'strings'});
+    expect(ensemble.origin, MidiSelectionOrigin.automaticEnsemble);
+    expect(percussion.partIds, {'drums'});
+    expect(percussion.origin, MidiSelectionOrigin.percussionFallback);
+  });
+
   test('没有可记谱音符时抛出明确错误', () {
     final emptyCatalog = MidiScoreCatalog(
       fingerprint: 'empty',
@@ -102,6 +137,14 @@ MidiScoreCatalog _percussionCatalog() => MidiScoreCatalog(
   recommendedPartIds: {'source:1:9'},
   recommendedOrigin: MidiSelectionOrigin.percussionFallback,
 );
+
+MidiScoreCatalog _catalogWithRecommendation(List<MidiScorePart> parts) =>
+    MidiScoreCatalog(
+      fingerprint: 'invalid-recommendation',
+      parts: parts,
+      recommendedPartIds: {'missing', 'empty'},
+      recommendedOrigin: MidiSelectionOrigin.automaticPiano,
+    );
 
 MidiScorePart _part(String id, MidiPartKind kind, {int noteCount = 1}) =>
     MidiScorePart(
