@@ -33,6 +33,10 @@ class MidiNotationResult {
 }
 
 class MidiToMusicXmlConverter {
+  static const int _maxMeasures = 10000;
+  static const int _maxGeneratedFragments = 1000000;
+  static const int _maxNotationElements = 2000000;
+
   MidiNotationResult convertSync(
     MidiSongData song, {
     required MidiScoreCatalog catalog,
@@ -87,14 +91,17 @@ class MidiToMusicXmlConverter {
     final selectedParts = catalog.parts
         .where((part) => selectedPartIds.contains(part.id))
         .toList(growable: false);
-    if (!selectedParts.any((part) => _selectedNotes(song, part).isNotEmpty)) {
-      throw StateError('所选声部中没有可记谱音符');
+    if (_estimatedMeasureCount(song, stopAfter: _maxMeasures) > _maxMeasures) {
+      throw StateError('MIDI 生成小节超过 $_maxMeasures 个，无法生成谱面');
     }
     final tempoMap = TempoMap(
       ticksPerBeat: song.ticksPerBeat,
       tempoChanges: song.tempoChanges,
     );
     final sourceMeasures = MeasureMap(song: song, tempoMap: tempoMap).measures;
+    if (sourceMeasures.length > _maxMeasures) {
+      throw StateError('MIDI 生成小节超过 $_maxMeasures 个，无法生成谱面');
+    }
     final measures = sourceMeasures
         .map(
           (measure) => ScoreMeasureBoundary(
@@ -111,7 +118,19 @@ class MidiToMusicXmlConverter {
       if (selectedParts.any((part) => part.kind == MidiPartKind.other))
         MidiNotationWarning.unknownInstrument,
     };
-    final xml = _buildDocument(song, selectedParts, sourceMeasures, warnings);
+    final selectedNotesByPart = {
+      for (final part in selectedParts) part.id: _selectedNotes(song, part),
+    };
+    if (!selectedNotesByPart.values.any((notes) => notes.isNotEmpty)) {
+      throw StateError('所选声部中没有可记谱音符');
+    }
+    final xml = _buildDocument(
+      song,
+      selectedParts,
+      selectedNotesByPart,
+      sourceMeasures,
+      warnings,
+    );
     return MidiNotationResult(
       musicXml: xml,
       measures: measures,
@@ -123,9 +142,14 @@ class MidiToMusicXmlConverter {
   String _buildDocument(
     MidiSongData song,
     List<MidiScorePart> parts,
+    Map<String, List<MidiNote>> selectedNotesByPart,
     List<MeasureInfo> measures,
     Set<MidiNotationWarning> warnings,
   ) {
+    final budget = _ConversionBudget(
+      maxFragments: _maxGeneratedFragments,
+      maxNotationElements: _maxNotationElements,
+    );
     final buffer = StringBuffer()
       ..writeln('<?xml version="1.0" encoding="UTF-8" standalone="no"?>')
       ..writeln(
@@ -156,9 +180,11 @@ class MidiToMusicXmlConverter {
         buffer,
         song,
         parts[index],
+        selectedNotesByPart[parts[index].id]!,
         'P${index + 1}',
         measures,
         warnings,
+        budget,
       );
     }
     buffer.writeln('</score-partwise>');
@@ -169,22 +195,25 @@ class MidiToMusicXmlConverter {
     StringBuffer buffer,
     MidiSongData song,
     MidiScorePart part,
+    List<MidiNote> notes,
     String partId,
     List<MeasureInfo> measures,
     Set<MidiNotationWarning> warnings,
+    _ConversionBudget budget,
   ) {
-    final notes = _selectedNotes(song, part);
+    final eventsByMeasure = _bucketEventsByMeasure(
+      notes,
+      measures,
+      song.ticksPerBeat,
+      part,
+      warnings,
+      budget,
+    );
     final previousStaffByVoice = <int, int>{};
     buffer.writeln('  <part id="$partId">');
     for (var measureIndex = 0; measureIndex < measures.length; measureIndex++) {
       final measure = measures[measureIndex];
-      final events = _eventsForMeasure(
-        notes,
-        measure,
-        song.ticksPerBeat,
-        part,
-        warnings,
-      );
+      final events = eventsByMeasure[measureIndex];
       final voices = _colorVoices(
         events,
         measure.lengthTick,
@@ -218,13 +247,13 @@ class MidiToMusicXmlConverter {
 
   List<MidiNote> _selectedNotes(MidiSongData song, MidiScorePart part) {
     final notes = <MidiNote>[];
+    final tracksByIndex = {for (final track in song.tracks) track.index: track};
     for (final source in part.sources) {
-      for (final track in song.tracks) {
-        if (track.index != source.trackIndex) continue;
-        notes.addAll(
-          track.notes.where((note) => source.channels.contains(note.channel)),
-        );
-      }
+      final track = tracksByIndex[source.trackIndex];
+      if (track == null) continue;
+      notes.addAll(
+        track.notes.where((note) => source.channels.contains(note.channel)),
+      );
     }
     notes.sort((a, b) {
       final onset = a.startTick.compareTo(b.startTick);
@@ -233,88 +262,169 @@ class MidiToMusicXmlConverter {
     return notes;
   }
 
-  List<_ChordEvent> _eventsForMeasure(
+  List<List<_ChordEvent>> _bucketEventsByMeasure(
     List<MidiNote> notes,
-    MeasureInfo measure,
+    List<MeasureInfo> measures,
     int ticksPerBeat,
     MidiScorePart part,
     Set<MidiNotationWarning> warnings,
+    _ConversionBudget budget,
   ) {
     final candidates = _durationCandidates(ticksPerBeat);
-    final grouped = <int, List<_NoteSegment>>{};
+    final decomposer = _DurationDecomposer(candidates);
+    final groupedByMeasure = List<Map<int, List<_NoteSegment>>>.generate(
+      measures.length,
+      (_) => <int, List<_NoteSegment>>{},
+      growable: false,
+    );
+    if (measures.isEmpty) return const [];
+    final minimumDuration = candidates.first.ticks;
+    var onsetMeasureIndex = 0;
     for (final note in notes) {
-      if (note.endTick <= measure.startTick ||
-          note.startTick >= measure.endTick ||
-          note.endTick <= note.startTick) {
-        continue;
+      if (note.endTick <= note.startTick) continue;
+      while (onsetMeasureIndex < measures.length &&
+          measures[onsetMeasureIndex].endTick <= note.startTick) {
+        onsetMeasureIndex++;
       }
-      final rawStart = math.max(note.startTick, measure.startTick);
-      final rawEnd = math.min(note.endTick, measure.endTick);
-      final offset = rawStart - measure.startTick;
-      var quantizedOffset = note.startTick < measure.startTick
-          ? 0
-          : _quantizeOnset(offset, measure.lengthTick, candidates);
-      final minimumDuration = candidates
-          .map((candidate) => candidate.ticks)
-          .reduce(math.min);
-      if (measure.lengthTick - quantizedOffset < minimumDuration) {
-        quantizedOffset = math.max(0, measure.lengthTick - minimumDuration);
+      if (onsetMeasureIndex >= measures.length) break;
+      final onsetMeasure = measures[onsetMeasureIndex];
+      if (note.startTick < onsetMeasure.startTick) continue;
+      final rawOffset = note.startTick - onsetMeasure.startTick;
+      var quantizedOffset = _quantizeOnset(
+        rawOffset,
+        onsetMeasure.lengthTick,
+        candidates,
+      );
+      if (onsetMeasure.lengthTick - quantizedOffset < minimumDuration) {
+        quantizedOffset = math.max(
+          0,
+          onsetMeasure.lengthTick - minimumDuration,
+        );
       }
-      final available = measure.lengthTick - quantizedOffset;
-      if (available < minimumDuration) {
+      final quantizedStart = onsetMeasure.startTick + quantizedOffset;
+      final availableSongDuration = measures.last.endTick - quantizedStart;
+      if (availableSongDuration < minimumDuration) {
         warnings.add(MidiNotationWarning.rhythmQuantized);
         continue;
       }
-      final rawDuration = rawEnd - rawStart;
-      final duration = note.endTick > measure.endTick
-          ? available
-          : _nearestDuration(rawDuration, available, candidates).ticks;
-      if ((quantizedOffset - offset).abs() > ticksPerBeat / 48 ||
-          (duration - rawDuration).abs() > ticksPerBeat / 48) {
+      final quantizedDuration = decomposer.nearest(
+        note.endTick - note.startTick,
+        availableSongDuration,
+      );
+      if (quantizedDuration == null) {
         warnings.add(MidiNotationWarning.rhythmQuantized);
+        continue;
       }
-      grouped
-          .putIfAbsent(quantizedOffset, () => [])
-          .add(
-            _NoteSegment(
-              noteNumber: note.noteNumber,
-              duration: duration.clamp(1, available),
-              tieStop: note.startTick < measure.startTick,
-              tieStart: note.endTick > measure.endTick,
+      final quantizedEnd = quantizedStart + quantizedDuration.duration;
+      final fragments = <_PendingFragment>[];
+      var measureIndex = onsetMeasureIndex;
+      while (measureIndex < measures.length &&
+          measures[measureIndex].startTick < quantizedEnd) {
+        budget.addFragment();
+        final measure = measures[measureIndex];
+        final fragmentStart = quantizedStart > measure.startTick
+            ? quantizedStart
+            : measure.startTick;
+        final fragmentEnd = quantizedEnd < measure.endTick
+            ? quantizedEnd
+            : measure.endTick;
+        final fragmentDuration = fragmentEnd - fragmentStart;
+        final decomposition = decomposer.nearest(
+          fragmentDuration,
+          fragmentEnd - fragmentStart,
+        );
+        if (decomposition != null) {
+          budget.addNotationElements(decomposition.notations.length);
+          fragments.add(
+            _PendingFragment(
+              measureIndex: measureIndex,
+              start: fragmentStart - measure.startTick,
+              notations: decomposition.notations,
             ),
           );
-    }
-    final events = grouped.entries.map((entry) {
-      final segments = List<_NoteSegment>.of(entry.value)
-        ..sort((left, right) {
-          final duration = right.duration.compareTo(left.duration);
-          return duration != 0
-              ? duration
-              : left.noteNumber.compareTo(right.noteNumber);
-        });
-      final duration = segments
-          .map((segment) => segment.duration)
-          .reduce(math.max);
-      final averagePitch =
-          segments
-              .map((segment) => segment.noteNumber)
-              .reduce((left, right) => left + right) ~/
-          segments.length;
-      return _ChordEvent(
-        start: entry.key,
-        duration: duration,
-        notes: segments,
-        staff: part.staffMode == MidiStaffMode.grandStaff && averagePitch < 60
-            ? 2
-            : 1,
+        }
+        measureIndex++;
+      }
+      final actualDuration = fragments.fold<int>(
+        0,
+        (sum, fragment) =>
+            sum +
+            fragment.notations.fold<int>(
+              0,
+              (subtotal, notation) => subtotal + notation.ticks,
+            ),
       );
-    }).toList();
-    events.sort((a, b) {
-      final onset = a.start.compareTo(b.start);
-      if (onset != 0) return onset;
-      return b.averagePitch.compareTo(a.averagePitch);
-    });
-    return events;
+      if ((quantizedStart - note.startTick).abs() > ticksPerBeat / 48 ||
+          (actualDuration - (note.endTick - note.startTick)).abs() >
+              ticksPerBeat / 48) {
+        warnings.add(MidiNotationWarning.rhythmQuantized);
+      }
+      for (
+        var fragmentIndex = 0;
+        fragmentIndex < fragments.length;
+        fragmentIndex++
+      ) {
+        final fragment = fragments[fragmentIndex];
+        groupedByMeasure[fragment.measureIndex]
+            .putIfAbsent(fragment.start, () => [])
+            .add(
+              _NoteSegment(
+                noteNumber: note.noteNumber,
+                notations: fragment.notations,
+                tieStop: fragmentIndex > 0,
+                tieStart: fragmentIndex < fragments.length - 1,
+              ),
+            );
+      }
+    }
+    return groupedByMeasure
+        .map((grouped) {
+          final events = grouped.entries.expand((entry) {
+            final segments = List<_NoteSegment>.of(entry.value)
+              ..sort((left, right) {
+                final duration = right.duration.compareTo(left.duration);
+                return duration != 0
+                    ? duration
+                    : left.noteNumber.compareTo(right.noteNumber);
+              });
+            final compatibleGroups = <String, List<_NoteSegment>>{};
+            for (final segment in segments) {
+              final key = segment.notations.length == 1
+                  ? 'single'
+                  : segment.notations
+                        .map((notation) => notation.ticks)
+                        .join(',');
+              compatibleGroups.putIfAbsent(key, () => []).add(segment);
+            }
+            return compatibleGroups.values.map((compatibleSegments) {
+              final duration = compatibleSegments
+                  .map((segment) => segment.duration)
+                  .reduce(math.max);
+              final averagePitch =
+                  compatibleSegments
+                      .map((segment) => segment.noteNumber)
+                      .reduce((left, right) => left + right) ~/
+                  compatibleSegments.length;
+              return _ChordEvent(
+                start: entry.key,
+                duration: duration,
+                notes: compatibleSegments,
+                staff:
+                    part.staffMode == MidiStaffMode.grandStaff &&
+                        averagePitch < 60
+                    ? 2
+                    : 1,
+              );
+            });
+          }).toList();
+          events.sort((a, b) {
+            final onset = a.start.compareTo(b.start);
+            if (onset != 0) return onset;
+            return b.averagePitch.compareTo(a.averagePitch);
+          });
+          return events;
+        })
+        .toList(growable: false);
   }
 
   List<List<_ChordEvent>> _colorVoices(
@@ -325,9 +435,8 @@ class MidiToMusicXmlConverter {
   ) {
     final voices = <List<_ChordEvent>>[];
     final ends = <int>[];
-    final minimumDuration = _durationCandidates(
-      ticksPerBeat,
-    ).map((candidate) => candidate.ticks).reduce(math.min);
+    final minimumNotation = _durationCandidates(ticksPerBeat).first;
+    final minimumDuration = minimumNotation.ticks;
     for (final event in events) {
       var voiceIndex = -1;
       for (var index = 0; index < ends.length; index++) {
@@ -349,10 +458,7 @@ class MidiToMusicXmlConverter {
         }
         final shiftedStart = ends[voiceIndex];
         if (shiftedStart + minimumDuration > measureLength) continue;
-        placed = event.copyWith(
-          start: shiftedStart,
-          duration: math.min(minimumDuration, measureLength - shiftedStart),
-        );
+        placed = event.copyWith(start: shiftedStart, notation: minimumNotation);
       }
       voices[voiceIndex].add(placed);
       ends[voiceIndex] = placed.end;
@@ -445,22 +551,52 @@ class MidiToMusicXmlConverter {
             event.averagePitch <= 64) {
           staff = previousStaff;
         }
-        for (var noteIndex = 0; noteIndex < event.notes.length; noteIndex++) {
-          final noteDuration = noteIndex == 0
-              ? event.duration
-              : math.min(event.duration, event.notes[noteIndex].duration);
-          _writeNote(
-            buffer,
-            event.notes[noteIndex],
-            duration: noteDuration,
-            voice: voiceIndex + 1,
-            staff: staff,
-            chord: noteIndex > 0,
-            percussion:
-                part.kind == MidiPartKind.percussion ||
-                part.staffMode == MidiStaffMode.percussionStaff,
-            ticksPerBeat: ticksPerBeat,
-          );
+        final percussion =
+            part.kind == MidiPartKind.percussion ||
+            part.staffMode == MidiStaffMode.percussionStaff;
+        if (event.notes.every((note) => note.notations.length == 1)) {
+          for (var noteIndex = 0; noteIndex < event.notes.length; noteIndex++) {
+            final note = event.notes[noteIndex];
+            _writeNote(
+              buffer,
+              note,
+              notation: note.notations.single,
+              tieStop: note.tieStop,
+              tieStart: note.tieStart,
+              voice: voiceIndex + 1,
+              staff: staff,
+              chord: noteIndex > 0,
+              percussion: percussion,
+              ticksPerBeat: ticksPerBeat,
+            );
+          }
+        } else {
+          for (
+            var notationIndex = 0;
+            notationIndex < event.notes.first.notations.length;
+            notationIndex++
+          ) {
+            for (
+              var noteIndex = 0;
+              noteIndex < event.notes.length;
+              noteIndex++
+            ) {
+              final note = event.notes[noteIndex];
+              _writeNote(
+                buffer,
+                note,
+                notation: note.notations[notationIndex],
+                tieStop: note.tieStop || notationIndex > 0,
+                tieStart:
+                    note.tieStart || notationIndex < note.notations.length - 1,
+                voice: voiceIndex + 1,
+                staff: staff,
+                chord: noteIndex > 0,
+                percussion: percussion,
+                ticksPerBeat: ticksPerBeat,
+              );
+            }
+          }
         }
         cursor = event.end;
         previousStaff = staff;
@@ -492,14 +628,19 @@ class MidiToMusicXmlConverter {
   void _writeNote(
     StringBuffer buffer,
     _NoteSegment note, {
-    required int duration,
+    required _DurationCandidate notation,
+    required bool tieStop,
+    required bool tieStart,
     required int voice,
     required int staff,
     required bool chord,
     required bool percussion,
     required int ticksPerBeat,
   }) {
-    final notation = _notationForDuration(duration, ticksPerBeat);
+    final exactNotation = _notationForExactDuration(
+      notation.ticks,
+      ticksPerBeat,
+    );
     buffer.writeln('      <note>');
     if (chord) buffer.writeln('        <chord/>');
     if (percussion) {
@@ -520,16 +661,16 @@ class MidiToMusicXmlConverter {
         ..writeln('          <octave>${pitch.octave}</octave>')
         ..writeln('        </pitch>');
     }
-    buffer.writeln('        <duration>$duration</duration>');
-    if (note.tieStop) buffer.writeln('        <tie type="stop"/>');
-    if (note.tieStart) buffer.writeln('        <tie type="start"/>');
+    buffer.writeln('        <duration>${notation.ticks}</duration>');
+    if (tieStop) buffer.writeln('        <tie type="stop"/>');
+    if (tieStart) buffer.writeln('        <tie type="start"/>');
     buffer
       ..writeln('        <voice>$voice</voice>')
-      ..writeln('        <type>${notation.type}</type>');
-    for (var index = 0; index < notation.dots; index++) {
+      ..writeln('        <type>${exactNotation.type}</type>');
+    for (var index = 0; index < exactNotation.dots; index++) {
       buffer.writeln('        <dot/>');
     }
-    if (notation.triplet) {
+    if (exactNotation.triplet) {
       buffer
         ..writeln('        <time-modification>')
         ..writeln('          <actual-notes>3</actual-notes>')
@@ -537,10 +678,10 @@ class MidiToMusicXmlConverter {
         ..writeln('        </time-modification>');
     }
     buffer.writeln('        <staff>$staff</staff>');
-    if (note.tieStop || note.tieStart) {
+    if (tieStop || tieStart) {
       buffer.writeln('        <notations>');
-      if (note.tieStop) buffer.writeln('          <tied type="stop"/>');
-      if (note.tieStart) buffer.writeln('          <tied type="start"/>');
+      if (tieStop) buffer.writeln('          <tied type="stop"/>');
+      if (tieStart) buffer.writeln('          <tied type="start"/>');
       buffer.writeln('        </notations>');
     }
     buffer.writeln('      </note>');
@@ -571,16 +712,73 @@ class MidiToMusicXmlConverter {
 
 class _NoteSegment {
   final int noteNumber;
-  final int duration;
+  final List<_DurationCandidate> notations;
   final bool tieStop;
   final bool tieStart;
 
   const _NoteSegment({
     required this.noteNumber,
-    required this.duration,
+    required this.notations,
     required this.tieStop,
     required this.tieStart,
   });
+
+  int get duration =>
+      notations.fold<int>(0, (total, notation) => total + notation.ticks);
+
+  _NoteSegment withSingleNotation(_DurationCandidate notation) => _NoteSegment(
+    noteNumber: noteNumber,
+    notations: [notation],
+    tieStop: tieStop,
+    tieStart: tieStart,
+  );
+}
+
+class _PendingFragment {
+  final int measureIndex;
+  final int start;
+  final List<_DurationCandidate> notations;
+
+  const _PendingFragment({
+    required this.measureIndex,
+    required this.start,
+    required this.notations,
+  });
+}
+
+class _DurationDecomposition {
+  final List<_DurationCandidate> notations;
+
+  const _DurationDecomposition(this.notations);
+
+  int get duration =>
+      notations.fold<int>(0, (total, notation) => total + notation.ticks);
+}
+
+class _ConversionBudget {
+  final int maxFragments;
+  final int maxNotationElements;
+  int _fragments = 0;
+  int _notationElements = 0;
+
+  _ConversionBudget({
+    required this.maxFragments,
+    required this.maxNotationElements,
+  });
+
+  void addFragment() {
+    _fragments++;
+    if (_fragments > maxFragments) {
+      throw StateError('MIDI 切分片段超过 $maxFragments 个，无法生成谱面');
+    }
+  }
+
+  void addNotationElements(int count) {
+    _notationElements += count;
+    if (_notationElements > maxNotationElements) {
+      throw StateError('MusicXML 记谱元素超过 $maxNotationElements 个，无法生成谱面');
+    }
+  }
 }
 
 class _ChordEvent {
@@ -602,8 +800,17 @@ class _ChordEvent {
       notes.map((note) => note.noteNumber).reduce((a, b) => a + b) ~/
       notes.length;
 
-  _ChordEvent copyWith({required int start, required int duration}) =>
-      _ChordEvent(start: start, duration: duration, notes: notes, staff: staff);
+  _ChordEvent copyWith({
+    required int start,
+    required _DurationCandidate notation,
+  }) => _ChordEvent(
+    start: start,
+    duration: notation.ticks,
+    notes: notes
+        .map((note) => note.withSingleNotation(notation))
+        .toList(growable: false),
+    staff: staff,
+  );
 }
 
 class _DurationCandidate {
@@ -620,6 +827,122 @@ class _DurationCandidate {
     required this.triplet,
     required this.complexity,
   });
+}
+
+class _DurationDecomposer {
+  static const int _maxDynamicStates = 200000;
+  static const int _maxDecompositionElements = 2000000;
+  final List<_DurationCandidate> _candidates;
+  final Map<int, List<_DurationCandidate>?> _exactCache = {};
+
+  _DurationDecomposer(List<_DurationCandidate> candidates)
+    : _candidates = _deduplicateCandidates(candidates);
+
+  _DurationDecomposition? nearest(int duration, int maximum) {
+    if (duration <= 0 || maximum <= 0) return null;
+    final target = math.min(duration, maximum);
+    final upper = math.min(maximum, target + _candidates.first.ticks);
+    for (var error = 0; error <= _candidates.first.ticks; error++) {
+      final shorter = target - error;
+      if (shorter > 0 && shorter <= maximum) {
+        final exact = _decomposeExact(shorter);
+        if (exact != null) return _DurationDecomposition(exact);
+      }
+      if (error == 0) continue;
+      final longer = target + error;
+      if (longer <= upper) {
+        final exact = _decomposeExact(longer);
+        if (exact != null) return _DurationDecomposition(exact);
+      }
+    }
+    return null;
+  }
+
+  List<_DurationCandidate>? _decomposeExact(int duration) {
+    if (_exactCache.containsKey(duration)) return _exactCache[duration];
+    final gcd = _candidates
+        .map((candidate) => candidate.ticks)
+        .reduce(_greatestCommonDivisor);
+    if (duration % gcd != 0) {
+      _exactCache[duration] = null;
+      return null;
+    }
+    final scaledCandidates = _candidates
+        .map((candidate) => candidate.ticks ~/ gcd)
+        .toList(growable: false);
+    final scaledDuration = duration ~/ gcd;
+    final largest = scaledCandidates.last;
+    var prefixCount = scaledDuration > _maxDynamicStates
+        ? (scaledDuration - _maxDynamicStates + largest - 1) ~/ largest
+        : 0;
+    List<_DurationCandidate>? suffix;
+    for (var attempt = 0; attempt <= 32 && prefixCount >= 0; attempt++) {
+      final remainder = scaledDuration - prefixCount * largest;
+      if (remainder > _maxDynamicStates) break;
+      suffix = _solveRemainder(remainder, scaledCandidates);
+      if (suffix != null) break;
+      prefixCount--;
+    }
+    if (suffix == null) {
+      if (scaledDuration <= _maxDynamicStates) {
+        _exactCache[duration] = null;
+        return null;
+      }
+      throw StateError('时值分解工作量超过 $_maxDynamicStates 个状态');
+    }
+    if (prefixCount + suffix.length > _maxDecompositionElements) {
+      throw StateError('单个时值的记谱元素超过 $_maxDecompositionElements 个');
+    }
+    final result = <_DurationCandidate>[
+      ...List<_DurationCandidate>.filled(
+        prefixCount,
+        _candidates.last,
+        growable: false,
+      ),
+      ...suffix,
+    ];
+    _exactCache[duration] = result;
+    return result;
+  }
+
+  List<_DurationCandidate>? _solveRemainder(
+    int target,
+    List<int> scaledCandidates,
+  ) {
+    if (target == 0) return const [];
+    final bestCounts = List<int?>.filled(target + 1, null);
+    final bestComplexities = List<int?>.filled(target + 1, null);
+    final previousCandidate = List<int?>.filled(target + 1, null);
+    bestCounts[0] = 0;
+    bestComplexities[0] = 0;
+    for (var amount = 1; amount <= target; amount++) {
+      for (var index = 0; index < scaledCandidates.length; index++) {
+        final previous = amount - scaledCandidates[index];
+        if (previous < 0 || bestCounts[previous] == null) continue;
+        final count = bestCounts[previous]! + 1;
+        final complexity =
+            bestComplexities[previous]! + _candidates[index].complexity;
+        if (bestCounts[amount] == null ||
+            count < bestCounts[amount]! ||
+            (count == bestCounts[amount] &&
+                complexity < bestComplexities[amount]!)) {
+          bestCounts[amount] = count;
+          bestComplexities[amount] = complexity;
+          previousCandidate[amount] = index;
+        }
+      }
+    }
+    if (bestCounts[target] == null) return null;
+    final result = <_DurationCandidate>[];
+    var amount = target;
+    while (amount > 0) {
+      final candidateIndex = previousCandidate[amount]!;
+      result.add(_candidates[candidateIndex]);
+      amount -= scaledCandidates[candidateIndex];
+    }
+    result.sort((left, right) => right.ticks.compareTo(left.ticks));
+    return result;
+  }
 }
 
 List<_DurationCandidate> _durationCandidates(int ticksPerBeat) {
@@ -690,38 +1013,79 @@ int _quantizeOnset(
   return best;
 }
 
-_DurationCandidate _nearestDuration(
-  int duration,
-  int maximum,
-  List<_DurationCandidate> candidates,
-) {
-  final allowed = candidates.where((candidate) => candidate.ticks <= maximum);
-  var best = allowed.first;
-  var bestError = (best.ticks - duration).abs();
-  for (final candidate in allowed.skip(1)) {
-    final error = (candidate.ticks - duration).abs();
-    if (error < bestError ||
-        (error == bestError && candidate.complexity < best.complexity)) {
-      best = candidate;
-      bestError = error;
-    }
+_DurationCandidate _notationForExactDuration(int duration, int ticksPerBeat) {
+  final candidates = _durationCandidates(ticksPerBeat);
+  for (final candidate in candidates) {
+    if (candidate.ticks == duration) return candidate;
   }
-  return best;
+  throw StateError('时值 $duration 没有一致的 MusicXML type');
 }
 
-_DurationCandidate _notationForDuration(int duration, int ticksPerBeat) {
-  final candidates = _durationCandidates(ticksPerBeat);
-  var best = candidates.first;
-  var bestError = (best.ticks - duration).abs();
-  for (final candidate in candidates.skip(1)) {
-    final error = (candidate.ticks - duration).abs();
-    if (error < bestError ||
-        (error == bestError && candidate.complexity < best.complexity)) {
-      best = candidate;
-      bestError = error;
+List<_DurationCandidate> _deduplicateCandidates(
+  List<_DurationCandidate> candidates,
+) {
+  final byTicks = <int, _DurationCandidate>{};
+  for (final candidate in candidates) {
+    final current = byTicks[candidate.ticks];
+    if (current == null || candidate.complexity < current.complexity) {
+      byTicks[candidate.ticks] = candidate;
     }
   }
-  return best;
+  final result = byTicks.values.toList()
+    ..sort((left, right) => left.ticks.compareTo(right.ticks));
+  return result;
+}
+
+int _greatestCommonDivisor(int left, int right) {
+  var a = left.abs();
+  var b = right.abs();
+  while (b != 0) {
+    final remainder = a % b;
+    a = b;
+    b = remainder;
+  }
+  return a;
+}
+
+int _estimatedMeasureCount(MidiSongData song, {required int stopAfter}) {
+  final totalTicks = song.totalTicks <= 0
+      ? song.ticksPerBeat * 4
+      : song.totalTicks;
+  final changes = List<TimeSignatureChange>.from(song.timeSignatureChanges)
+    ..sort((left, right) => left.tick.compareTo(right.tick));
+  var numerator = 4;
+  var denominator = 4;
+  var currentTick = 0;
+  var count = 0;
+  var index = 0;
+  while (index < changes.length && changes[index].tick <= 0) {
+    numerator = changes[index].numerator;
+    denominator = changes[index].denominator;
+    index++;
+  }
+  while (currentTick < totalTicks) {
+    final nextChangeTick = index < changes.length
+        ? changes[index].tick.clamp(currentTick, totalTicks)
+        : totalTicks;
+    final segmentLength = nextChangeTick - currentTick;
+    if (segmentLength > 0) {
+      final safeNumerator = numerator <= 0 ? 4 : numerator;
+      final safeDenominator = denominator <= 0 ? 4 : denominator;
+      final measureLength =
+          (song.ticksPerBeat * safeNumerator * 4 / safeDenominator)
+              .round()
+              .clamp(1, 1 << 30);
+      count += (segmentLength + measureLength - 1) ~/ measureLength;
+      if (count > stopAfter) return count;
+      currentTick = nextChangeTick;
+    }
+    while (index < changes.length && changes[index].tick <= currentTick) {
+      numerator = changes[index].numerator;
+      denominator = changes[index].denominator;
+      index++;
+    }
+  }
+  return math.max(1, count);
 }
 
 ({String step, int alter, int octave}) _pitch(int noteNumber) {

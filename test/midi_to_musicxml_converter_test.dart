@@ -557,6 +557,68 @@ void main() {
     expect(result.musicXml, contains('<offset>960</offset>'));
     expect(result.musicXml, contains('<sound tempo="150"/>'));
   });
+
+  test('跨小节片段分解后 duration 与记谱类型一致', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Long tie', 0, [_note(60, 0, 120, 2620)]),
+      kind: MidiPartKind.strings,
+      totalTicks: 3840,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final tiedNotes = RegExp(r'<note>([\s\S]*?)</note>')
+        .allMatches(result.musicXml)
+        .map((match) => match.group(1)!)
+        .where(
+          (note) => note.contains('<tie type=') && !note.contains('<rest/>'),
+        )
+        .toList();
+    expect(tiedNotes.length, greaterThan(2));
+    for (final note in tiedNotes) {
+      final duration = int.parse(
+        RegExp(r'<duration>(\d+)</duration>').firstMatch(note)!.group(1)!,
+      );
+      expect(duration, _notatedDurationTicks(note, ticksPerBeat: 480));
+    }
+    expect(
+      result.warnings,
+      isNot(contains(MidiNotationWarning.rhythmQuantized)),
+    );
+    expect(
+      _auditMeasures(
+        result.musicXml,
+      ).map((audit) => audit.durationByVoice.values.toSet()),
+      everyElement({1920}),
+    );
+  });
+
+  test('超过生成小节安全上限时快速拒绝', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Extreme', 0, [_note(60, 0, 0, 480)]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920 * 10001,
+    );
+
+    expect(
+      () => MidiToMusicXmlConverter().convertSync(
+        fixture.song,
+        catalog: fixture.catalog,
+        selectedPartIds: fixture.catalog.recommendedPartIds,
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('小节超过'),
+        ),
+      ),
+    );
+  });
 }
 
 ({MidiSongData song, MidiScoreCatalog catalog}) _pianoFixture() {
@@ -736,4 +798,25 @@ _MeasureAudit _auditMeasureBody(String measure) {
     durationByVoice: totals,
     backups: backups,
   );
+}
+
+int _notatedDurationTicks(String note, {required int ticksPerBeat}) {
+  final type = RegExp(r'<type>([^<]+)</type>').firstMatch(note)!.group(1)!;
+  final base = switch (type) {
+    'whole' => ticksPerBeat * 4,
+    'half' => ticksPerBeat * 2,
+    'quarter' => ticksPerBeat,
+    'eighth' => ticksPerBeat ~/ 2,
+    '16th' => ticksPerBeat ~/ 4,
+    '32nd' => ticksPerBeat ~/ 8,
+    _ => throw StateError('未知时值类型: $type'),
+  };
+  final dots = RegExp(r'<dot/>').allMatches(note).length;
+  final dotted = switch (dots) {
+    0 => base,
+    1 => base * 3 ~/ 2,
+    2 => base * 7 ~/ 4,
+    _ => throw StateError('不支持的附点数: $dots'),
+  };
+  return note.contains('<time-modification>') ? dotted * 2 ~/ 3 : dotted;
 }
