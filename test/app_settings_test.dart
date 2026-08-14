@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/settings/app_settings.dart';
+import 'package:midi_music/models/midi_score_part.dart';
 
 void main() {
   test('USB MIDI 跟随默认使用精确音符匹配', () {
@@ -88,6 +89,107 @@ void main() {
       storage.values['allowOctaveError'],
       AppSettingsController.defaultAllowOctaveErrorValue,
     );
+  });
+
+  test('谱面声部设置稳定排序并可恢复', () async {
+    final storage = _MemorySettingsStorage();
+    final settings = AppSettingsController(storage: storage);
+    settings.setDefaultScorePartKinds({
+      MidiPartKind.strings,
+      MidiPartKind.piano,
+    });
+    settings.setScorePartSelectionForSong('asset:a.mid', {'z', 'a'});
+    await settings.flush();
+
+    expect(storage.values['defaultScorePartKinds'], ['piano', 'strings']);
+    expect((storage.values['songScorePartSelections'] as Map)['asset:a.mid'], [
+      'a',
+      'z',
+    ]);
+
+    final restored = AppSettingsController(storage: storage);
+    await restored.load();
+    expect(restored.defaultScorePartKinds, {
+      MidiPartKind.piano,
+      MidiPartKind.strings,
+    });
+    expect(restored.scorePartSelectionForSong('asset:a.mid'), {'a', 'z'});
+
+    restored.resetToDefaults();
+    await restored.flush();
+    expect(restored.defaultScorePartKinds, {MidiPartKind.piano});
+    expect(restored.scorePartSelectionForSong('asset:a.mid'), isNull);
+  });
+
+  test('损坏谱面声部设置回退默认且 load 并发调用幂等', () async {
+    final storage = _DelayedMemorySettingsStorage.withValues(
+      writeDelay: Duration.zero,
+      initialValues: {
+        'schemaVersion': 3,
+        'defaultScorePartKinds': ['not-a-kind'],
+        'songScorePartSelections': {
+          'asset:a.mid': ['valid', '', 1],
+        },
+      },
+    );
+    final settings = AppSettingsController(storage: storage);
+
+    final firstLoad = settings.load();
+    final secondLoad = settings.load();
+    expect(identical(firstLoad, secondLoad), isTrue);
+    await Future.wait([firstLoad, secondLoad]);
+
+    expect(settings.defaultScorePartKinds, {MidiPartKind.piano});
+    expect(settings.scorePartSelectionForSong('asset:a.mid'), {'valid'});
+  });
+
+  test('单曲默认拒绝非字符串 fingerprint，并限制为 100 条、每条 64 个 ID', () async {
+    final storage = _MemorySettingsStorage(
+      initialValues: {
+        'schemaVersion': 3,
+        'songScorePartSelections': {
+          1: ['must-not-load'],
+        },
+      },
+    );
+    final settings = AppSettingsController(storage: storage);
+    await settings.load();
+
+    expect(settings.scorePartSelectionForSong('1'), isNull);
+
+    final suppliedIds = {for (var index = 99; index >= 0; index--) 'id$index'};
+    settings.setScorePartSelectionForSong('asset:limits.mid', suppliedIds);
+    suppliedIds.clear();
+    for (var index = 100; index >= 0; index--) {
+      settings.setScorePartSelectionForSong('zz:$index.mid', {'part'});
+    }
+    await settings.flush();
+
+    final selections = storage.values['songScorePartSelections'] as Map;
+    expect(selections, hasLength(100));
+    expect((selections['asset:limits.mid'] as List), hasLength(64));
+    expect((selections['asset:limits.mid'] as List).first, 'id0');
+    expect(
+      settings.scorePartSelectionForSong('asset:limits.mid'),
+      hasLength(64),
+    );
+  });
+
+  test('load 读取异常时仍共享 Future、只读取和通知一次', () async {
+    final storage = _ThrowingReadSettingsStorage();
+    final settings = AppSettingsController(storage: storage);
+    var notifications = 0;
+    settings.addListener(() => notifications++);
+
+    final firstLoad = settings.load();
+    final secondLoad = settings.load();
+    expect(identical(firstLoad, secondLoad), isTrue);
+    await Future.wait([firstLoad, secondLoad]);
+
+    expect(storage.readCount, 1);
+    expect(settings.isLoaded, isTrue);
+    expect(settings.lastPersistenceError, isA<StateError>());
+    expect(notifications, 1);
   });
 
   test('flush 会等待串行写入并保留最后一次状态', () async {
@@ -180,6 +282,11 @@ class _DelayedMemorySettingsStorage extends _MemorySettingsStorage {
 
   _DelayedMemorySettingsStorage({required this.writeDelay});
 
+  _DelayedMemorySettingsStorage.withValues({
+    required this.writeDelay,
+    required Map<String, Object?> initialValues,
+  }) : super(initialValues: initialValues);
+
   @override
   Future<void> write(Map<String, Object?> values) async {
     _activeWrites++;
@@ -194,4 +301,17 @@ class _DelayedMemorySettingsStorage extends _MemorySettingsStorage {
       _activeWrites--;
     }
   }
+}
+
+class _ThrowingReadSettingsStorage implements AppSettingsStorage {
+  int readCount = 0;
+
+  @override
+  Future<Map<String, Object?>> read() async {
+    readCount++;
+    throw StateError('simulated read failure');
+  }
+
+  @override
+  Future<void> write(Map<String, Object?> values) async {}
 }

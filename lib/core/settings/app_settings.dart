@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../follow/follow_mode_controller.dart';
 import '../follow/follow_mode_session.dart';
 import '../follow/onset_detector.dart';
+import '../../models/midi_score_part.dart';
 import 'song_session_models.dart';
 
 abstract class AppSettingsStorage {
@@ -87,8 +88,10 @@ class FileAppSettingsStorage implements AppSettingsStorage {
 }
 
 class AppSettingsController extends ChangeNotifier {
-  static const int settingsSchemaVersion = 2;
+  static const int settingsSchemaVersion = 3;
   static const int maxRecentMidiEntries = 20;
+  static const int maxSongScorePartSelections = 100;
+  static const int maxScorePartIdsPerSong = 64;
   static const double defaultPlaybackSpeedValue = 1.0;
   static const double defaultMicrophoneMinPrecisionValue = 0.6;
   static const double defaultOnsetVolumeThresholdValue = 0.0005;
@@ -101,6 +104,7 @@ class AppSettingsController extends ChangeNotifier {
   static const bool defaultLoopPlaybackValue = false;
   static const bool defaultAutoStopAllNotesValue = true;
   static const bool defaultShowDebugInfoValue = false;
+  static const defaultScorePartKindsValue = {MidiPartKind.piano};
 
   final AppSettingsStorage _storage;
 
@@ -118,7 +122,10 @@ class AppSettingsController extends ChangeNotifier {
   bool _showDebugInfo = defaultShowDebugInfoValue;
   List<RecentMidiEntry> _recentMidiEntries = const [];
   Map<String, MidiSessionSnapshot> _songSessions = const {};
+  Set<MidiPartKind> _defaultScorePartKinds = defaultScorePartKindsValue;
+  Map<String, Set<String>> _songScorePartSelections = const {};
   bool _isLoaded = false;
+  Future<void>? _loadFuture;
   Future<void> _pendingWrite = Future<void>.value();
   Object? _lastPersistenceError;
 
@@ -141,6 +148,8 @@ class AppSettingsController extends ChangeNotifier {
       List.unmodifiable(_recentMidiEntries);
   bool get isLoaded => _isLoaded;
   Object? get lastPersistenceError => _lastPersistenceError;
+  Set<MidiPartKind> get defaultScorePartKinds =>
+      Set<MidiPartKind>.unmodifiable(_defaultScorePartKinds);
 
   FollowModeSessionConfig get followSessionConfig =>
       FollowModeSessionConfig(minPrecision: _microphoneMinPrecision);
@@ -159,7 +168,9 @@ class AppSettingsController extends ChangeNotifier {
     restThresholdSeconds: _restThresholdSeconds,
   );
 
-  Future<void> load() async {
+  Future<void> load() => _loadFuture ??= _load();
+
+  Future<void> _load() async {
     var values = const <String, Object?>{};
     try {
       values = await _storage.read();
@@ -248,6 +259,8 @@ class AppSettingsController extends ChangeNotifier {
       );
       _recentMidiEntries = _readRecentMidiEntries(values);
       _songSessions = _readSongSessions(values, _recentMidiEntries);
+      _defaultScorePartKinds = _readDefaultScorePartKinds(values);
+      _songScorePartSelections = _readSongScorePartSelections(values);
       _normalizeMeasuredSpeedRange();
     } catch (error) {
       _lastPersistenceError = error;
@@ -310,6 +323,44 @@ class AppSettingsController extends ChangeNotifier {
 
   void setShowDebugInfo({required bool value}) {
     _update(() => _showDebugInfo = value);
+  }
+
+  Set<String>? scorePartSelectionForSong(String fingerprint) {
+    final selection = _songScorePartSelections[fingerprint];
+    return selection == null ? null : Set<String>.unmodifiable(selection);
+  }
+
+  void setDefaultScorePartKinds(Set<MidiPartKind> kinds) {
+    _update(() {
+      _defaultScorePartKinds = kinds.isEmpty
+          ? defaultScorePartKindsValue
+          : Set<MidiPartKind>.of(kinds);
+    });
+  }
+
+  void setScorePartSelectionForSong(String fingerprint, Set<String> partIds) {
+    final normalizedFingerprint = fingerprint.trim();
+    if (normalizedFingerprint.isEmpty) return;
+    final normalizedPartIds = _normalizedPartIds(partIds);
+    if (normalizedPartIds.isEmpty) {
+      clearScorePartSelectionForSong(normalizedFingerprint);
+      return;
+    }
+    _update(() {
+      _songScorePartSelections = _sortedSongScorePartSelections({
+        ..._songScorePartSelections,
+        normalizedFingerprint: normalizedPartIds,
+      });
+    });
+  }
+
+  void clearScorePartSelectionForSong(String fingerprint) {
+    if (!_songScorePartSelections.containsKey(fingerprint)) return;
+    _update(() {
+      _songScorePartSelections = Map<String, Set<String>>.from(
+        _songScorePartSelections,
+      )..remove(fingerprint);
+    });
   }
 
   MidiSessionSnapshot? sessionForSong(String songId) => _songSessions[songId];
@@ -420,6 +471,8 @@ class AppSettingsController extends ChangeNotifier {
       _loopPlayback = defaultLoopPlaybackValue;
       _autoStopAllNotes = defaultAutoStopAllNotesValue;
       _showDebugInfo = defaultShowDebugInfoValue;
+      _defaultScorePartKinds = defaultScorePartKindsValue;
+      _songScorePartSelections = const {};
     });
   }
 
@@ -457,6 +510,14 @@ class AppSettingsController extends ChangeNotifier {
     'loopPlayback': _loopPlayback,
     'autoStopAllNotes': _autoStopAllNotes,
     'showDebugInfo': _showDebugInfo,
+    'defaultScorePartKinds':
+        _defaultScorePartKinds.map((kind) => kind.name).toList()..sort(),
+    'songScorePartSelections': {
+      for (final entry in _sortedSongScorePartSelections(
+        _songScorePartSelections,
+      ).entries)
+        entry.key: entry.value.toList()..sort(),
+    },
     'recentMidiEntries': _recentMidiEntries
         .map((entry) => entry.toJson())
         .toList(),
@@ -510,6 +571,64 @@ class AppSettingsController extends ChangeNotifier {
       } catch (_) {}
     }
     return sessions;
+  }
+
+  Set<MidiPartKind> _readDefaultScorePartKinds(Map<String, Object?> values) {
+    final raw = values['defaultScorePartKinds'];
+    if (raw is! List) return defaultScorePartKindsValue;
+    final kinds = <MidiPartKind>{};
+    for (final value in raw) {
+      if (value is! String) continue;
+      try {
+        kinds.add(MidiPartKind.values.byName(value));
+      } on ArgumentError {
+        // Ignore unknown persisted enum names.
+      }
+    }
+    return kinds.isEmpty ? defaultScorePartKindsValue : kinds;
+  }
+
+  Map<String, Set<String>> _readSongScorePartSelections(
+    Map<String, Object?> values,
+  ) {
+    final raw = values['songScorePartSelections'];
+    if (raw is! Map) return const {};
+    final selections = <String, Set<String>>{};
+    final entries =
+        raw.entries
+            .where((entry) => entry.key is String)
+            .map((entry) => MapEntry((entry.key as String).trim(), entry.value))
+            .where((entry) => entry.key.isNotEmpty)
+            .toList()
+          ..sort((left, right) => left.key.compareTo(right.key));
+    for (final entry in entries.take(maxSongScorePartSelections)) {
+      final value = entry.value;
+      if (value is! List) continue;
+      final ids = _normalizedPartIds(value.whereType<String>().toSet());
+      if (ids.isNotEmpty) selections[entry.key] = ids;
+    }
+    return Map<String, Set<String>>.unmodifiable(selections);
+  }
+
+  Set<String> _normalizedPartIds(Set<String> partIds) {
+    final sorted =
+        partIds
+            .map((id) => id.trim())
+            .where((id) => id.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+    return Set<String>.unmodifiable(sorted.take(maxScorePartIdsPerSong));
+  }
+
+  Map<String, Set<String>> _sortedSongScorePartSelections(
+    Map<String, Set<String>> selections,
+  ) {
+    final sortedKeys = selections.keys.toList()..sort();
+    return Map<String, Set<String>>.unmodifiable({
+      for (final key in sortedKeys.take(maxSongScorePartSelections))
+        key: _normalizedPartIds(selections[key]!),
+    });
   }
 
   void _pruneSongSessions() {
