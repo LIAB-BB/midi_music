@@ -559,6 +559,65 @@ void main() {
     );
   });
 
+  test('跨谱表和弦上下音时值不同时仍只占一个 voice 且小节守恒', () {
+    final track = _track(0, 'Piano', 0, [
+      _note(54, 0, 0, 960),
+      _note(66, 0, 0, 480),
+    ]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.piano,
+      totalTicks: 1920,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.musicXml, contains('<chord/>'));
+    final firstMeasureNotes = _pitchedNotesByMeasure(result.musicXml).first;
+    expect(
+      _notesAtPitch(firstMeasureNotes, step: 'F', octave: 3).single,
+      contains('<staff>2</staff>'),
+    );
+    expect(
+      _notesAtPitch(firstMeasureNotes, step: 'F', octave: 4).single,
+      contains('<staff>1</staff>'),
+    );
+    expect(_auditFirstMeasure(result.musicXml).durationByVoice, {1: 1920});
+  });
+
+  test('上一小节高音后宽和弦的 B3 不被 staff 历史覆盖', () {
+    final track = _track(0, 'Piano', 0, [
+      _note(72, 0, 1440, 1920),
+      _note(59, 0, 1920, 2400),
+      _note(60, 0, 1920, 2400),
+      _note(71, 0, 1920, 2400),
+    ]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.piano,
+      totalTicks: 3840,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final secondMeasureNotes = _pitchedNotesByMeasure(result.musicXml)[1];
+    expect(
+      _notesAtPitch(secondMeasureNotes, step: 'B', octave: 3).single,
+      contains('<staff>2</staff>'),
+    );
+    expect(_auditMeasures(result.musicXml)[1].durationByVoice, {1: 1920});
+  });
+
   test('小节尾不足最短时值的普通音符不会让转换崩溃', () {
     final fixture = _singlePartFixture(
       track: _track(0, 'Tail', 0, [_note(71, 0, 1900, 1910)]),

@@ -472,36 +472,23 @@ class MidiToMusicXmlConverter {
                   highestPitch >= _middleCMidiNote &&
                   highestPitch - lowestPitch >=
                       _grandStaffChordSplitSpanSemitones;
-              if (shouldSplitGrandStaffChord) {
-                final upperNotes = compatibleSegments
-                    .where((segment) => segment.noteNumber >= _middleCMidiNote)
-                    .toList(growable: false);
-                final lowerNotes = compatibleSegments
-                    .where((segment) => segment.noteNumber < _middleCMidiNote)
-                    .toList(growable: false);
-                return [
-                  _ChordEvent(
-                    start: entry.key,
-                    duration: duration,
-                    notes: upperNotes,
-                    staff: 1,
-                  ),
-                  _ChordEvent(
-                    start: entry.key,
-                    duration: duration,
-                    notes: lowerNotes,
-                    staff: 2,
-                  ),
-                ];
-              }
               final averagePitch =
                   pitches.reduce((left, right) => left + right) ~/
                   compatibleSegments.length;
+              final chordNotes = shouldSplitGrandStaffChord
+                  ? compatibleSegments
+                        .map(
+                          (segment) => segment.withStaff(
+                            segment.noteNumber >= _middleCMidiNote ? 1 : 2,
+                          ),
+                        )
+                        .toList(growable: false)
+                  : compatibleSegments;
               return [
                 _ChordEvent(
                   start: entry.key,
                   duration: duration,
-                  notes: compatibleSegments,
+                  notes: chordNotes,
                   staff:
                       part.staffMode == MidiStaffMode.grandStaff &&
                           averagePitch < _middleCMidiNote
@@ -729,7 +716,7 @@ class MidiToMusicXmlConverter {
               tieStop: tieStop,
               tieStart: tieStart,
               voice: voiceIndex + 1,
-              staff: staff,
+              staff: _staffForNote(part, event, note, previousStaff),
               chord: noteIndex > 0,
               percussion: percussion,
               ticksPerBeat: ticksPerBeat,
@@ -761,7 +748,7 @@ class MidiToMusicXmlConverter {
                 tieStart:
                     barTieStart || notationIndex < note.notations.length - 1,
                 voice: voiceIndex + 1,
-                staff: staff,
+                staff: _staffForNote(part, event, note, previousStaff),
                 chord: noteIndex > 0,
                 percussion: percussion,
                 ticksPerBeat: ticksPerBeat,
@@ -784,6 +771,24 @@ class MidiToMusicXmlConverter {
         previousStaffByVoice[voiceIndex] = previousStaff;
       }
     }
+  }
+
+  int _staffForNote(
+    MidiScorePart part,
+    _ChordEvent event,
+    _NoteSegment note,
+    int? previousStaff,
+  ) {
+    final explicitStaff = note.staff;
+    if (explicitStaff != null) return explicitStaff;
+    var staff = event.staff;
+    if (part.staffMode == MidiStaffMode.grandStaff &&
+        previousStaff != null &&
+        event.averagePitch >= 57 &&
+        event.averagePitch <= 64) {
+      staff = previousStaff;
+    }
+    return staff;
   }
 
   void _writeRest(StringBuffer buffer, int duration, int voice, int staff) {
@@ -912,6 +917,7 @@ class _NoteSegment {
   final List<_DurationCandidate> notations;
   final int? barTieStopId;
   final int? barTieStartId;
+  final int? staff;
   final bool denseAdjusted;
 
   const _NoteSegment({
@@ -919,6 +925,7 @@ class _NoteSegment {
     required this.notations,
     required this.barTieStopId,
     required this.barTieStartId,
+    this.staff,
     this.denseAdjusted = false,
   });
 
@@ -930,7 +937,17 @@ class _NoteSegment {
     notations: [notation],
     barTieStopId: barTieStopId,
     barTieStartId: barTieStartId,
+    staff: staff,
     denseAdjusted: true,
+  );
+
+  _NoteSegment withStaff(int staff) => _NoteSegment(
+    noteNumber: noteNumber,
+    notations: notations,
+    barTieStopId: barTieStopId,
+    barTieStartId: barTieStartId,
+    staff: staff,
+    denseAdjusted: denseAdjusted,
   );
 }
 
