@@ -13,6 +13,7 @@ typedef _MeasureAudit = ({
   Map<int, List<(int, int)>> intervalsByVoice,
   Map<int, int> durationByVoice,
   List<int> backups,
+  List<int> forwards,
 });
 
 void main() {
@@ -579,21 +580,19 @@ void main() {
 
     expect(result.musicXml, contains('<chord/>'));
     final firstMeasureNotes = _pitchedNotesByMeasure(result.musicXml).first;
-    expect(
-      _notesAtPitch(firstMeasureNotes, step: 'F', octave: 3).single,
-      contains('<staff>2</staff>'),
-    );
-    expect(
-      _notesAtPitch(firstMeasureNotes, step: 'F', octave: 4).single,
-      contains('<staff>1</staff>'),
-    );
+    final lowerNotes = _notesAtPitch(firstMeasureNotes, step: 'F', octave: 3);
+    final upperNotes = _notesAtPitch(firstMeasureNotes, step: 'F', octave: 4);
+    expect(lowerNotes, everyElement(contains('<staff>2</staff>')));
+    expect(upperNotes, everyElement(contains('<staff>1</staff>')));
+    expect(_totalNoteDuration(lowerNotes), 960);
+    expect(_totalNoteDuration(upperNotes), 480);
     expect(_auditFirstMeasure(result.musicXml).durationByVoice, {1: 1920});
   });
 
-  test('跨谱表和弦含多记谱片段时仍是单一逻辑 chord 且 voice 守恒', () {
+  test('跨谱表和弦的多记谱片段在单 voice 内单调输出', () {
     final track = _track(0, 'Piano', 0, [
       _note(48, 0, 0, 600),
-      _note(72, 0, 0, 480),
+      _note(72, 0, 0, 400),
     ]);
     final fixture = _singlePartFixture(
       track: track,
@@ -611,10 +610,27 @@ void main() {
     expect(result.musicXml, contains('<chord/>'));
     final firstMeasureNotes = _pitchedNotesByMeasure(result.musicXml).first;
     final lowerNotes = _notesAtPitch(firstMeasureNotes, step: 'C', octave: 3);
-    expect(lowerNotes, hasLength(2));
+    expect(lowerNotes, hasLength(greaterThan(2)));
     expect(lowerNotes.first, contains('<tie type="start"/>'));
+    expect(lowerNotes.first, isNot(contains('<tie type="stop"/>')));
+    for (final note in lowerNotes.skip(1).take(lowerNotes.length - 2)) {
+      expect(note, contains('<tie type="stop"/>'));
+      expect(note, contains('<tie type="start"/>'));
+    }
     expect(lowerNotes.last, contains('<tie type="stop"/>'));
-    expect(_auditFirstMeasure(result.musicXml).durationByVoice, {1: 1920});
+    expect(lowerNotes.last, isNot(contains('<tie type="start"/>')));
+    final audit = _auditFirstMeasure(result.musicXml);
+    expect(audit.backups, isEmpty);
+    expect(audit.forwards, isEmpty);
+    for (final intervals in audit.intervalsByVoice.values) {
+      for (var index = 1; index < intervals.length; index++) {
+        expect(
+          intervals[index].$1,
+          greaterThanOrEqualTo(intervals[index - 1].$2),
+        );
+      }
+    }
+    expect(audit.durationByVoice, {1: 1920});
   });
 
   test('上一小节高音后宽和弦的 B3 不被 staff 历史覆盖', () {
@@ -680,6 +696,41 @@ void main() {
     expect(tieStop, contains('<staff>1</staff>'));
   });
 
+  test('tie map 覆盖聚合 staff 后中央音沿用实际谱表', () {
+    final track = _track(0, 'Piano', 0, [
+      _note(48, 0, 0, 1920),
+      _note(60, 0, 1440, 2400),
+      _note(62, 0, 2400, 2880),
+    ]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.piano,
+      totalTicks: 3840,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final secondMeasureNotes = _pitchedNotesByMeasure(result.musicXml)[1];
+    final tieStop = _notesAtPitch(
+      secondMeasureNotes,
+      step: 'C',
+      octave: 4,
+    ).single;
+    final followingMiddleNote = _notesAtPitch(
+      secondMeasureNotes,
+      step: 'D',
+      octave: 4,
+    ).single;
+    expect(tieStop, contains('<tie type="stop"/>'));
+    expect(tieStop, contains('<staff>1</staff>'));
+    expect(followingMiddleNote, contains('<staff>1</staff>'));
+  });
+
   test('小节尾不足最短时值的普通音符不会让转换崩溃', () {
     final fixture = _singlePartFixture(
       track: _track(0, 'Tail', 0, [_note(71, 0, 1900, 1910)]),
@@ -728,7 +779,7 @@ void main() {
     );
   });
 
-  test('同 onset 不同时值的和弦音保留各自附点与三连音表示', () {
+  test('同 onset 不同时值的和弦音按公共区间保持各自总时值', () {
     final fixture = _singlePartFixture(
       track: _track(0, 'Split durations', 0, [
         _note(60, 0, 0, 720),
@@ -745,11 +796,17 @@ void main() {
     );
 
     expect(result.musicXml, contains('<chord/>'));
-    expect(RegExp(r'<dot/>').allMatches(result.musicXml), hasLength(1));
-    expect(
-      RegExp(r'<time-modification>').allMatches(result.musicXml),
-      hasLength(1),
-    );
+    final notes = _pitchedNotesByMeasure(result.musicXml).first;
+    final longerNotes = _notesAtPitch(notes, step: 'C', octave: 4);
+    final shorterNotes = _notesAtPitch(notes, step: 'E', octave: 4);
+    expect(_totalNoteDuration(longerNotes), 720);
+    expect(_totalNoteDuration(shorterNotes), 320);
+    for (final note in [...longerNotes, ...shorterNotes]) {
+      final duration = int.parse(
+        RegExp(r'<duration>(\d+)</duration>').firstMatch(note)!.group(1)!,
+      );
+      expect(_notatedDurationTicks(note, ticksPerBeat: 480), duration);
+    }
     expect(_auditFirstMeasure(result.musicXml).durationByVoice.values, [1920]);
   });
 
@@ -1165,18 +1222,30 @@ List<_MeasureAudit> _auditMeasures(String xml) => RegExp(
 
 _MeasureAudit _auditMeasureBody(String measure) {
   final tokens = RegExp(
-    r'<note>([\s\S]*?)</note>|<backup><duration>(\d+)</duration></backup>',
+    r'<note>([\s\S]*?)</note>|<backup>([\s\S]*?)</backup>|<forward>([\s\S]*?)</forward>',
   ).allMatches(measure);
   final intervals = <int, List<(int, int)>>{};
   final totals = <int, int>{};
   final backups = <int>[];
+  final forwards = <int>[];
   var cursor = 0;
   for (final token in tokens) {
     final backup = token.group(2);
     if (backup != null) {
-      final duration = int.parse(backup);
+      final duration = int.parse(
+        RegExp(r'<duration>(\d+)</duration>').firstMatch(backup)!.group(1)!,
+      );
       backups.add(duration);
       cursor -= duration;
+      continue;
+    }
+    final forward = token.group(3);
+    if (forward != null) {
+      final duration = int.parse(
+        RegExp(r'<duration>(\d+)</duration>').firstMatch(forward)!.group(1)!,
+      );
+      forwards.add(duration);
+      cursor += duration;
       continue;
     }
     final note = token.group(1)!;
@@ -1198,6 +1267,7 @@ _MeasureAudit _auditMeasureBody(String measure) {
     intervalsByVoice: intervals,
     durationByVoice: totals,
     backups: backups,
+    forwards: forwards,
   );
 }
 
@@ -1245,6 +1315,15 @@ List<String> _notesAtPitch(
           note.contains('<octave>$octave</octave>'),
     )
     .toList(growable: false);
+
+int _totalNoteDuration(List<String> notes) => notes.fold<int>(
+  0,
+  (total, note) =>
+      total +
+      int.parse(
+        RegExp(r'<duration>(\d+)</duration>').firstMatch(note)!.group(1)!,
+      ),
+);
 
 void _expectMeasureConservation(String xml) {
   for (final audit in _auditMeasures(xml)) {

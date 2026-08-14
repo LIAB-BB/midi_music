@@ -374,7 +374,6 @@ class MidiToMusicXmlConverter {
           fragmentEnd - fragmentStart,
         );
         if (decomposition != null) {
-          budget.addNotationElements(decomposition.notations.length);
           fragments.add(
             _PendingFragment(
               measureIndex: measureIndex,
@@ -443,13 +442,14 @@ class MidiToMusicXmlConverter {
     return groupedByMeasure
         .map((grouped) {
           final events = grouped.entries.map((entry) {
-            final segments = List<_NoteSegment>.of(entry.value)
-              ..sort((left, right) {
-                final duration = right.duration.compareTo(left.duration);
-                return duration != 0
-                    ? duration
-                    : left.noteNumber.compareTo(right.noteNumber);
-              });
+            final segments =
+                _alignChordNotationBoundaries(entry.value, decomposer, budget)
+                  ..sort((left, right) {
+                    final duration = right.duration.compareTo(left.duration);
+                    return duration != 0
+                        ? duration
+                        : left.noteNumber.compareTo(right.noteNumber);
+                  });
             final duration = segments
                 .map((segment) => segment.duration)
                 .reduce(math.max);
@@ -495,6 +495,42 @@ class MidiToMusicXmlConverter {
           return events;
         })
         .toList(growable: false);
+  }
+
+  List<_NoteSegment> _alignChordNotationBoundaries(
+    List<_NoteSegment> segments,
+    _DurationDecomposer decomposer,
+    _ConversionBudget budget,
+  ) {
+    final endpoints =
+        segments.map((segment) => segment.duration).toSet().toList()..sort();
+    final alignedNotations = List<List<_DurationCandidate>>.generate(
+      segments.length,
+      (_) => <_DurationCandidate>[],
+      growable: false,
+    );
+    var intervalStart = 0;
+    for (final endpoint in endpoints) {
+      final intervalDuration = endpoint - intervalStart;
+      final decomposition = decomposer.nearest(
+        intervalDuration,
+        intervalDuration,
+      );
+      if (decomposition == null || decomposition.duration != intervalDuration) {
+        throw StateError('无法对齐同 onset 和弦的记谱时值');
+      }
+      for (var index = 0; index < segments.length; index++) {
+        if (segments[index].duration >= endpoint) {
+          alignedNotations[index].addAll(decomposition.notations);
+        }
+      }
+      intervalStart = endpoint;
+    }
+    return List<_NoteSegment>.generate(segments.length, (index) {
+      final notations = alignedNotations[index];
+      budget.addNotationElements(notations.length);
+      return segments[index].withNotations(notations);
+    }, growable: false);
   }
 
   List<List<_ChordEvent>> _colorVoices(
@@ -680,17 +716,10 @@ class MidiToMusicXmlConverter {
             previousStaff ?? event.staff,
           );
         }
-        var staff = event.staff;
-        if (part.staffMode == MidiStaffMode.grandStaff &&
-            previousStaff != null &&
-            event.averagePitch >= 57 &&
-            event.averagePitch <= 64) {
-          staff = previousStaff;
-        }
         final percussion =
             part.kind == MidiPartKind.percussion ||
             part.staffMode == MidiStaffMode.percussionStaff;
-        _writeChordEvent(
+        previousStaff = _writeChordEvent(
           buffer,
           event,
           voice: voiceIndex + 1,
@@ -702,7 +731,6 @@ class MidiToMusicXmlConverter {
           ticksPerBeat: ticksPerBeat,
         );
         cursor = event.end;
-        previousStaff = staff;
       }
       if (cursor < measureLength) {
         _writeRest(
@@ -718,7 +746,7 @@ class MidiToMusicXmlConverter {
     }
   }
 
-  void _writeChordEvent(
+  int _writeChordEvent(
     StringBuffer buffer,
     _ChordEvent event, {
     required int voice,
@@ -752,8 +780,11 @@ class MidiToMusicXmlConverter {
     }
     final offsets = scheduledByOffset.keys.toList()..sort();
     var cursor = 0;
+    var actualStaff = previousStaff ?? event.staff;
     for (final offset in offsets) {
-      _writeCursorMove(buffer, offset - cursor, voice, event.staff);
+      if (offset != cursor) {
+        throw StateError('同 voice 和弦时序不连续');
+      }
       final scheduledNotes = scheduledByOffset[offset]!;
       for (var noteIndex = 0; noteIndex < scheduledNotes.length; noteIndex++) {
         final scheduled = scheduledNotes[noteIndex];
@@ -765,6 +796,15 @@ class MidiToMusicXmlConverter {
         final barTieStart =
             note.barTieStartId != null &&
             validBarTieIds.contains(note.barTieStartId);
+        final staff = _staffForNote(
+          part,
+          event,
+          note,
+          previousStaff,
+          validBarTieIds,
+          staffByBarTieId,
+        );
+        if (noteIndex == 0) actualStaff = staff;
         _writeNote(
           buffer,
           note,
@@ -772,14 +812,7 @@ class MidiToMusicXmlConverter {
           tieStop: barTieStop || notationIndex > 0,
           tieStart: barTieStart || notationIndex < note.notations.length - 1,
           voice: voice,
-          staff: _staffForNote(
-            part,
-            event,
-            note,
-            previousStaff,
-            validBarTieIds,
-            staffByBarTieId,
-          ),
+          staff: staff,
           chord: noteIndex > 0,
           percussion: percussion,
           ticksPerBeat: ticksPerBeat,
@@ -787,27 +820,10 @@ class MidiToMusicXmlConverter {
       }
       cursor = offset + scheduledNotes.first.notation.ticks;
     }
-    _writeCursorMove(buffer, event.duration - cursor, voice, event.staff);
-  }
-
-  void _writeCursorMove(
-    StringBuffer buffer,
-    int duration,
-    int voice,
-    int staff,
-  ) {
-    if (duration == 0) return;
-    final element = duration > 0 ? 'forward' : 'backup';
-    buffer
-      ..writeln('      <$element>')
-      ..writeln('        <duration>${duration.abs()}</duration>');
-    if (duration > 0) {
-      buffer
-        ..writeln('        <voice>$voice</voice>')
-        ..writeln('        <staff>$staff</staff>');
+    if (cursor != event.duration) {
+      throw StateError('同 voice 和弦时值不守恒');
     }
-    buffer.writeln('      </$element>');
-    _checkGeneratedMusicXmlCharacterLimit(buffer);
+    return actualStaff;
   }
 
   int _staffForNote(
@@ -990,6 +1006,16 @@ class _NoteSegment {
     staff: staff,
     denseAdjusted: true,
   );
+
+  _NoteSegment withNotations(List<_DurationCandidate> notations) =>
+      _NoteSegment(
+        noteNumber: noteNumber,
+        notations: notations,
+        barTieStopId: barTieStopId,
+        barTieStartId: barTieStartId,
+        staff: staff,
+        denseAdjusted: denseAdjusted,
+      );
 
   _NoteSegment withStaff(int staff) => _NoteSegment(
     noteNumber: noteNumber,
