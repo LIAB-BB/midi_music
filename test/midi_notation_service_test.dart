@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -153,7 +154,12 @@ void main() {
   });
 
   test('取消会终止当前 isolate worker 且后续任务可继续', () async {
-    final service = MidiNotationService();
+    final workerStarted = Completer<void>();
+    final service = MidiNotationService(
+      onWorkerStarted: () {
+        if (!workerStarted.isCompleted) workerStarted.complete();
+      },
+    );
     final cancelled = service.prepare(
       _largeSong(noteCount: 500000),
       fingerprint: 'asset:cancel.mid',
@@ -164,6 +170,7 @@ void main() {
       throwsA(isA<MidiNotationCancelledException>()),
     );
 
+    await workerStarted.future;
     service.cancel();
 
     await cancellationExpectation;
@@ -174,6 +181,54 @@ void main() {
     );
     expect(recovered.session.sourceFingerprint, 'asset:recovered.mid');
   });
+
+  test('记谱 worker 未回传结果即退出时 Future 不会悬挂', () async {
+    final service = MidiNotationService(
+      workerEntrypoint: _exitWithoutNotationResponse,
+    );
+
+    await expectLater(
+      service
+          .prepare(
+            _song(),
+            fingerprint: 'asset:exit.mid',
+            globalDefaultKinds: {MidiPartKind.piano},
+          )
+          .timeout(const Duration(seconds: 1)),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.toString(),
+          'message',
+          contains('worker exited'),
+        ),
+      ),
+    );
+  });
+
+  test('记谱 worker 抛出不可发送对象时 Future 不会悬挂', () async {
+    final service = MidiNotationService(
+      workerEntrypoint: _throwUnsendableWorkerError,
+    );
+
+    try {
+      await service
+          .prepare(
+            _song(),
+            fingerprint: 'asset:unsendable.mid',
+            globalDefaultKinds: {MidiPartKind.piano},
+          )
+          .timeout(const Duration(seconds: 1));
+      fail('异常 worker 应完成为错误');
+    } catch (error) {
+      expect(error, isNot(isA<TimeoutException>()));
+    }
+  });
+}
+
+void _exitWithoutNotationResponse(Object? _) {}
+
+void _throwUnsendableWorkerError(Object? _) {
+  throw ReceivePort();
 }
 
 MidiImportWorkerResult _slowMidiImportWorker(

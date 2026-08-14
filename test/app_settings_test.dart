@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -299,6 +300,63 @@ void main() {
     expect(settings.lastPersistenceError, isNull);
   });
 
+  test('失败的声部默认不会被后续排队快照写回磁盘', () async {
+    final storage = _GatedFailingSettingsStorage();
+    final settings = AppSettingsController(storage: storage);
+    final failedWrite = settings.setScorePartSelectionForSong(
+      'asset:failed.mid',
+      {'violin'},
+    );
+    final failureExpectation = expectLater(
+      failedWrite,
+      throwsA(isA<StateError>()),
+    );
+    await storage.firstWriteStarted.future;
+
+    settings.setDefaultPlaybackSpeed(1.5);
+    storage.releaseFirstWrite.complete();
+    await failureExpectation;
+    await settings.flush();
+
+    expect(settings.scorePartSelectionForSong('asset:failed.mid'), isNull);
+    expect(storage.values['defaultPlaybackSpeed'], 1.5);
+    expect(
+      (storage.values['songScorePartSelections'] as Map).containsKey(
+        'asset:failed.mid',
+      ),
+      isFalse,
+    );
+  });
+
+  test('满 100 条时新增默认失败会恢复被淘汰的完整集合', () async {
+    final originalSelections = <String, Object?>{
+      for (var index = 0; index < 100; index++) 'song:$index': ['part:$index'],
+    };
+    final storage = _MemorySettingsStorage(
+      initialValues: {
+        'schemaVersion': AppSettingsController.settingsSchemaVersion,
+        'songScorePartSelections': originalSelections,
+      },
+    );
+    final settings = AppSettingsController(storage: storage);
+    await settings.load();
+    storage.failNextWrite = true;
+
+    await expectLater(
+      settings.setScorePartSelectionForSong('zz:new', {'new'}),
+      throwsA(isA<StateError>()),
+    );
+    await settings.flush();
+
+    expect(settings.scorePartSelectionForSong('zz:new'), isNull);
+    for (var index = 0; index < 100; index++) {
+      expect(settings.scorePartSelectionForSong('song:$index'), {
+        'part:$index',
+      });
+    }
+    expect(storage.values['songScorePartSelections'], originalSelections);
+  });
+
   test('文件存储在主文件损坏时从 backup 恢复', () async {
     final directory = await Directory.systemTemp.createTemp(
       'midi_music_settings_test_',
@@ -372,6 +430,23 @@ class _DelayedMemorySettingsStorage extends _MemorySettingsStorage {
     } finally {
       _activeWrites--;
     }
+  }
+}
+
+class _GatedFailingSettingsStorage extends _MemorySettingsStorage {
+  final Completer<void> firstWriteStarted = Completer<void>();
+  final Completer<void> releaseFirstWrite = Completer<void>();
+  var _writeCount = 0;
+
+  @override
+  Future<void> write(Map<String, Object?> values) async {
+    _writeCount += 1;
+    if (_writeCount == 1) {
+      firstWriteStarted.complete();
+      await releaseFirstWrite.future;
+      throw StateError('simulated gated write failure');
+    }
+    await super.write(values);
   }
 }
 

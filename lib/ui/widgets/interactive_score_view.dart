@@ -65,8 +65,8 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
 
     final musicXml = widget.musicXml;
     if (musicXml == null) {
+      _invalidateSurface();
       setState(() {
-        _surfaceToken = null;
         _surface = null;
         _pageReady = false;
         _portAnnounced = false;
@@ -89,10 +89,17 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
       _isLoading = true;
       _errorMessage = null;
     });
-    if (_pageReady) unawaited(_surface!.port.loadMusicXml(musicXml));
+    if (_pageReady) {
+      _requestMusicXmlLoad(
+        musicXml,
+        surfaceToken: _surfaceToken!,
+        port: _surface!.port,
+      );
+    }
   }
 
   void _createSurface() {
+    _invalidateSurface();
     final surfaceToken = Object();
     _surfaceToken = surfaceToken;
     _portAnnounced = false;
@@ -103,7 +110,13 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
       );
       _pageReady = true;
       final musicXml = widget.musicXml;
-      if (musicXml != null) unawaited(_surface!.port.loadMusicXml(musicXml));
+      if (musicXml != null) {
+        _requestMusicXmlLoad(
+          musicXml,
+          surfaceToken: surfaceToken,
+          port: _surface!.port,
+        );
+      }
       return;
     }
 
@@ -142,7 +155,13 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
             if (_pageReady) return;
             _pageReady = true;
             final musicXml = widget.musicXml;
-            if (musicXml != null) unawaited(port.loadMusicXml(musicXml));
+            if (musicXml != null) {
+              _requestMusicXmlLoad(
+                musicXml,
+                surfaceToken: surfaceToken,
+                port: port,
+              );
+            }
           },
           onNavigationRequest: (request) {
             final uri = Uri.tryParse(request.url);
@@ -162,6 +181,49 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
         controller: controller,
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _invalidateSurface();
+    super.dispose();
+  }
+
+  void _invalidateSurface() {
+    final port = _surface?.port;
+    if (port is _InvalidatableScoreRendererPort) {
+      (port as _InvalidatableScoreRendererPort).invalidate();
+    }
+    _surfaceToken = null;
+  }
+
+  void _requestMusicXmlLoad(
+    String musicXml, {
+    required Object surfaceToken,
+    required ScoreRendererPort port,
+  }) {
+    unawaited(_loadMusicXml(musicXml, surfaceToken: surfaceToken, port: port));
+  }
+
+  Future<void> _loadMusicXml(
+    String musicXml, {
+    required Object surfaceToken,
+    required ScoreRendererPort port,
+  }) async {
+    try {
+      await port.loadMusicXml(musicXml);
+    } catch (error) {
+      if (!_isCurrentSurface(surfaceToken, sourcePort: port)) return;
+      final detail = error
+          .toString()
+          .replaceFirst('Bad state: ', '')
+          .replaceFirst('Exception: ', '')
+          .trim();
+      setState(() {
+        _isLoading = false;
+        _errorMessage = detail.isEmpty ? '无法加载乐谱。' : '无法加载乐谱：$detail';
+      });
+    }
   }
 
   bool _isCurrentSurface(Object surfaceToken, {ScoreRendererPort? sourcePort}) {
@@ -334,13 +396,21 @@ class _ScoreErrorOverlay extends StatelessWidget {
   }
 }
 
-class _WebViewScoreRendererPort implements ScoreRendererPort {
+abstract interface class _InvalidatableScoreRendererPort {
+  void invalidate();
+}
+
+class _WebViewScoreRendererPort
+    implements ScoreRendererPort, _InvalidatableScoreRendererPort {
   final WebViewController controller;
   final MusicXmlEncoder _encoder;
   int _loadGeneration = 0;
 
   _WebViewScoreRendererPort(this.controller, {MusicXmlEncoder? encoder})
     : _encoder = encoder ?? _encodeMusicXmlInBackground;
+
+  @override
+  void invalidate() => _loadGeneration += 1;
 
   @override
   Future<void> loadMusicXml(String musicXml) async {

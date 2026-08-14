@@ -54,8 +54,22 @@ class MidiNotationCancelledException implements Exception {
   String toString() => 'MIDI notation operation cancelled';
 }
 
+typedef MidiNotationWorkerEntrypoint = void Function(Object? message);
+
 class MidiNotationService implements MidiNotationBuilder {
+  final MidiNotationWorkerEntrypoint _workerEntrypoint;
+  final void Function()? _onWorkerStarted;
   _MidiNotationWorkerTask? _activeTask;
+
+  factory MidiNotationService({
+    MidiNotationWorkerEntrypoint? workerEntrypoint,
+    void Function()? onWorkerStarted,
+  }) => MidiNotationService._(
+    workerEntrypoint ?? _runNotationWorker,
+    onWorkerStarted,
+  );
+
+  MidiNotationService._(this._workerEntrypoint, this._onWorkerStarted);
 
   @override
   void cancel() {
@@ -117,7 +131,10 @@ class MidiNotationService implements MidiNotationBuilder {
     required String debugName,
   }) async {
     cancel();
-    final task = _MidiNotationWorkerTask();
+    final task = _MidiNotationWorkerTask(
+      workerEntrypoint: _workerEntrypoint,
+      onWorkerStarted: _onWorkerStarted,
+    );
     _activeTask = task;
     try {
       return await task.run<T>(request, debugName: debugName);
@@ -222,7 +239,8 @@ class _NotationWorkerFailure {
   const _NotationWorkerFailure(this.error, this.stackTrace);
 }
 
-void _runNotationWorker(_NotationWorkerRequest request) {
+void _runNotationWorker(Object? message) {
+  final request = message! as _NotationWorkerRequest;
   final responsePort = request.responsePort!;
   try {
     final Object result = switch (request.kind) {
@@ -245,37 +263,55 @@ void _runNotationWorker(_NotationWorkerRequest request) {
 }
 
 class _MidiNotationWorkerTask {
+  final MidiNotationWorkerEntrypoint _workerEntrypoint;
+  final void Function()? _onWorkerStarted;
   final Completer<Object> _completer = Completer<Object>();
   Isolate? _isolate;
-  ReceivePort? _responsePort;
+  ReceivePort? _lifecyclePort;
   bool _isCancelled = false;
+
+  _MidiNotationWorkerTask({
+    required this._workerEntrypoint,
+    required this._onWorkerStarted,
+  });
 
   Future<T> run<T>(
     _NotationWorkerRequest request, {
     required String debugName,
   }) async {
-    final responsePort = ReceivePort();
-    _responsePort = responsePort;
-    request.responsePort = responsePort.sendPort;
-    responsePort.listen(_handleResponse);
-    unawaited(_spawn(request, debugName: debugName));
+    final lifecyclePort = ReceivePort();
+    _lifecyclePort = lifecyclePort;
+    request.responsePort = lifecyclePort.sendPort;
+    lifecyclePort.listen(_handleLifecycleMessage);
+    unawaited(
+      _spawn(
+        request,
+        lifecycleSendPort: lifecyclePort.sendPort,
+        debugName: debugName,
+      ),
+    );
     return (await _completer.future) as T;
   }
 
   Future<void> _spawn(
     _NotationWorkerRequest request, {
+    required SendPort lifecycleSendPort,
     required String debugName,
   }) async {
     try {
       final isolate = await Isolate.spawn(
-        _runNotationWorker,
+        _workerEntrypoint,
         request,
         debugName: debugName,
+        onError: lifecycleSendPort,
+        onExit: lifecycleSendPort,
+        errorsAreFatal: true,
       );
-      if (_isCancelled) {
+      if (_isCancelled || _completer.isCompleted) {
         isolate.kill(priority: Isolate.immediate);
       } else {
         _isolate = isolate;
+        _onWorkerStarted?.call();
       }
     } catch (error, stackTrace) {
       if (!_completer.isCompleted) {
@@ -296,13 +332,27 @@ class _MidiNotationWorkerTask {
     }
   }
 
-  void _handleResponse(Object? message) {
+  void _handleLifecycleMessage(Object? message) {
     if (_completer.isCompleted) return;
     switch (message) {
       case _NotationWorkerSuccess(:final value):
         _complete(value);
       case _NotationWorkerFailure(:final error, :final stackTrace):
         _completeError(error, StackTrace.fromString(stackTrace));
+      case [final Object? error, final Object? stackTrace]:
+        final stackTraceText = stackTrace?.toString() ?? '';
+        _completeError(
+          RemoteError(
+            error?.toString() ?? 'MIDI notation worker failed',
+            stackTraceText,
+          ),
+          StackTrace.fromString(stackTraceText),
+        );
+      case null:
+        _completeError(
+          StateError('MIDI notation worker exited before returning a result'),
+          StackTrace.current,
+        );
       default:
         _completeError(
           StateError('MIDI notation worker returned an invalid response'),
@@ -322,8 +372,9 @@ class _MidiNotationWorkerTask {
   }
 
   void _cleanup() {
-    _responsePort?.close();
-    _responsePort = null;
+    _lifecyclePort?.close();
+    _lifecyclePort = null;
+    _isolate?.kill(priority: Isolate.immediate);
     _isolate = null;
   }
 }

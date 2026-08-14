@@ -393,6 +393,124 @@ void main() {
       isNot(contains('encoded-stale')),
     );
   });
+
+  testWidgets('musicXml 置空并替换 surface 后旧端口不得执行脚本', (tester) async {
+    final platform = _TestWebViewPlatform();
+    WebViewPlatform.instance = platform;
+    final encoder = _ControlledMusicXmlEncoder();
+
+    Widget build(String? xml) => CupertinoApp(
+      home: InteractiveScoreView(
+        musicXml: xml,
+        onMessage: (_) {},
+        musicXmlEncoder: encoder.encode,
+      ),
+    );
+
+    await tester.pumpWidget(build('<score-partwise id="old"/>'));
+    platform.navigationDelegates.single.onPageFinished!(
+      'file:///flutter_assets/assets/score_renderer/index.html',
+    );
+    await tester.pump();
+    expect(encoder.requests, ['<score-partwise id="old"/>']);
+
+    await tester.pumpWidget(build(null));
+    await tester.pumpWidget(build('<score-partwise id="replacement"/>'));
+    expect(platform.controllers, hasLength(2));
+    platform.navigationDelegates.last.onPageFinished!(
+      'file:///flutter_assets/assets/score_renderer/index.html',
+    );
+    await tester.pump();
+    expect(encoder.requests, [
+      '<score-partwise id="old"/>',
+      '<score-partwise id="replacement"/>',
+    ]);
+
+    encoder.completers[1].complete('encoded-replacement');
+    await tester.pump();
+    encoder.completers[0].complete('encoded-stale');
+    await tester.pump();
+
+    expect(platform.controllers.first.scripts, isEmpty);
+    expect(platform.controllers.last.scripts.single, contains('replacement'));
+  });
+
+  testWidgets('dispose 会使旧端口失效且不留异步异常', (tester) async {
+    final platform = _TestWebViewPlatform();
+    WebViewPlatform.instance = platform;
+    final encoder = _ControlledMusicXmlEncoder();
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: InteractiveScoreView(
+          musicXml: '<score-partwise/>',
+          onMessage: (_) {},
+          musicXmlEncoder: encoder.encode,
+        ),
+      ),
+    );
+    platform.navigationDelegate.onPageFinished!(
+      'file:///flutter_assets/assets/score_renderer/index.html',
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(const SizedBox());
+    encoder.completers.single.complete('encoded-after-dispose');
+    await tester.pump();
+
+    expect(platform.controller.scripts, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('当前 surface 编码失败进入可读错误态', (tester) async {
+    final platform = _TestWebViewPlatform();
+    WebViewPlatform.instance = platform;
+    final encoder = _ControlledMusicXmlEncoder();
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: InteractiveScoreView(
+          musicXml: '<score-partwise/>',
+          onMessage: (_) {},
+          musicXmlEncoder: encoder.encode,
+        ),
+      ),
+    );
+    platform.navigationDelegate.onPageFinished!(
+      'file:///flutter_assets/assets/score_renderer/index.html',
+    );
+    await tester.pump();
+
+    encoder.completers.single.completeError(StateError('encoder failed'));
+    await tester.pump();
+
+    expect(find.textContaining('无法加载乐谱'), findsOneWidget);
+    expect(find.textContaining('encoder failed'), findsOneWidget);
+    expect(find.text('正在排版乐谱'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('当前 surface JavaScript 失败进入可读错误态', (tester) async {
+    final platform = _TestWebViewPlatform();
+    WebViewPlatform.instance = platform;
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: InteractiveScoreView(
+          musicXml: '<score-partwise/>',
+          onMessage: (_) {},
+          musicXmlEncoder: (_) => SynchronousFuture<String>('encoded'),
+        ),
+      ),
+    );
+    platform.controller.javaScriptError = StateError('javascript failed');
+    platform.navigationDelegate.onPageFinished!(
+      'file:///flutter_assets/assets/score_renderer/index.html',
+    );
+    await tester.pump();
+
+    expect(find.textContaining('无法加载乐谱'), findsOneWidget);
+    expect(find.textContaining('javascript failed'), findsOneWidget);
+    expect(find.text('正在排版乐谱'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _ControlledMusicXmlEncoder {
@@ -408,21 +526,29 @@ class _ControlledMusicXmlEncoder {
 }
 
 class _TestWebViewPlatform extends WebViewPlatform {
-  late final _TestPlatformWebViewController controller;
-  late final _TestPlatformNavigationDelegate navigationDelegate;
+  final List<_TestPlatformWebViewController> controllers = [];
+  final List<_TestPlatformNavigationDelegate> navigationDelegates = [];
+
+  _TestPlatformWebViewController get controller => controllers.last;
+  _TestPlatformNavigationDelegate get navigationDelegate =>
+      navigationDelegates.last;
 
   @override
   PlatformWebViewController createPlatformWebViewController(
     PlatformWebViewControllerCreationParams params,
   ) {
-    return controller = _TestPlatformWebViewController(params);
+    final controller = _TestPlatformWebViewController(params);
+    controllers.add(controller);
+    return controller;
   }
 
   @override
   PlatformNavigationDelegate createPlatformNavigationDelegate(
     PlatformNavigationDelegateCreationParams params,
   ) {
-    return navigationDelegate = _TestPlatformNavigationDelegate(params);
+    final delegate = _TestPlatformNavigationDelegate(params);
+    navigationDelegates.add(delegate);
+    return delegate;
   }
 
   @override
@@ -438,6 +564,7 @@ class _TestPlatformWebViewController extends PlatformWebViewController {
 
   final scripts = <String>[];
   JavaScriptChannelParams? scoreBridgeChannel;
+  Object? javaScriptError;
 
   @override
   Future<void> setJavaScriptMode(JavaScriptMode javaScriptMode) async {}
@@ -460,6 +587,8 @@ class _TestPlatformWebViewController extends PlatformWebViewController {
 
   @override
   Future<void> runJavaScript(String javaScript) async {
+    final error = javaScriptError;
+    if (error != null) throw error;
     scripts.add(javaScript);
   }
 
