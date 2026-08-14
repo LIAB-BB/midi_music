@@ -21,16 +21,16 @@ void main() {
         .analyze(song, fingerprint: 'fixture')
         .parts;
 
-    expect(parts.map((part) => part.kind).toSet(), {
-      MidiPartKind.piano,
-      MidiPartKind.strings,
-      MidiPartKind.percussion,
-    });
     expect(
-      parts
-          .expand((part) => part.sources)
-          .map((source) => source.channels.single),
-      containsAll(<int>[0, 1, 9]),
+      {
+        for (final part in parts)
+          for (final source in part.sources) source.channels.single: part.kind,
+      },
+      {
+        0: MidiPartKind.piano,
+        1: MidiPartKind.strings,
+        9: MidiPartKind.percussion,
+      },
     );
   });
 
@@ -52,7 +52,11 @@ void main() {
       (part) => part.kind == MidiPartKind.piano,
     );
     expect(piano.staffMode, MidiStaffMode.grandStaff);
-    expect(piano.sources, isNotEmpty);
+    expect(piano.sources.length, greaterThan(1));
+    expect(
+      piano.id,
+      'piano:${piano.sources.map((source) => '${source.trackIndex}:${source.channels.single}').join(',')}',
+    );
     expect(catalog.recommendedPartIds, {piano.id});
   });
 
@@ -114,7 +118,7 @@ void main() {
       MidiPartKind.woodwind,
       MidiPartKind.woodwind,
     ]);
-    expect(catalog.parts.map((part) => part.label), ['长笛', '长笛（2）']);
+    expect(catalog.parts.map((part) => part.label), ['Flute', 'Flute（2）']);
     expect(catalog.recommendedPartIds, {'source:0:2', 'source:1:3'});
     expect(catalog.recommendedOrigin, MidiSelectionOrigin.automaticEnsemble);
   });
@@ -185,6 +189,98 @@ void main() {
     expect(
       percussionOnly.recommendedOrigin,
       MidiSelectionOrigin.percussionFallback,
+    );
+  });
+
+  test('upper、lower 和中英文左右手单声道轨道识别为钢琴', () {
+    final catalog = MidiPartAnalyzer().analyze(
+      _songWithTracks([
+        _track(
+          0,
+          name: 'upper',
+          notes: [_note(1, 72)],
+          programs: const {1: 40},
+        ),
+        _track(
+          1,
+          name: 'lower',
+          notes: [_note(2, 48)],
+          programs: const {2: 40},
+        ),
+        _track(
+          3,
+          name: 'Right Hand',
+          notes: [_note(3, 76)],
+          programs: const {3: 40},
+        ),
+        _track(4, name: '左手', notes: [_note(4, 43)], programs: const {4: 40}),
+      ]),
+      fingerprint: 'piano-hands',
+    );
+
+    final piano = catalog.parts.single;
+    expect(piano.kind, MidiPartKind.piano);
+    expect(piano.sources.map((source) => source.trackIndex), [0, 1, 3, 4]);
+  });
+
+  test('非钢琴标签依次使用具体轨道名、GM 具体名和类别', () {
+    final catalog = MidiPartAnalyzer().analyze(
+      _songWithTracks([
+        _track(
+          0,
+          name: 'Violin I',
+          notes: [_note(1, 72)],
+          programs: const {1: 40},
+        ),
+        _track(1, notes: [_note(2, 74)], programs: const {2: 40}),
+        _track(2, notes: [_note(3, 76)], programs: const {3: 48}),
+      ]),
+      fingerprint: 'labels',
+    );
+
+    expect(catalog.parts.map((part) => part.label), [
+      'Violin I',
+      '小提琴',
+      '弦乐合奏1',
+    ]);
+  });
+
+  test('分析前拒绝超过 64 个有音符轨道', () {
+    final tracks = List<MidiTrackInfo>.generate(
+      65,
+      (index) => _track(index, notes: [_note(index % 16, 60)]),
+    );
+
+    expect(
+      () => MidiPartAnalyzer().analyze(
+        _songWithTracks(tracks),
+        fingerprint: 'too-many-tracks',
+      ),
+      throwsA(
+        isA<ArgumentError>().having(
+          (error) => error.message,
+          'message',
+          contains('64'),
+        ),
+      ),
+    );
+  });
+
+  test('分析前拒绝超过 500000 个音符', () {
+    final note = _note(1, 60);
+    final song = _songWithTracks([
+      _track(0, notes: List<MidiNote>.filled(500001, note)),
+    ]);
+
+    expect(
+      () => MidiPartAnalyzer().analyze(song, fingerprint: 'too-many-notes'),
+      throwsA(
+        isA<ArgumentError>().having(
+          (error) => error.message,
+          'message',
+          contains('500000'),
+        ),
+      ),
     );
   });
 }
