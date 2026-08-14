@@ -385,6 +385,86 @@ void main() {
     expect(audit.durationByVoice.values.toSet(), {1920});
   });
 
+  test('第五路跨小节被 relocate 后成对清除 bar tie 并保留小节内 tie', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Relocated bar tie', 0, [
+        _note(55, 0, 0, 1440),
+        _note(57, 0, 120, 1560),
+        _note(59, 0, 240, 1680),
+        _note(61, 0, 360, 1800),
+        _note(72, 0, 480, 2400),
+        _note(74, 0, 2880, 3660),
+      ]),
+      kind: MidiPartKind.strings,
+      totalTicks: 3840,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final notesByMeasure = _pitchedNotesByMeasure(result.musicXml);
+    final relocated = notesByMeasure
+        .map((notes) => _notesAtPitch(notes, step: 'C', octave: 5))
+        .toList(growable: false);
+    expect(relocated[0], hasLength(1));
+    expect(relocated[0].single, contains('<duration>40</duration>'));
+    expect(relocated[0].single, isNot(contains('<tie ')));
+    expect(relocated[1], hasLength(1));
+    expect(relocated[1].single, isNot(contains('<tie ')));
+
+    final internal = _notesAtPitch(notesByMeasure[1], step: 'D', octave: 5);
+    expect(internal, hasLength(2));
+    expect(internal.first, contains('<tie type="start"/>'));
+    expect(internal.last, contains('<tie type="stop"/>'));
+    expect(
+      result.warnings,
+      containsAll({
+        MidiNotationWarning.densePassage,
+        MidiNotationWarning.rhythmQuantized,
+      }),
+    );
+    _expectMeasureConservation(result.musicXml);
+  });
+
+  test('第五路跨小节一侧被 drop 后清除另一侧 orphan bar tie', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Dropped bar tie', 0, [
+        _note(55, 0, 0, 1920),
+        _note(57, 0, 120, 1920),
+        _note(59, 0, 240, 1920),
+        _note(61, 0, 360, 1920),
+        _note(72, 0, 480, 2400),
+      ]),
+      kind: MidiPartKind.strings,
+      totalTicks: 3840,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final notesByMeasure = _pitchedNotesByMeasure(result.musicXml);
+    final target = notesByMeasure
+        .map((notes) => _notesAtPitch(notes, step: 'C', octave: 5))
+        .toList(growable: false);
+    expect(target[0], isEmpty);
+    expect(target[1], hasLength(1));
+    expect(target[1].single, isNot(contains('<tie ')));
+    expect(
+      result.warnings,
+      containsAll({
+        MidiNotationWarning.densePassage,
+        MidiNotationWarning.rhythmQuantized,
+      }),
+    );
+    _expectMeasureConservation(result.musicXml);
+  });
+
   test('钢琴 voice 首个中间音没有前继 staff 时仍以 middle C 分谱表', () {
     final track = _track(0, 'Piano', 0, [_note(59, 0, 0, 480)]);
     final fixture = _singlePartFixture(
@@ -937,3 +1017,25 @@ List<List<String>> _pitchedNotesByMeasure(String xml) =>
               .toList(growable: false);
         })
         .toList(growable: false);
+
+List<String> _notesAtPitch(
+  List<String> notes, {
+  required String step,
+  required int octave,
+}) => notes
+    .where(
+      (note) =>
+          note.contains('<step>$step</step>') &&
+          note.contains('<octave>$octave</octave>'),
+    )
+    .toList(growable: false);
+
+void _expectMeasureConservation(String xml) {
+  for (final audit in _auditMeasures(xml)) {
+    expect(audit.durationByVoice.values.toSet(), {1920});
+    expect(
+      audit.backups,
+      List<int>.filled(audit.durationByVoice.length - 1, 1920),
+    );
+  }
+}

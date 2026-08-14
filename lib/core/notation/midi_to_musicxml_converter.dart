@@ -211,17 +211,22 @@ class MidiToMusicXmlConverter {
       warnings,
       budget,
     );
+    final voicesByMeasure = List<List<List<_ChordEvent>>>.generate(
+      measures.length,
+      (measureIndex) => _colorVoices(
+        eventsByMeasure[measureIndex],
+        measures[measureIndex].lengthTick,
+        song.ticksPerBeat,
+        warnings,
+      ),
+      growable: false,
+    );
+    final validBarTieIds = _validBarTieIds(voicesByMeasure, measures, warnings);
     final previousStaffByVoice = <int, int>{};
     buffer.writeln('  <part id="$partId">');
     for (var measureIndex = 0; measureIndex < measures.length; measureIndex++) {
       final measure = measures[measureIndex];
-      final events = eventsByMeasure[measureIndex];
-      final voices = _colorVoices(
-        events,
-        measure.lengthTick,
-        song.ticksPerBeat,
-        warnings,
-      );
+      final voices = voicesByMeasure[measureIndex];
       buffer.writeln('    <measure number="${_escapeXml(measure.label)}">');
       _writeAttributes(
         buffer,
@@ -241,6 +246,7 @@ class MidiToMusicXmlConverter {
         song.ticksPerBeat,
         part,
         previousStaffByVoice,
+        validBarTieIds,
       );
       buffer.writeln('    </measure>');
     }
@@ -282,6 +288,7 @@ class MidiToMusicXmlConverter {
     if (measures.isEmpty) return const [];
     final minimumDuration = candidates.first.ticks;
     var onsetMeasureIndex = 0;
+    var nextBarTieId = 0;
     for (final note in notes) {
       if (note.endTick <= note.startTick) continue;
       while (onsetMeasureIndex < measures.length &&
@@ -364,7 +371,7 @@ class MidiToMusicXmlConverter {
               ticksPerBeat / 48) {
         warnings.add(MidiNotationWarning.rhythmQuantized);
       }
-      final crossBarTies = <bool>[];
+      final crossBarTieIds = <int?>[];
       for (var index = 0; index < fragments.length - 1; index++) {
         final current = fragments[index];
         final next = fragments[index + 1];
@@ -375,7 +382,7 @@ class MidiToMusicXmlConverter {
         final adjacentMeasures = next.measureIndex == current.measureIndex + 1;
         final canTieAcrossBar =
             adjacentMeasures && reachesMeasureEnd && startsAtMeasureStart;
-        crossBarTies.add(canTieAcrossBar);
+        crossBarTieIds.add(canTieAcrossBar ? nextBarTieId++ : null);
         if (!canTieAcrossBar) hasBrokenCrossBarContinuity = true;
       }
       if (hasBrokenCrossBarContinuity) {
@@ -393,10 +400,12 @@ class MidiToMusicXmlConverter {
               _NoteSegment(
                 noteNumber: note.noteNumber,
                 notations: fragment.notations,
-                tieStop: fragmentIndex > 0 && crossBarTies[fragmentIndex - 1],
-                tieStart:
-                    fragmentIndex < fragments.length - 1 &&
-                    crossBarTies[fragmentIndex],
+                barTieStopId: fragmentIndex > 0
+                    ? crossBarTieIds[fragmentIndex - 1]
+                    : null,
+                barTieStartId: fragmentIndex < fragments.length - 1
+                    ? crossBarTieIds[fragmentIndex]
+                    : null,
               ),
             );
       }
@@ -491,6 +500,69 @@ class MidiToMusicXmlConverter {
     return voices;
   }
 
+  Set<int> _validBarTieIds(
+    List<List<List<_ChordEvent>>> voicesByMeasure,
+    List<MeasureInfo> measures,
+    Set<MidiNotationWarning> warnings,
+  ) {
+    final starts = <int, List<_PlacedBarTieEndpoint>>{};
+    final stops = <int, List<_PlacedBarTieEndpoint>>{};
+    for (
+      var measureIndex = 0;
+      measureIndex < voicesByMeasure.length;
+      measureIndex++
+    ) {
+      for (final voice in voicesByMeasure[measureIndex]) {
+        for (final event in voice) {
+          for (final note in event.notes) {
+            final startId = note.barTieStartId;
+            final stopId = note.barTieStopId;
+            if (startId == null && stopId == null) continue;
+            final endpoint = _PlacedBarTieEndpoint(
+              measureIndex: measureIndex,
+              start: event.start,
+              duration: note.duration,
+              denseAdjusted: note.denseAdjusted,
+            );
+            if (startId != null) {
+              starts.putIfAbsent(startId, () => []).add(endpoint);
+            }
+            if (stopId != null) {
+              stops.putIfAbsent(stopId, () => []).add(endpoint);
+            }
+          }
+        }
+      }
+    }
+    final allIds = <int>{...starts.keys, ...stops.keys};
+    final validIds = <int>{};
+    for (final id in allIds) {
+      final startEndpoints = starts[id] ?? const [];
+      final stopEndpoints = stops[id] ?? const [];
+      if (startEndpoints.length != 1 || stopEndpoints.length != 1) continue;
+      final start = startEndpoints.single;
+      final stop = stopEndpoints.single;
+      final adjacentMeasures = stop.measureIndex == start.measureIndex + 1;
+      final reachesMeasureEnd =
+          start.start + start.duration ==
+          measures[start.measureIndex].lengthTick;
+      final startsAtMeasureStart = stop.start == 0;
+      if (!start.denseAdjusted &&
+          !stop.denseAdjusted &&
+          adjacentMeasures &&
+          reachesMeasureEnd &&
+          startsAtMeasureStart) {
+        validIds.add(id);
+      }
+    }
+    if (validIds.length != allIds.length) {
+      warnings
+        ..add(MidiNotationWarning.densePassage)
+        ..add(MidiNotationWarning.rhythmQuantized);
+    }
+    return validIds;
+  }
+
   void _writeAttributes(
     StringBuffer buffer,
     int divisions,
@@ -550,6 +622,7 @@ class MidiToMusicXmlConverter {
     int ticksPerBeat,
     MidiScorePart part,
     Map<int, int> previousStaffByVoice,
+    Set<int> validBarTieIds,
   ) {
     for (var voiceIndex = 0; voiceIndex < voices.length; voiceIndex++) {
       if (voiceIndex > 0) {
@@ -581,12 +654,18 @@ class MidiToMusicXmlConverter {
         if (event.notes.every((note) => note.notations.length == 1)) {
           for (var noteIndex = 0; noteIndex < event.notes.length; noteIndex++) {
             final note = event.notes[noteIndex];
+            final tieStop =
+                note.barTieStopId != null &&
+                validBarTieIds.contains(note.barTieStopId);
+            final tieStart =
+                note.barTieStartId != null &&
+                validBarTieIds.contains(note.barTieStartId);
             _writeNote(
               buffer,
               note,
               notation: note.notations.single,
-              tieStop: note.tieStop,
-              tieStart: note.tieStart,
+              tieStop: tieStop,
+              tieStart: tieStart,
               voice: voiceIndex + 1,
               staff: staff,
               chord: noteIndex > 0,
@@ -606,13 +685,19 @@ class MidiToMusicXmlConverter {
               noteIndex++
             ) {
               final note = event.notes[noteIndex];
+              final barTieStop =
+                  note.barTieStopId != null &&
+                  validBarTieIds.contains(note.barTieStopId);
+              final barTieStart =
+                  note.barTieStartId != null &&
+                  validBarTieIds.contains(note.barTieStartId);
               _writeNote(
                 buffer,
                 note,
                 notation: note.notations[notationIndex],
-                tieStop: note.tieStop || notationIndex > 0,
+                tieStop: barTieStop || notationIndex > 0,
                 tieStart:
-                    note.tieStart || notationIndex < note.notations.length - 1,
+                    barTieStart || notationIndex < note.notations.length - 1,
                 voice: voiceIndex + 1,
                 staff: staff,
                 chord: noteIndex > 0,
@@ -737,14 +822,16 @@ class MidiToMusicXmlConverter {
 class _NoteSegment {
   final int noteNumber;
   final List<_DurationCandidate> notations;
-  final bool tieStop;
-  final bool tieStart;
+  final int? barTieStopId;
+  final int? barTieStartId;
+  final bool denseAdjusted;
 
   const _NoteSegment({
     required this.noteNumber,
     required this.notations,
-    required this.tieStop,
-    required this.tieStart,
+    required this.barTieStopId,
+    required this.barTieStartId,
+    this.denseAdjusted = false,
   });
 
   int get duration =>
@@ -753,9 +840,24 @@ class _NoteSegment {
   _NoteSegment withSingleNotation(_DurationCandidate notation) => _NoteSegment(
     noteNumber: noteNumber,
     notations: [notation],
-    tieStop: tieStop,
-    tieStart: tieStart,
+    barTieStopId: barTieStopId,
+    barTieStartId: barTieStartId,
+    denseAdjusted: true,
   );
+}
+
+class _PlacedBarTieEndpoint {
+  final int measureIndex;
+  final int start;
+  final int duration;
+  final bool denseAdjusted;
+
+  const _PlacedBarTieEndpoint({
+    required this.measureIndex,
+    required this.start,
+    required this.duration,
+    required this.denseAdjusted,
+  });
 }
 
 class _PendingFragment {
