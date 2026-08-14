@@ -507,7 +507,10 @@ class _ResetCard extends StatelessWidget {
                 CupertinoDialogAction(
                   onPressed: isResetting
                       ? null
-                      : () => Navigator.of(dialogContext).pop(),
+                      : () {
+                          if (isResetting) return;
+                          Navigator.of(dialogContext).pop();
+                        },
                   child: const Text('取消'),
                 ),
                 CupertinoDialogAction(
@@ -515,6 +518,7 @@ class _ResetCard extends StatelessWidget {
                   onPressed: isResetting
                       ? null
                       : () {
+                          if (isResetting) return;
                           setDialogState(() => isResetting = true);
                           unawaited(
                             _reset(dialogContext).whenComplete(() {

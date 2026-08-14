@@ -80,6 +80,78 @@ void main() {
     expect(writeCountWhilePending, 1);
     expect(find.text('恢复默认设置？'), findsNothing);
   });
+
+  testWidgets('同帧双击恢复只启动一次写盘', (tester) async {
+    final storage = _ControlledSettingsStorage();
+    await _pumpSettingsPage(tester, storage);
+    await _openResetDialog(tester);
+
+    await tester.tap(find.text('恢复'));
+    await tester.tap(find.text('恢复'));
+    await _pumpUntilWriteCount(tester, storage, 1);
+
+    expect(find.text('恢复默认设置？'), findsOneWidget);
+    storage.writes.first.complete();
+    await tester.pump();
+    await tester.pump();
+    final writeCount = storage.writes.length;
+    for (final pendingWrite in storage.writes.skip(1)) {
+      pendingWrite.complete();
+    }
+    await tester.pumpAndSettle();
+
+    expect(writeCount, 1);
+  });
+
+  testWidgets('同帧点击恢复后立即取消仍保留确认框', (tester) async {
+    final storage = _ControlledSettingsStorage();
+    await _pumpSettingsPage(tester, storage);
+    await _openResetDialog(tester);
+
+    await tester.tap(find.text('恢复'));
+    await tester.tap(find.text('取消'));
+    await _pumpUntilWriteCount(tester, storage, 1);
+    await tester.pumpAndSettle();
+    final confirmStayedOpen = find.text('恢复默认设置？').evaluate().isNotEmpty;
+
+    storage.writes.single.complete();
+    await tester.pumpAndSettle();
+
+    expect(confirmStayedOpen, isTrue);
+    expect(storage.writes, hasLength(1));
+  });
+
+  testWidgets('恢复写盘成功前卸载整棵 widget 树不产生异步异常', (tester) async {
+    final storage = _ControlledSettingsStorage();
+    await _pumpSettingsPage(tester, storage);
+    await _openResetDialog(tester);
+
+    await tester.tap(find.text('恢复'));
+    await _pumpUntilWriteCount(tester, storage, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    storage.writes.single.complete();
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('恢复写盘失败前卸载整棵 widget 树不产生异步异常', (tester) async {
+    final storage = _ControlledSettingsStorage();
+    await _pumpSettingsPage(tester, storage);
+    await _openResetDialog(tester);
+
+    await tester.tap(find.text('恢复'));
+    await _pumpUntilWriteCount(tester, storage, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    storage.writes.first.completeError(StateError('reset failed'));
+    await _pumpUntilWriteCount(tester, storage, 2);
+    storage.writes[1].complete();
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<AppSettingsController> _pumpSettingsPage(
