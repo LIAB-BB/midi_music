@@ -94,7 +94,7 @@
     const renderer = new opensheetmusicdisplay.OpenSheetMusicDisplay(score, {
       backend: 'svg',
       autoResize: false,
-      drawTitle: true,
+      drawTitle: false,
       pageFormat: 'Endless',
       pageBackgroundColor: '#f8f0dc',
       drawUpToMeasureNumber: 12,

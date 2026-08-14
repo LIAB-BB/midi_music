@@ -693,7 +693,12 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
         border: null,
         backgroundColor: const Color(0xFFF8F0DC),
         previousPageTitle: '乐库',
-        middle: Text(score.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        middle: Text(
+          score.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Color(0xFF2A2118)),
+        ),
         trailing: _ScorePageActions(
           showParts: _catalog != null,
           onOpenParts: _openPartPicker,

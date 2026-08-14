@@ -50,6 +50,15 @@ void main() {
     expect(script, isNot(contains('await osmd.load(xml)')));
   });
 
+  test('桥接隐藏重复且可能被裁切的 OSMD 文档标题', () async {
+    final script = await rootBundle.loadString(
+      'assets/score_renderer/score_bridge.js',
+    );
+
+    expect(script, contains('drawTitle: false'));
+    expect(script, isNot(contains('drawTitle: true')));
+  });
+
   test('桥接跟踪活动指针且取消手势不会被视为点击', () async {
     final script = await rootBundle.loadString(
       'assets/score_renderer/score_bridge.js',

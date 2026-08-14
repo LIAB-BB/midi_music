@@ -34,6 +34,14 @@ void main() {
     expect(find.text('真实 MIDI 数据'), findsNothing);
   });
 
+  testWidgets('浅色练习页顶栏标题使用深色文本', (tester) async {
+    final player = readyPlayer()..loadScore(interactiveSession());
+    await tester.pumpWidget(_page(player, _ScoreSurfaceHarness()));
+
+    final title = tester.widget<Text>(find.text('Interactive Fixture'));
+    expect(title.style?.color, const Color(0xFF2A2118));
+  });
+
   testWidgets('仅 MIDI 曲目显示生成态且保留播放控制', (tester) async {
     final player = readyPlayer()..loadScore(midiOnlySession());
     final builder = _ControlledNotationBuilder();
