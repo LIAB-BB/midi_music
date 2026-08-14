@@ -470,22 +470,26 @@ class AppSettingsController extends ChangeNotifier {
   }
 
   void resetToDefaults() {
-    _update(() {
-      _defaultPlaybackSpeed = defaultPlaybackSpeedValue;
-      _microphoneMinPrecision = defaultMicrophoneMinPrecisionValue;
-      _onsetVolumeThreshold = defaultOnsetVolumeThresholdValue;
-      _noteMatchTolerance = defaultNoteMatchToleranceValue;
-      _allowOctaveError = defaultAllowOctaveErrorValue;
-      _minMeasuredSpeedFactor = defaultMinMeasuredSpeedFactorValue;
-      _maxMeasuredSpeedFactor = defaultMaxMeasuredSpeedFactorValue;
-      _restThresholdSeconds = defaultRestThresholdSecondsValue;
-      _inputLatencyCompensationMs = defaultInputLatencyCompensationMsValue;
-      _loopPlayback = defaultLoopPlaybackValue;
-      _autoStopAllNotes = defaultAutoStopAllNotesValue;
-      _showDebugInfo = defaultShowDebugInfoValue;
-      _defaultScorePartKinds = defaultScorePartKindsValue;
-      _songScorePartSelections = const {};
-    });
+    _defaultPlaybackSpeed = defaultPlaybackSpeedValue;
+    _microphoneMinPrecision = defaultMicrophoneMinPrecisionValue;
+    _onsetVolumeThreshold = defaultOnsetVolumeThresholdValue;
+    _noteMatchTolerance = defaultNoteMatchToleranceValue;
+    _allowOctaveError = defaultAllowOctaveErrorValue;
+    _minMeasuredSpeedFactor = defaultMinMeasuredSpeedFactorValue;
+    _maxMeasuredSpeedFactor = defaultMaxMeasuredSpeedFactorValue;
+    _restThresholdSeconds = defaultRestThresholdSecondsValue;
+    _inputLatencyCompensationMs = defaultInputLatencyCompensationMsValue;
+    _loopPlayback = defaultLoopPlaybackValue;
+    _autoStopAllNotes = defaultAutoStopAllNotesValue;
+    _showDebugInfo = defaultShowDebugInfoValue;
+    notifyListeners();
+    unawaited(
+      _runScorePartTransaction(() {
+        _defaultScorePartKinds = defaultScorePartKindsValue;
+        _songScorePartSelections = const {};
+        return true;
+      }).catchError((Object _) {}),
+    );
   }
 
   Future<void> flush() async {

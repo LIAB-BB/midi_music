@@ -357,6 +357,50 @@ void main() {
     expect(storage.values['songScorePartSelections'], originalSelections);
   });
 
+  test('阻塞失败的声部事务后 reset 最终保持完整默认状态', () async {
+    final storage = _GatedFailingSettingsStorage(
+      initialValues: {
+        'schemaVersion': AppSettingsController.settingsSchemaVersion,
+        'defaultPlaybackSpeed': 2.5,
+        'defaultScorePartKinds': ['strings'],
+        'songScorePartSelections': {
+          'asset:existing.mid': ['strings'],
+        },
+      },
+    );
+    final settings = AppSettingsController(storage: storage);
+    await settings.load();
+
+    final failedWrite = settings.setScorePartSelectionForSong(
+      'asset:failing.mid',
+      {'piano'},
+    );
+    final failureExpectation = expectLater(
+      failedWrite,
+      throwsA(isA<StateError>()),
+    );
+    await storage.firstWriteStarted.future;
+
+    settings.resetToDefaults();
+    storage.releaseFirstWrite.complete();
+    await failureExpectation;
+    await settings.flush();
+
+    expect(
+      settings.defaultPlaybackSpeed,
+      AppSettingsController.defaultPlaybackSpeedValue,
+    );
+    expect(settings.defaultScorePartKinds, {MidiPartKind.piano});
+    expect(settings.scorePartSelectionForSong('asset:existing.mid'), isNull);
+    expect(settings.scorePartSelectionForSong('asset:failing.mid'), isNull);
+    expect(
+      storage.values['defaultPlaybackSpeed'],
+      AppSettingsController.defaultPlaybackSpeedValue,
+    );
+    expect(storage.values['defaultScorePartKinds'], ['piano']);
+    expect(storage.values['songScorePartSelections'], isEmpty);
+  });
+
   test('文件存储在主文件损坏时从 backup 恢复', () async {
     final directory = await Directory.systemTemp.createTemp(
       'midi_music_settings_test_',
@@ -437,6 +481,8 @@ class _GatedFailingSettingsStorage extends _MemorySettingsStorage {
   final Completer<void> firstWriteStarted = Completer<void>();
   final Completer<void> releaseFirstWrite = Completer<void>();
   var _writeCount = 0;
+
+  _GatedFailingSettingsStorage({super.initialValues});
 
   @override
   Future<void> write(Map<String, Object?> values) async {

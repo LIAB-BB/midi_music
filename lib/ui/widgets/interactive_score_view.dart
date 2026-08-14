@@ -415,11 +415,17 @@ class _WebViewScoreRendererPort
   @override
   Future<void> loadMusicXml(String musicXml) async {
     final generation = ++_loadGeneration;
-    final encoded = await _encoder(musicXml);
-    if (generation != _loadGeneration) return;
-    await controller.runJavaScript(
-      'window.scoreBridge.loadMusicXmlBase64(${jsonEncode(encoded)})',
-    );
+    try {
+      final encoded = await _encoder(musicXml);
+      if (generation != _loadGeneration) return;
+      await controller.runJavaScript(
+        'window.scoreBridge.loadMusicXmlBase64(${jsonEncode(encoded)})',
+      );
+      if (generation != _loadGeneration) return;
+    } catch (error, stackTrace) {
+      if (generation != _loadGeneration) return;
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
   @override

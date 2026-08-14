@@ -511,6 +511,82 @@ void main() {
     expect(find.text('正在排版乐谱'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('同一 surface 的旧编码失败不会覆盖新谱成功态', (tester) async {
+    final platform = _TestWebViewPlatform();
+    WebViewPlatform.instance = platform;
+    final encoder = _ControlledMusicXmlEncoder();
+
+    Widget build(String xml) => CupertinoApp(
+      home: InteractiveScoreView(
+        musicXml: xml,
+        onMessage: (_) {},
+        musicXmlEncoder: encoder.encode,
+      ),
+    );
+
+    await tester.pumpWidget(build('<score-partwise id="old"/>'));
+    platform.navigationDelegate.onPageFinished!(
+      'file:///flutter_assets/assets/score_renderer/index.html',
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(build('<score-partwise id="new"/>'));
+    encoder.completers[1].complete('encoded-new');
+    await tester.pump();
+    platform.controller.emitBridgeMessage('{"type":"ready"}');
+    await tester.pump();
+
+    encoder.completers[0].completeError(StateError('stale encoder failed'));
+    await tester.pump();
+
+    expect(platform.controller.scripts.single, contains('encoded-new'));
+    expect(find.textContaining('stale encoder failed'), findsNothing);
+    expect(find.text('正在排版乐谱'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('同一 surface 的旧 JavaScript 失败不会覆盖新谱成功态', (tester) async {
+    final platform = _TestWebViewPlatform();
+    WebViewPlatform.instance = platform;
+    final javaScriptCompleters = <Completer<void>>[];
+
+    Widget build(String xml) => CupertinoApp(
+      home: InteractiveScoreView(
+        musicXml: xml,
+        onMessage: (_) {},
+        musicXmlEncoder: (musicXml) => SynchronousFuture('encoded-$musicXml'),
+      ),
+    );
+
+    await tester.pumpWidget(build('<score-partwise id="old"/>'));
+    platform.controller.javaScriptHandler = (_) {
+      final completer = Completer<void>();
+      javaScriptCompleters.add(completer);
+      return completer.future;
+    };
+    platform.navigationDelegate.onPageFinished!(
+      'file:///flutter_assets/assets/score_renderer/index.html',
+    );
+    await tester.pump();
+
+    await tester.pumpWidget(build('<score-partwise id="new"/>'));
+    expect(javaScriptCompleters, hasLength(2));
+    javaScriptCompleters[1].complete();
+    await tester.pump();
+    platform.controller.emitBridgeMessage('{"type":"ready"}');
+    await tester.pump();
+
+    javaScriptCompleters[0].completeError(
+      StateError('stale javascript failed'),
+    );
+    await tester.pump();
+
+    expect(platform.controller.scripts.single, contains('id=\\"new\\"'));
+    expect(find.textContaining('stale javascript failed'), findsNothing);
+    expect(find.text('正在排版乐谱'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 class _ControlledMusicXmlEncoder {
@@ -565,6 +641,7 @@ class _TestPlatformWebViewController extends PlatformWebViewController {
   final scripts = <String>[];
   JavaScriptChannelParams? scoreBridgeChannel;
   Object? javaScriptError;
+  Future<void> Function(String javaScript)? javaScriptHandler;
 
   @override
   Future<void> setJavaScriptMode(JavaScriptMode javaScriptMode) async {}
@@ -589,6 +666,8 @@ class _TestPlatformWebViewController extends PlatformWebViewController {
   Future<void> runJavaScript(String javaScript) async {
     final error = javaScriptError;
     if (error != null) throw error;
+    final handler = javaScriptHandler;
+    if (handler != null) await handler(javaScript);
     scripts.add(javaScript);
   }
 
