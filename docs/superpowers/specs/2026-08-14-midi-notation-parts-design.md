@@ -62,26 +62,26 @@ Git 历史中曾出现过五线谱外观，但 `_PracticeScorePainter` 只按曲
 - `id`：由曲目内轨道索引、通道和组合规则稳定生成。
 - `label`：优先使用非空轨道名，否则使用 GM 乐器名或“轨道 N”。
 - `kind`：乐器类别。
-- `trackIndices`：该选择项覆盖的原轨道索引。
+- `sources`：该选择项覆盖的 `(trackIndex, channel set)` 切片；Format 0 单轨多通道不能被整体误判或整体选中。
 - `noteCount`：有效音符数。
 - `staffMode`：`grandStaff`、`singleStaff` 或 `percussionStaff`。
 
 新增 `MidiScoreCatalog`，包含曲目指纹、全部可选声部、推荐默认 ID 集合和推荐原因。
 
-新增 `MidiNotationResult`，包含 `musicXml`、与播放器 tick 对齐的 `ScoreMeasureBoundary`、所选声部 ID、量化警告和最终 `ScoreSession`。
+新增 `MidiNotationResult`，包含 `musicXml`、与播放器 tick 对齐的 `ScoreMeasureBoundary`、所选声部 ID 和量化警告；上层记谱服务再用它和原 `MidiSongData` 构造最终 `ScoreSession`。
 
 ## 6. 声部分析与默认选择
 
 ### 6.1 识别顺序
 
-按以下证据从强到弱识别轨道：
+分析器先把每个含音符轨道按 MIDI channel 切成稳定来源，再按以下证据从强到弱识别来源：
 
 1. MIDI 通道 10（零基索引 9）识别为打击乐。
-2. 轨道名关键字，例如 `piano`、`upper`、`lower`、`right hand`、`left hand`、`violin`、`cello`。
+2. 单通道轨道的明确轨道名关键字，例如 `piano`、`upper`、`lower`、`right hand`、`left hand`、`violin`、`cello`；多通道混合轨道的通用名字不能覆盖 channel 的 GM program 证据。
 3. `programByChannel` 的 General MIDI program 区间。
 4. 音域只作为弱证据，不单独把未知轨道判成钢琴。
 
-同一曲目内多个钢琴轨道组合成一个“钢琴”可选声部，并输出 `grandStaff`。只有一个钢琴轨道时也输出双谱表，再按音高和声部连续性拆分左右手。非钢琴轨道默认各自成为一个可选声部；名称重复时追加序号。
+同一曲目内多个钢琴来源组合成一个“钢琴”可选声部，并输出 `grandStaff`。只有一个钢琴来源时也输出双谱表，再按音高和声部连续性拆分左右手。非钢琴来源默认各自成为一个可选声部；名称重复时追加序号。转换器同时按 track 和 channel 过滤音符，不能把同一原轨中的未选 channel 混入总谱。
 
 ### 6.2 推荐默认
 
@@ -177,6 +177,8 @@ Git 历史中曾出现过五线谱外观，但 `_PracticeScorePainter` 只按曲
 - 显示可读错误，不回到“仅伴奏”。
 - 默认设置不写入失败选择。
 
+若首次生成时还没有上一份谱面，则显示独立“无法生成五线谱”状态，保留当前 MIDI 的固定播放控制，并提供“重试”和“导入文件”；不得泄漏上一曲、无限加载或显示“仅伴奏”。
+
 ## 10. 数据流
 
 1. 首页载入内置或用户导入的 MIDI，产生原始 `MidiSongData`。
@@ -237,4 +239,3 @@ Git 历史中曾出现过五线谱外观，但 `_PracticeScorePainter` 只按曲
 - 小节点击与高亮继续使用与原 MIDI 对齐的统一 `MeasureMap`。
 - 不恢复假谱、卷帘或 PDF 主视图。
 - `flutter analyze`、完整 `flutter test`、iOS Debug 无签名构建、iPhone 14 Pro 真机交互与视觉 QA 全部通过。
-
