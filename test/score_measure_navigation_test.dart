@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:midi_music/core/midi/midi_engine.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
 import 'package:midi_music/models/score_session.dart';
 
@@ -157,6 +158,45 @@ void main() {
     expect(player.scoreSession, isNull);
   });
 
+  testWidgets('clearScore 原子停止播放并清空会话而保留全局速度', (tester) async {
+    final engine = _RecordingMidiPlaybackEngine();
+    final player = MidiPlayerController(engine: engine);
+    addTearDown(player.dispose);
+    final session = interactiveSession();
+    player.loadScore(session, songId: 'old-song', filePath: '/tmp/old.mid');
+    player
+      ..setSpeed(1.25)
+      ..setLoopRange(start: 0.1, end: 0.4)
+      ..setLoopEnabled(enabled: true)
+      ..play();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(engine.noteOnCount, greaterThan(0));
+    final allNotesOffBeforeClear = engine.allNotesOffCount;
+    var notifications = 0;
+    player.addListener(() => notifications++);
+
+    player.clearScore();
+
+    expect(notifications, 1);
+    expect(engine.allNotesOffCount, allNotesOffBeforeClear + 1);
+    expect(player.state, PlaybackState.stopped);
+    expect(player.songData, isNull);
+    expect(player.scoreSession, isNull);
+    expect(player.measureMap, isNull);
+    expect(player.tempoMap, isNull);
+    expect(player.currentSongId, isNull);
+    expect(player.currentFilePath, isNull);
+    expect(player.currentTime, 0);
+    expect(player.currentTick, 0);
+    expect(player.currentMeasureOrdinal, isNull);
+    expect(player.loopStartTime, isNull);
+    expect(player.loopEndTime, isNull);
+    expect(player.isLoopEnabled, isFalse);
+    expect(player.isReady, isFalse);
+    expect(player.playbackSpeed, 1.25);
+    expect(player.seekToMeasure(1), isFalse);
+  });
+
   test('拒绝 ordinal 重复或乱序的交互显示谱且保持旧映射', () {
     final source = interactiveSession();
     final first = source.measures.first;
@@ -274,4 +314,48 @@ class _PlayerSnapshot {
     measureMapSongMatches: identical(player.measureMap?.song, player.songData),
     hasExplicitMeasures: player.measureMap?.scoreMeasures.isNotEmpty ?? false,
   );
+}
+
+class _RecordingMidiPlaybackEngine implements MidiPlaybackEngine {
+  int noteOnCount = 0;
+  int allNotesOffCount = 0;
+
+  @override
+  bool get isReady => true;
+
+  @override
+  Future<void> allNotesOff() async {
+    allNotesOffCount += 1;
+  }
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  Future<void> loadSoundfontFromAsset(String assetPath) async {}
+
+  @override
+  Future<void> loadSoundfontFromFile(String filePath) async {}
+
+  @override
+  Future<void> noteOff({required int channel, required int note}) async {}
+
+  @override
+  Future<void> noteOn({
+    required int channel,
+    required int note,
+    required int velocity,
+  }) async {
+    noteOnCount += 1;
+  }
+
+  @override
+  Future<void> setInstrument({
+    required int channel,
+    required int program,
+    int bank = 0,
+  }) async {}
+
+  @override
+  Future<void> waitForPendingOperations() async {}
 }

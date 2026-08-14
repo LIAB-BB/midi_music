@@ -209,6 +209,165 @@ void main() {
     expect(builder.prepareRequests.single.fingerprint, 'asset:$assetPath');
   });
 
+  testWidgets('上一曲播放中等待 asset 会立即清空且最终只加载真实资源一次', (tester) async {
+    const assetPath = 'assets/midi/delayed-clear-fixture.mid';
+    final assetGate = Completer<void>();
+    final midiBytes = File(
+      'assets/midi/Beethoven-Moonlight-Sonata.mid',
+    ).readAsBytesSync();
+    tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+      'flutter/assets',
+      (message) async {
+        final key = String.fromCharCodes(
+          message!.buffer.asUint8List(
+            message.offsetInBytes,
+            message.lengthInBytes,
+          ),
+        );
+        if (key != assetPath) return null;
+        await assetGate.future;
+        return ByteData.sublistView(Uint8List.fromList(midiBytes));
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+        'flutter/assets',
+        null,
+      );
+    });
+    final oldSession = interactiveSession();
+    final player = readyPlayer()
+      ..loadScore(oldSession, songId: 'old-song', filePath: '/tmp/old.mid')
+      ..setLoopRange(start: 0.1, end: 0.4)
+      ..setLoopEnabled(enabled: true)
+      ..play();
+    final loadedSongs = <MidiSongData>[];
+    player.addListener(() {
+      final song = player.songData;
+      if (song != null &&
+          !identical(song, oldSession.songData) &&
+          !loadedSongs.any((item) => identical(item, song))) {
+        loadedSongs.add(song);
+      }
+    });
+    final builder = _ControlledNotationBuilder();
+
+    await tester.pumpWidget(
+      _page(
+        player,
+        _ScoreSurfaceHarness(),
+        initialSession: null,
+        assetPath: assetPath,
+        notationBuilder: builder,
+      ),
+    );
+    await tester.pump();
+
+    expect(player.songData, isNull);
+    expect(player.scoreSession, isNull);
+    expect(player.currentSongId, isNull);
+    expect(player.currentFilePath, isNull);
+    expect(player.isStopped, isTrue);
+    expect(player.isLoopEnabled, isFalse);
+    expect(loadedSongs, isEmpty);
+
+    assetGate.complete();
+    await tester.runAsync(() async {
+      for (var attempt = 0; attempt < 100; attempt += 1) {
+        if (builder.prepareRequests.isNotEmpty) return;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pump();
+
+    expect(loadedSongs, hasLength(1));
+    expect(builder.prepareRequests.single.song, same(loadedSongs.single));
+    expect(player.songData, same(loadedSongs.single));
+  });
+
+  testWidgets('延迟 asset 中导入失败后重试同一路径且旧资源不再落地', (tester) async {
+    const assetPath = 'assets/midi/delayed-retry-fixture.mid';
+    const importPath = '/tmp/retry-score.musicxml';
+    final assetGate = Completer<void>();
+    final midiBytes = File(
+      'assets/midi/Beethoven-Moonlight-Sonata.mid',
+    ).readAsBytesSync();
+    tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+      'flutter/assets',
+      (message) async {
+        final key = String.fromCharCodes(
+          message!.buffer.asUint8List(
+            message.offsetInBytes,
+            message.lengthInBytes,
+          ),
+        );
+        if (key != assetPath) return null;
+        await assetGate.future;
+        return ByteData.sublistView(Uint8List.fromList(midiBytes));
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+        'flutter/assets',
+        null,
+      );
+    });
+    FilePicker.platform = _FakeFilePicker(
+      () => SynchronousFuture(
+        FilePickerResult([
+          PlatformFile(name: 'retry-score.musicxml', size: 1, path: importPath),
+        ]),
+      ),
+    );
+    final importer = _ControlledScoreImportService();
+    final oldSession = interactiveSession();
+    final player = readyPlayer()
+      ..loadScore(oldSession, songId: 'old-song', filePath: '/tmp/old.mid')
+      ..play();
+    final surface = _ScoreSurfaceHarness();
+
+    await tester.pumpWidget(
+      _page(
+        player,
+        surface,
+        initialSession: null,
+        assetPath: assetPath,
+        importService: importer,
+      ),
+    );
+    await tester.pump();
+    expect(player.songData, isNull);
+
+    await tester.tap(find.text('导入文件'));
+    await _pumpUntil(tester, () => importer.paths.isNotEmpty);
+    importer.completers.single.completeError(StateError('first import failed'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('无法生成五线谱'), findsOneWidget);
+
+    await tester.tap(find.text('重试'));
+    await tester.tap(find.text('重试'));
+    await _pumpUntil(tester, () => importer.paths.length == 2);
+    expect(importer.paths, [importPath, importPath]);
+    final importedSession = interactiveSession();
+    importer.completers[1].complete(importedSession);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(player.scoreSession, same(importedSession));
+    expect(player.songData, same(importedSession.songData));
+    expect(surface.createCount, 1);
+
+    assetGate.complete();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+    expect(player.scoreSession, same(importedSession));
+    expect(player.songData, same(importedSession.songData));
+    expect(surface.createCount, 1);
+  });
+
   testWidgets('慢导入一选中路径就使旧 prepare 失效且失败回到可重试终态', (tester) async {
     final midiSession = midiOnlySession();
     final player = readyPlayer()..loadScore(midiSession);
@@ -704,6 +863,69 @@ void main() {
     expect(find.text('当前临时选择'), findsNothing);
   });
 
+  testWidgets('无改动应用及恢复 baseline 后保持真实选择来源', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final builder = _ControlledNotationBuilder();
+    await tester.pumpWidget(
+      _page(player, _ScoreSurfaceHarness(), notationBuilder: builder),
+    );
+    await _completeInitialNotation(tester, builder, midiSession.songData);
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('应用'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.length == 1);
+    builder.rebuildRequests[0].complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'same-baseline',
+        selectedPartIds: {'piano'},
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('自动选择钢琴'), findsOneWidget);
+    expect(find.text('当前临时选择'), findsNothing);
+    await tester.tap(find.text('小提琴'));
+    await tester.tap(find.text('应用'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.length == 2);
+    builder.rebuildRequests[1].complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'temporary-change',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('当前临时选择'), findsOneWidget);
+    await tester.tap(find.text('小提琴'));
+    await tester.tap(find.text('应用'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.length == 3);
+    builder.rebuildRequests[2].complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'restored-baseline',
+        selectedPartIds: {'piano'},
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('自动选择钢琴'), findsOneWidget);
+    expect(find.text('当前临时选择'), findsNothing);
+  });
+
   testWidgets('复杂反复显示顺序播放提示', (tester) async {
     final base = interactiveSession();
     final session = ScoreSession(
@@ -1004,12 +1226,16 @@ class _FakeScoreImportService extends ScoreImportService {
 }
 
 class _ControlledScoreImportService extends ScoreImportService {
-  final Completer<ScoreSession> completer = Completer();
   final List<String> paths = [];
+  final List<Completer<ScoreSession>> completers = [];
+
+  Completer<ScoreSession> get completer => completers.single;
 
   @override
   Future<ScoreSession> importFile(String filePath) {
     paths.add(filePath);
+    final completer = Completer<ScoreSession>();
+    completers.add(completer);
     return completer.future;
   }
 }

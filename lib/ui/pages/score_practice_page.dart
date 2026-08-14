@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
@@ -20,6 +21,8 @@ import '../widgets/interactive_score_view.dart';
 import '../widgets/score_part_picker.dart';
 import '../widgets/score_transport_bar.dart';
 import 'settings_page.dart';
+
+enum _NotationRetryKind { asset, importPath, prepare }
 
 class PracticeScoreMetadata {
   final String title;
@@ -93,15 +96,22 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   ScoreSession? _displaySession;
   MidiScoreCatalog? _catalog;
   MidiScoreSelection? _selection;
+  Set<String>? _selectionBaselinePartIds;
   OverlayEntry? _transientMessage;
   Timer? _transientMessageTimer;
   bool _didScheduleInitialLoad = false;
   bool _isImporting = false;
+  bool _isRetryingNotation = false;
   bool _isGeneratingNotation = false;
   bool _isTemporarySelection = false;
   bool _notationWarningsDismissed = false;
   String? _notationError;
   int _notationGeneration = 0;
+  _NotationRetryKind? _retryKind;
+  String? _retryAssetPath;
+  String? _retryImportPath;
+  ScoreSession? _retryMidiSession;
+  String? _retryFingerprint;
 
   bool get _hasComplexRepetition =>
       _displaySession?.warnings.contains(ScoreWarning.complexRepetition) ??
@@ -175,6 +185,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
 
     final assetPath = widget.score.assetPath;
     if (assetPath == null) {
+      _clearRetryTarget();
       final emptySession = _emptyMidiSession(widget.score.title);
       player.loadScore(emptySession, songId: widget.score.title);
       player.setSpeed(
@@ -183,6 +194,26 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       if (mounted) setState(() => _displaySession = emptySession);
       return;
     }
+    await _loadAssetScore(assetPath, generation: generation);
+  }
+
+  Future<void> _loadAssetScore(
+    String assetPath, {
+    required int generation,
+  }) async {
+    if (!_isCurrentGeneration(generation)) return;
+    _setAssetRetryTarget(assetPath);
+    _player?.clearScore();
+    setState(() {
+      _displaySession = null;
+      _catalog = null;
+      _selection = null;
+      _selectionBaselinePartIds = null;
+      _isTemporarySelection = false;
+      _notationError = null;
+      _isGeneratingNotation = true;
+      _notationWarningsDismissed = false;
+    });
     try {
       final data = await rootBundle.load(assetPath);
       final song = _parser.parseBytes(
@@ -195,7 +226,8 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
         song,
         sourceFingerprint: fingerprint,
       );
-      player.loadScore(session, songId: widget.score.title);
+      _setPrepareRetryTarget(session, fingerprint);
+      _player?.loadScore(session, songId: widget.score.title);
       await _prepareMidiNotation(
         session,
         generation: generation,
@@ -213,10 +245,12 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     required String fingerprint,
   }) async {
     if (!_isCurrentGeneration(generation)) return;
+    _setPrepareRetryTarget(midiSession, fingerprint);
     setState(() {
       _displaySession = null;
       _catalog = null;
       _selection = null;
+      _selectionBaselinePartIds = null;
       _isTemporarySelection = false;
       _notationError = null;
       _isGeneratingNotation = true;
@@ -245,6 +279,9 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
         _displaySession = generated;
         _catalog = preparation.catalog;
         _selection = preparation.selection;
+        _selectionBaselinePartIds = Set<String>.unmodifiable(
+          preparation.selection.partIds,
+        );
         _isTemporarySelection = false;
         _notationError = null;
         _isGeneratingNotation = false;
@@ -264,6 +301,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       _displaySession = null;
       _catalog = null;
       _selection = null;
+      _selectionBaselinePartIds = null;
       _isTemporarySelection = false;
       _notationError = _describeNotationError(error);
       _isGeneratingNotation = false;
@@ -320,32 +358,12 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       wasAwaitingInitialNotation =
           _displaySession == null && _isGeneratingNotation;
       importGeneration = ++_notationGeneration;
-      final session = await _importService.importFile(path);
-      if (!mounted) return;
-      if (!_isCurrentGeneration(importGeneration)) return;
-      _player?.loadScore(session, songId: widget.score.title, filePath: path);
-      _player?.setSpeed(
-        context.read<AppSettingsController>().defaultPlaybackSpeed,
+      _setImportRetryTarget(path);
+      await _importPath(
+        path,
+        generation: importGeneration,
+        terminalOnFailure: wasAwaitingInitialNotation,
       );
-      if (session.sourceType == ScoreSourceType.midiOnly) {
-        await _prepareMidiNotation(
-          session,
-          generation: importGeneration,
-          fingerprint:
-              session.sourceFingerprint ??
-              _fallbackFingerprint(session.songData),
-        );
-      } else if (_isCurrentGeneration(importGeneration)) {
-        setState(() {
-          _displaySession = session;
-          _catalog = null;
-          _selection = null;
-          _isTemporarySelection = false;
-          _notationError = null;
-          _isGeneratingNotation = false;
-          _notationWarningsDismissed = false;
-        });
-      }
     } catch (error) {
       if (!mounted) return;
       final generation = importGeneration;
@@ -360,23 +378,150 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     }
   }
 
-  void _retryNotation() {
-    final playerSession = _player?.scoreSession;
-    if (playerSession == null ||
-        playerSession.sourceType != ScoreSourceType.midiOnly) {
-      return;
+  Future<void> _importPath(
+    String path, {
+    required int generation,
+    required bool terminalOnFailure,
+  }) async {
+    if (!_isCurrentGeneration(generation)) return;
+    _setImportRetryTarget(path);
+    if (terminalOnFailure) {
+      setState(() {
+        _displaySession = null;
+        _catalog = null;
+        _selection = null;
+        _selectionBaselinePartIds = null;
+        _isTemporarySelection = false;
+        _notationError = null;
+        _isGeneratingNotation = true;
+        _notationWarningsDismissed = false;
+      });
     }
+    try {
+      final session = await _importService.importFile(path);
+      if (!mounted) return;
+      if (!_isCurrentGeneration(generation)) return;
+      _player?.loadScore(session, songId: widget.score.title, filePath: path);
+      _player?.setSpeed(
+        context.read<AppSettingsController>().defaultPlaybackSpeed,
+      );
+      if (session.sourceType == ScoreSourceType.midiOnly) {
+        final fingerprint =
+            session.sourceFingerprint ?? _fallbackFingerprint(session.songData);
+        _setPrepareRetryTarget(session, fingerprint);
+        await _prepareMidiNotation(
+          session,
+          generation: generation,
+          fingerprint: fingerprint,
+        );
+      } else if (_isCurrentGeneration(generation)) {
+        _clearRetryTarget();
+        setState(() {
+          _displaySession = session;
+          _catalog = null;
+          _selection = null;
+          _selectionBaselinePartIds = null;
+          _isTemporarySelection = false;
+          _notationError = null;
+          _isGeneratingNotation = false;
+          _notationWarningsDismissed = false;
+        });
+      }
+    } catch (error) {
+      if (!_isCurrentGeneration(generation)) return;
+      if (terminalOnFailure) {
+        _enterNotationError(error);
+      } else {
+        _showAlert('导入失败', '无法导入乐谱文件：$error');
+      }
+    }
+  }
+
+  void _retryNotation() {
+    if (_isRetryingNotation) return;
+    final retryKind = _retryKind;
+    switch (retryKind) {
+      case _NotationRetryKind.asset:
+        final assetPath = _retryAssetPath;
+        if (assetPath == null) return;
+        _runNotationRetry(
+          (generation) => _loadAssetScore(assetPath, generation: generation),
+        );
+        return;
+      case _NotationRetryKind.importPath:
+        final importPath = _retryImportPath;
+        if (importPath == null || _isImporting) return;
+        _runNotationRetry(
+          (generation) => _importPath(
+            importPath,
+            generation: generation,
+            terminalOnFailure: true,
+          ),
+          isImport: true,
+        );
+        return;
+      case _NotationRetryKind.prepare:
+        final midiSession = _retryMidiSession;
+        final fingerprint = _retryFingerprint;
+        if (midiSession == null || fingerprint == null) return;
+        _runNotationRetry(
+          (generation) => _prepareMidiNotation(
+            midiSession,
+            generation: generation,
+            fingerprint: fingerprint,
+          ),
+        );
+        return;
+      case null:
+        return;
+    }
+  }
+
+  void _runNotationRetry(
+    Future<void> Function(int generation) operation, {
+    bool isImport = false,
+  }) {
+    _isRetryingNotation = true;
+    if (isImport) _isImporting = true;
     final generation = ++_notationGeneration;
     unawaited(
-      _prepareMidiNotation(
-        playerSession,
-        generation: generation,
-        fingerprint:
-            playerSession.sourceFingerprint ??
-            widget.score.sourceFingerprint ??
-            _fallbackFingerprint(playerSession.songData),
-      ),
+      operation(generation).whenComplete(() {
+        _isRetryingNotation = false;
+        if (isImport) _isImporting = false;
+      }),
     );
+  }
+
+  void _setAssetRetryTarget(String assetPath) {
+    _retryKind = _NotationRetryKind.asset;
+    _retryAssetPath = assetPath;
+    _retryImportPath = null;
+    _retryMidiSession = null;
+    _retryFingerprint = null;
+  }
+
+  void _setImportRetryTarget(String importPath) {
+    _retryKind = _NotationRetryKind.importPath;
+    _retryAssetPath = null;
+    _retryImportPath = importPath;
+    _retryMidiSession = null;
+    _retryFingerprint = null;
+  }
+
+  void _setPrepareRetryTarget(ScoreSession midiSession, String fingerprint) {
+    _retryKind = _NotationRetryKind.prepare;
+    _retryAssetPath = null;
+    _retryImportPath = null;
+    _retryMidiSession = midiSession;
+    _retryFingerprint = fingerprint;
+  }
+
+  void _clearRetryTarget() {
+    _retryKind = null;
+    _retryAssetPath = null;
+    _retryImportPath = null;
+    _retryMidiSession = null;
+    _retryFingerprint = null;
   }
 
   Future<void> _openPartPicker() async {
@@ -433,7 +578,14 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
           partIds: result.partIds,
           origin: nextOrigin,
         );
-        _isTemporarySelection = result.action == ScorePartPickerAction.apply;
+        if (result.action == ScorePartPickerAction.apply) {
+          final baseline = _selectionBaselinePartIds;
+          _isTemporarySelection =
+              baseline != null && !setEquals(result.partIds, baseline);
+        } else {
+          _selectionBaselinePartIds = Set<String>.unmodifiable(result.partIds);
+          _isTemporarySelection = false;
+        }
         _isGeneratingNotation = false;
         _notationWarningsDismissed = false;
       });

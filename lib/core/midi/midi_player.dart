@@ -237,6 +237,20 @@ class MidiPlayerController extends ChangeNotifier {
     _notifyListenersIfActive();
   }
 
+  /// 原子卸载当前播放会话，同时保留 SoundFont 与播放速度等全局设置。
+  void clearScore() {
+    if (_isDisposed) return;
+    _resetPlaybackPosition();
+    _songData = null;
+    _tempoMap = null;
+    _scoreSession = null;
+    _measureMap = null;
+    _currentSongId = null;
+    _currentFilePath = null;
+    _clearLoop(notify: false);
+    _notifyListenersIfActive();
+  }
+
   /// 无损替换当前歌曲的交互谱面显示会话。
   ///
   /// 仅接受复用当前 [MidiSongData] 的可交互会话；播放位置、状态、速度与
