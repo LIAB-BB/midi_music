@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/settings/app_settings.dart';
 import 'package:midi_music/models/midi_score_part.dart';
@@ -79,7 +80,7 @@ void main() {
       AppSettingsController.settingsSchemaVersion,
     );
 
-    settings.resetToDefaults();
+    await settings.resetToDefaults();
     await settings.flush();
 
     expect(
@@ -116,10 +117,59 @@ void main() {
     });
     expect(restored.scorePartSelectionForSong('asset:a.mid'), {'a', 'z'});
 
-    restored.resetToDefaults();
+    await restored.resetToDefaults();
     await restored.flush();
     expect(restored.defaultScorePartKinds, {MidiPartKind.piano});
     expect(restored.scorePartSelectionForSong('asset:a.mid'), isNull);
+  });
+
+  test('reset 成功只通知一次且监听器看不到半重置状态', () async {
+    final storage = _MemorySettingsStorage(
+      initialValues: _nonDefaultResettableValues(),
+    );
+    final settings = AppSettingsController(storage: storage);
+    await settings.load();
+    var notificationCount = 0;
+    var sawHalfReset = false;
+    settings.addListener(() {
+      notificationCount += 1;
+      final isOriginal = _hasOriginalResettableValues(settings);
+      final isDefault = _hasDefaultResettableValues(settings);
+      if (!isOriginal && !isDefault) sawHalfReset = true;
+    });
+
+    await Future<void>.sync(settings.resetToDefaults);
+    await settings.flush();
+
+    expect(notificationCount, 1);
+    expect(sawHalfReset, isFalse);
+    expect(_hasDefaultResettableValues(settings), isTrue);
+  });
+
+  test('reset 自身写失败会抛错并完整回滚内存与磁盘', () async {
+    final initialValues = _nonDefaultResettableValues();
+    final storage = _MemorySettingsStorage(initialValues: initialValues);
+    final settings = AppSettingsController(storage: storage);
+    await settings.load();
+    storage.failNextWrite = true;
+
+    Object? resetError;
+    try {
+      await Future<void>.sync(settings.resetToDefaults);
+    } catch (error) {
+      resetError = error;
+    }
+    await settings.flush();
+
+    expect(resetError, isA<StateError>());
+    expect(_hasOriginalResettableValues(settings), isTrue);
+    expect(storage.values['defaultPlaybackSpeed'], 2.5);
+    expect(storage.values['allowOctaveError'], isTrue);
+    expect(storage.values['defaultScorePartKinds'], ['strings']);
+    expect(
+      (storage.values['songScorePartSelections'] as Map)['asset:existing.mid'],
+      ['strings'],
+    );
   });
 
   test('损坏谱面声部设置回退默认且 load 并发调用幂等', () async {
@@ -381,9 +431,10 @@ void main() {
     );
     await storage.firstWriteStarted.future;
 
-    settings.resetToDefaults();
+    final reset = Future<void>.sync(settings.resetToDefaults);
     storage.releaseFirstWrite.complete();
     await failureExpectation;
+    await reset;
     await settings.flush();
 
     expect(
@@ -397,6 +448,75 @@ void main() {
       storage.values['defaultPlaybackSpeed'],
       AppSettingsController.defaultPlaybackSpeedValue,
     );
+    expect(storage.values['defaultScorePartKinds'], ['piano']);
+    expect(storage.values['songScorePartSelections'], isEmpty);
+  });
+
+  test('reset 写失败不会覆盖期间发生的普通设置意图', () async {
+    final storage = _GatedFailingSettingsStorage(
+      initialValues: _nonDefaultResettableValues(),
+    );
+    final settings = AppSettingsController(storage: storage);
+    await settings.load();
+
+    Object? resetError;
+    final reset = Future<void>.sync(settings.resetToDefaults).then<void>(
+      (_) {},
+      onError: (Object error, StackTrace _) {
+        resetError = error;
+      },
+    );
+    await storage.firstWriteStarted.future;
+    settings.setDefaultPlaybackSpeed(1.75);
+    storage.releaseFirstWrite.complete();
+    await reset;
+    await settings.flush();
+
+    expect(resetError, isA<StateError>());
+    expect(settings.defaultPlaybackSpeed, 1.75);
+    expect(settings.allowOctaveError, isTrue);
+    expect(settings.defaultScorePartKinds, {MidiPartKind.strings});
+    expect(settings.scorePartSelectionForSong('asset:existing.mid'), {
+      'strings',
+    });
+    expect(storage.values['defaultPlaybackSpeed'], 1.75);
+    expect(storage.values['allowOctaveError'], isTrue);
+    expect(storage.values['defaultScorePartKinds'], ['strings']);
+    expect(
+      (storage.values['songScorePartSelections'] as Map)['asset:existing.mid'],
+      ['strings'],
+    );
+  });
+
+  test('排队等待旧声部事务的 reset 不覆盖调用后的普通设置', () async {
+    final storage = _GatedFailingSettingsStorage(
+      initialValues: _nonDefaultResettableValues(),
+    );
+    final settings = AppSettingsController(storage: storage);
+    await settings.load();
+    final failedWrite = settings.setScorePartSelectionForSong(
+      'asset:failing.mid',
+      {'piano'},
+    );
+    final failureExpectation = expectLater(
+      failedWrite,
+      throwsA(isA<StateError>()),
+    );
+    await storage.firstWriteStarted.future;
+
+    final reset = settings.resetToDefaults();
+    settings.setDefaultPlaybackSpeed(1.75);
+    storage.releaseFirstWrite.complete();
+    await failureExpectation;
+    await reset;
+    await settings.flush();
+
+    expect(settings.defaultPlaybackSpeed, 1.75);
+    expect(settings.allowOctaveError, isFalse);
+    expect(settings.defaultScorePartKinds, {MidiPartKind.piano});
+    expect(settings.scorePartSelectionForSong('asset:existing.mid'), isNull);
+    expect(storage.values['defaultPlaybackSpeed'], 1.75);
+    expect(storage.values['allowOctaveError'], isFalse);
     expect(storage.values['defaultScorePartKinds'], ['piano']);
     expect(storage.values['songScorePartSelections'], isEmpty);
   });
@@ -508,3 +628,29 @@ class _ThrowingReadSettingsStorage implements AppSettingsStorage {
   @override
   Future<void> write(Map<String, Object?> values) async {}
 }
+
+Map<String, Object?> _nonDefaultResettableValues() => {
+  'schemaVersion': AppSettingsController.settingsSchemaVersion,
+  'defaultPlaybackSpeed': 2.5,
+  'allowOctaveError': true,
+  'defaultScorePartKinds': ['strings'],
+  'songScorePartSelections': {
+    'asset:existing.mid': ['strings'],
+  },
+};
+
+bool _hasOriginalResettableValues(AppSettingsController settings) =>
+    settings.defaultPlaybackSpeed == 2.5 &&
+    settings.allowOctaveError &&
+    setEquals(settings.defaultScorePartKinds, {MidiPartKind.strings}) &&
+    setEquals(settings.scorePartSelectionForSong('asset:existing.mid'), {
+      'strings',
+    });
+
+bool _hasDefaultResettableValues(AppSettingsController settings) =>
+    settings.defaultPlaybackSpeed ==
+        AppSettingsController.defaultPlaybackSpeedValue &&
+    settings.allowOctaveError ==
+        AppSettingsController.defaultAllowOctaveErrorValue &&
+    setEquals(settings.defaultScorePartKinds, {MidiPartKind.piano}) &&
+    settings.scorePartSelectionForSong('asset:existing.mid') == null;

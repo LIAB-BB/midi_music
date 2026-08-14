@@ -494,27 +494,58 @@ class _ResetCard extends StatelessWidget {
   }
 
   void _confirmReset(BuildContext context) {
-    showCupertinoDialog<void>(
-      context: context,
-      builder: (dialogContext) => CupertinoAlertDialog(
-        title: const Text('恢复默认设置？'),
-        content: const Text('这会重置播放默认速度和跟随模式参数。'),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text('取消'),
-            onPressed: () => Navigator.of(dialogContext).pop(),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            child: const Text('恢复'),
-            onPressed: () {
-              settings.resetToDefaults();
-              Navigator.of(dialogContext).pop();
-            },
-          ),
-        ],
+    unawaited(
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          var resetStarted = false;
+          return CupertinoAlertDialog(
+            title: const Text('恢复默认设置？'),
+            content: const Text('这会重置播放默认速度和跟随模式参数。'),
+            actions: [
+              CupertinoDialogAction(
+                child: const Text('取消'),
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+              CupertinoDialogAction(
+                isDestructiveAction: true,
+                child: const Text('恢复'),
+                onPressed: () {
+                  if (resetStarted) return;
+                  resetStarted = true;
+                  unawaited(_reset(dialogContext));
+                },
+              ),
+            ],
+          );
+        },
       ),
     );
+  }
+
+  Future<void> _reset(BuildContext dialogContext) async {
+    try {
+      await settings.resetToDefaults();
+    } catch (_) {
+      if (!dialogContext.mounted) return;
+      await showCupertinoDialog<void>(
+        context: dialogContext,
+        builder: (errorDialogContext) => CupertinoAlertDialog(
+          title: const Text('恢复默认失败'),
+          content: const Text('无法保存默认设置，原设置已保留，请稍后重试。'),
+          actions: [
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              onPressed: () => Navigator.of(errorDialogContext).pop(),
+              child: const Text('好的'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    if (!dialogContext.mounted) return;
+    Navigator.of(dialogContext).pop();
   }
 }
 

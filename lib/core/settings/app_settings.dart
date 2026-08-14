@@ -128,6 +128,8 @@ class AppSettingsController extends ChangeNotifier {
   Future<void>? _loadFuture;
   Future<void> _pendingWrite = Future<void>.value();
   Future<void> _pendingScorePartTransaction = Future<void>.value();
+  final Map<_ResettableSettingsField, int> _resettableFieldRevisions = {};
+  int _settingsRevision = 0;
   Object? _lastPersistenceError;
 
   AppSettingsController({AppSettingsStorage? storage})
@@ -273,57 +275,87 @@ class AppSettingsController extends ChangeNotifier {
   }
 
   void setDefaultPlaybackSpeed(double value) {
-    _update(() => _defaultPlaybackSpeed = _clampDouble(value, 0.25, 4.0));
+    _update(
+      () => _defaultPlaybackSpeed = _clampDouble(value, 0.25, 4.0),
+      resettableFields: {_ResettableSettingsField.defaultPlaybackSpeed},
+    );
   }
 
   void setMicrophoneMinPrecision(double value) {
-    _update(() => _microphoneMinPrecision = _clampDouble(value, 0.4, 0.95));
+    _update(
+      () => _microphoneMinPrecision = _clampDouble(value, 0.4, 0.95),
+      resettableFields: {_ResettableSettingsField.microphoneMinPrecision},
+    );
   }
 
   void setOnsetVolumeThreshold(double value) {
-    _update(() => _onsetVolumeThreshold = _clampDouble(value, 0.0001, 0.005));
+    _update(
+      () => _onsetVolumeThreshold = _clampDouble(value, 0.0001, 0.005),
+      resettableFields: {_ResettableSettingsField.onsetVolumeThreshold},
+    );
   }
 
   void setNoteMatchTolerance(int value) {
-    _update(() => _noteMatchTolerance = _clampInt(value, 0, 4));
+    _update(
+      () => _noteMatchTolerance = _clampInt(value, 0, 4),
+      resettableFields: {_ResettableSettingsField.noteMatchTolerance},
+    );
   }
 
   void setAllowOctaveError({required bool value}) {
-    _update(() => _allowOctaveError = value);
+    _update(
+      () => _allowOctaveError = value,
+      resettableFields: {_ResettableSettingsField.allowOctaveError},
+    );
   }
 
   void setMinMeasuredSpeedFactor(double value) {
     _update(() {
       _minMeasuredSpeedFactor = _clampDouble(value, 0.4, 1.0);
       _normalizeMeasuredSpeedRange();
-    });
+    }, resettableFields: {_ResettableSettingsField.minMeasuredSpeedFactor});
   }
 
   void setMaxMeasuredSpeedFactor(double value) {
     _update(() {
       _maxMeasuredSpeedFactor = _clampDouble(value, 1.0, 2.2);
       _normalizeMeasuredSpeedRange();
-    });
+    }, resettableFields: {_ResettableSettingsField.maxMeasuredSpeedFactor});
   }
 
   void setRestThresholdSeconds(double value) {
-    _update(() => _restThresholdSeconds = _clampDouble(value, 0.5, 3.0));
+    _update(
+      () => _restThresholdSeconds = _clampDouble(value, 0.5, 3.0),
+      resettableFields: {_ResettableSettingsField.restThresholdSeconds},
+    );
   }
 
   void setInputLatencyCompensationMs(int value) {
-    _update(() => _inputLatencyCompensationMs = _clampInt(value, -300, 300));
+    _update(
+      () => _inputLatencyCompensationMs = _clampInt(value, -300, 300),
+      resettableFields: {_ResettableSettingsField.inputLatencyCompensationMs},
+    );
   }
 
   void setLoopPlayback({required bool value}) {
-    _update(() => _loopPlayback = value);
+    _update(
+      () => _loopPlayback = value,
+      resettableFields: {_ResettableSettingsField.loopPlayback},
+    );
   }
 
   void setAutoStopAllNotes({required bool value}) {
-    _update(() => _autoStopAllNotes = value);
+    _update(
+      () => _autoStopAllNotes = value,
+      resettableFields: {_ResettableSettingsField.autoStopAllNotes},
+    );
   }
 
   void setShowDebugInfo({required bool value}) {
-    _update(() => _showDebugInfo = value);
+    _update(
+      () => _showDebugInfo = value,
+      resettableFields: {_ResettableSettingsField.showDebugInfo},
+    );
   }
 
   Set<String>? scorePartSelectionForSong(String fingerprint) {
@@ -469,26 +501,120 @@ class AppSettingsController extends ChangeNotifier {
     });
   }
 
-  void resetToDefaults() {
-    _defaultPlaybackSpeed = defaultPlaybackSpeedValue;
-    _microphoneMinPrecision = defaultMicrophoneMinPrecisionValue;
-    _onsetVolumeThreshold = defaultOnsetVolumeThresholdValue;
-    _noteMatchTolerance = defaultNoteMatchToleranceValue;
-    _allowOctaveError = defaultAllowOctaveErrorValue;
-    _minMeasuredSpeedFactor = defaultMinMeasuredSpeedFactorValue;
-    _maxMeasuredSpeedFactor = defaultMaxMeasuredSpeedFactorValue;
-    _restThresholdSeconds = defaultRestThresholdSecondsValue;
-    _inputLatencyCompensationMs = defaultInputLatencyCompensationMsValue;
-    _loopPlayback = defaultLoopPlaybackValue;
-    _autoStopAllNotes = defaultAutoStopAllNotesValue;
-    _showDebugInfo = defaultShowDebugInfoValue;
-    notifyListeners();
-    unawaited(
-      _runScorePartTransaction(() {
-        _defaultScorePartKinds = defaultScorePartKindsValue;
-        _songScorePartSelections = const {};
-        return true;
-      }).catchError((Object _) {}),
+  Future<void> resetToDefaults() {
+    final invokedAtRevision = _settingsRevision;
+    final operation = _pendingScorePartTransaction.then((_) async {
+      final snapshot = _ResettableSettingsSnapshot.capture(this);
+      final previousRevisions = Map<_ResettableSettingsField, int>.from(
+        _resettableFieldRevisions,
+      );
+      final resetRevision = ++_settingsRevision;
+      _applyResetDefaults(
+        invokedAtRevision: invokedAtRevision,
+        resetRevision: resetRevision,
+      );
+      notifyListeners();
+      try {
+        await _enqueueWrite(_toJson());
+      } catch (error, stackTrace) {
+        _lastPersistenceError = error;
+        final restoredFields = snapshot.restoreFieldsStillAtRevision(
+          this,
+          resetRevision,
+        );
+        for (final field in restoredFields) {
+          final previousRevision = previousRevisions[field];
+          if (previousRevision == null) {
+            _resettableFieldRevisions.remove(field);
+          } else {
+            _resettableFieldRevisions[field] = previousRevision;
+          }
+        }
+        if (restoredFields.isNotEmpty) notifyListeners();
+        try {
+          await _enqueueWrite(_toJson());
+        } catch (_) {
+          // Preserve the original reset error while leaving the queue usable.
+        }
+        _lastPersistenceError = error;
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+    });
+    _pendingScorePartTransaction = operation.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    unawaited(_pendingScorePartTransaction);
+    return operation;
+  }
+
+  void _applyResetDefaults({
+    required int invokedAtRevision,
+    required int resetRevision,
+  }) {
+    void reset(_ResettableSettingsField field, VoidCallback apply) {
+      final fieldRevision = _resettableFieldRevisions[field] ?? 0;
+      if (fieldRevision > invokedAtRevision) return;
+      apply();
+      _resettableFieldRevisions[field] = resetRevision;
+    }
+
+    reset(
+      _ResettableSettingsField.defaultPlaybackSpeed,
+      () => _defaultPlaybackSpeed = defaultPlaybackSpeedValue,
+    );
+    reset(
+      _ResettableSettingsField.microphoneMinPrecision,
+      () => _microphoneMinPrecision = defaultMicrophoneMinPrecisionValue,
+    );
+    reset(
+      _ResettableSettingsField.onsetVolumeThreshold,
+      () => _onsetVolumeThreshold = defaultOnsetVolumeThresholdValue,
+    );
+    reset(
+      _ResettableSettingsField.noteMatchTolerance,
+      () => _noteMatchTolerance = defaultNoteMatchToleranceValue,
+    );
+    reset(
+      _ResettableSettingsField.allowOctaveError,
+      () => _allowOctaveError = defaultAllowOctaveErrorValue,
+    );
+    reset(
+      _ResettableSettingsField.minMeasuredSpeedFactor,
+      () => _minMeasuredSpeedFactor = defaultMinMeasuredSpeedFactorValue,
+    );
+    reset(
+      _ResettableSettingsField.maxMeasuredSpeedFactor,
+      () => _maxMeasuredSpeedFactor = defaultMaxMeasuredSpeedFactorValue,
+    );
+    reset(
+      _ResettableSettingsField.restThresholdSeconds,
+      () => _restThresholdSeconds = defaultRestThresholdSecondsValue,
+    );
+    reset(
+      _ResettableSettingsField.inputLatencyCompensationMs,
+      () =>
+          _inputLatencyCompensationMs = defaultInputLatencyCompensationMsValue,
+    );
+    reset(
+      _ResettableSettingsField.loopPlayback,
+      () => _loopPlayback = defaultLoopPlaybackValue,
+    );
+    reset(
+      _ResettableSettingsField.autoStopAllNotes,
+      () => _autoStopAllNotes = defaultAutoStopAllNotesValue,
+    );
+    reset(
+      _ResettableSettingsField.showDebugInfo,
+      () => _showDebugInfo = defaultShowDebugInfoValue,
+    );
+    reset(
+      _ResettableSettingsField.defaultScorePartKinds,
+      () => _defaultScorePartKinds = defaultScorePartKindsValue,
+    );
+    reset(
+      _ResettableSettingsField.songScorePartSelections,
+      () => _songScorePartSelections = const {},
     );
   }
 
@@ -497,8 +623,17 @@ class AppSettingsController extends ChangeNotifier {
     await _pendingWrite;
   }
 
-  void _update(VoidCallback updateValues) {
+  void _update(
+    VoidCallback updateValues, {
+    Set<_ResettableSettingsField> resettableFields = const {},
+  }) {
     updateValues();
+    if (resettableFields.isNotEmpty) {
+      final revision = ++_settingsRevision;
+      for (final field in resettableFields) {
+        _resettableFieldRevisions[field] = revision;
+      }
+    }
     notifyListeners();
     unawaited(_enqueueWrite(_toJson()).catchError((Object _) {}));
   }
@@ -767,4 +902,135 @@ class _ScorePartSettingsSnapshot {
          for (final entry in songSelections.entries)
            entry.key: Set<String>.of(entry.value),
        };
+}
+
+enum _ResettableSettingsField {
+  defaultPlaybackSpeed,
+  microphoneMinPrecision,
+  onsetVolumeThreshold,
+  noteMatchTolerance,
+  allowOctaveError,
+  minMeasuredSpeedFactor,
+  maxMeasuredSpeedFactor,
+  restThresholdSeconds,
+  inputLatencyCompensationMs,
+  loopPlayback,
+  autoStopAllNotes,
+  showDebugInfo,
+  defaultScorePartKinds,
+  songScorePartSelections,
+}
+
+class _ResettableSettingsSnapshot {
+  final double defaultPlaybackSpeed;
+  final double microphoneMinPrecision;
+  final double onsetVolumeThreshold;
+  final int noteMatchTolerance;
+  final bool allowOctaveError;
+  final double minMeasuredSpeedFactor;
+  final double maxMeasuredSpeedFactor;
+  final double restThresholdSeconds;
+  final int inputLatencyCompensationMs;
+  final bool loopPlayback;
+  final bool autoStopAllNotes;
+  final bool showDebugInfo;
+  final Set<MidiPartKind> defaultScorePartKinds;
+  final Map<String, Set<String>> songScorePartSelections;
+
+  _ResettableSettingsSnapshot.capture(AppSettingsController settings)
+    : defaultPlaybackSpeed = settings._defaultPlaybackSpeed,
+      microphoneMinPrecision = settings._microphoneMinPrecision,
+      onsetVolumeThreshold = settings._onsetVolumeThreshold,
+      noteMatchTolerance = settings._noteMatchTolerance,
+      allowOctaveError = settings._allowOctaveError,
+      minMeasuredSpeedFactor = settings._minMeasuredSpeedFactor,
+      maxMeasuredSpeedFactor = settings._maxMeasuredSpeedFactor,
+      restThresholdSeconds = settings._restThresholdSeconds,
+      inputLatencyCompensationMs = settings._inputLatencyCompensationMs,
+      loopPlayback = settings._loopPlayback,
+      autoStopAllNotes = settings._autoStopAllNotes,
+      showDebugInfo = settings._showDebugInfo,
+      defaultScorePartKinds = Set<MidiPartKind>.of(
+        settings._defaultScorePartKinds,
+      ),
+      songScorePartSelections = {
+        for (final entry in settings._songScorePartSelections.entries)
+          entry.key: Set<String>.of(entry.value),
+      };
+
+  Set<_ResettableSettingsField> restoreFieldsStillAtRevision(
+    AppSettingsController settings,
+    int resetRevision,
+  ) {
+    final restored = <_ResettableSettingsField>{};
+
+    void restore(_ResettableSettingsField field, VoidCallback apply) {
+      if (settings._resettableFieldRevisions[field] != resetRevision) return;
+      apply();
+      restored.add(field);
+    }
+
+    restore(
+      _ResettableSettingsField.defaultPlaybackSpeed,
+      () => settings._defaultPlaybackSpeed = defaultPlaybackSpeed,
+    );
+    restore(
+      _ResettableSettingsField.microphoneMinPrecision,
+      () => settings._microphoneMinPrecision = microphoneMinPrecision,
+    );
+    restore(
+      _ResettableSettingsField.onsetVolumeThreshold,
+      () => settings._onsetVolumeThreshold = onsetVolumeThreshold,
+    );
+    restore(
+      _ResettableSettingsField.noteMatchTolerance,
+      () => settings._noteMatchTolerance = noteMatchTolerance,
+    );
+    restore(
+      _ResettableSettingsField.allowOctaveError,
+      () => settings._allowOctaveError = allowOctaveError,
+    );
+    restore(
+      _ResettableSettingsField.minMeasuredSpeedFactor,
+      () => settings._minMeasuredSpeedFactor = minMeasuredSpeedFactor,
+    );
+    restore(
+      _ResettableSettingsField.maxMeasuredSpeedFactor,
+      () => settings._maxMeasuredSpeedFactor = maxMeasuredSpeedFactor,
+    );
+    restore(
+      _ResettableSettingsField.restThresholdSeconds,
+      () => settings._restThresholdSeconds = restThresholdSeconds,
+    );
+    restore(
+      _ResettableSettingsField.inputLatencyCompensationMs,
+      () => settings._inputLatencyCompensationMs = inputLatencyCompensationMs,
+    );
+    restore(
+      _ResettableSettingsField.loopPlayback,
+      () => settings._loopPlayback = loopPlayback,
+    );
+    restore(
+      _ResettableSettingsField.autoStopAllNotes,
+      () => settings._autoStopAllNotes = autoStopAllNotes,
+    );
+    restore(
+      _ResettableSettingsField.showDebugInfo,
+      () => settings._showDebugInfo = showDebugInfo,
+    );
+    restore(
+      _ResettableSettingsField.defaultScorePartKinds,
+      () => settings._defaultScorePartKinds = Set<MidiPartKind>.of(
+        defaultScorePartKinds,
+      ),
+    );
+    restore(
+      _ResettableSettingsField.songScorePartSelections,
+      () => settings._songScorePartSelections = {
+        for (final entry in songScorePartSelections.entries)
+          entry.key: Set<String>.of(entry.value),
+      },
+    );
+    return restored;
+  }
 }
