@@ -27,15 +27,23 @@ Future<ScorePartPickerResult?> showScorePartPicker(
   required Set<String> selectedPartIds,
   required MidiSelectionOrigin origin,
   required Set<MidiNotationWarning> warnings,
-}) => showCupertinoModalPopup<ScorePartPickerResult>(
-  context: context,
-  builder: (context) => _ScorePartPickerSheet(
-    catalog: catalog,
-    selectedPartIds: selectedPartIds,
-    origin: origin,
-    warnings: warnings,
-  ),
-);
+}) {
+  final selectedPartIdsSnapshot = Set<String>.unmodifiable(
+    Set<String>.of(selectedPartIds),
+  );
+  final warningsSnapshot = Set<MidiNotationWarning>.unmodifiable(
+    Set<MidiNotationWarning>.of(warnings),
+  );
+  return showCupertinoModalPopup<ScorePartPickerResult>(
+    context: context,
+    builder: (context) => _ScorePartPickerSheet(
+      catalog: catalog,
+      selectedPartIds: selectedPartIdsSnapshot,
+      origin: origin,
+      warnings: warningsSnapshot,
+    ),
+  );
+}
 
 class _ScorePartPickerSheet extends StatefulWidget {
   final MidiScoreCatalog catalog;

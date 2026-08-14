@@ -20,6 +20,53 @@ void main() {
     );
   });
 
+  testWidgets('入口快照输入集合且外部后续修改不影响面板', (tester) async {
+    final selectedPartIds = <String>{'piano'};
+    final warnings = <MidiNotationWarning>{MidiNotationWarning.rhythmQuantized};
+    ScorePartPickerResult? result;
+    await tester.pumpWidget(
+      _pickerHarness(
+        _catalog(),
+        selectedPartIds: selectedPartIds,
+        warnings: warnings,
+        afterShow: () {
+          selectedPartIds
+            ..clear()
+            ..add('violin');
+          warnings
+            ..clear()
+            ..add(MidiNotationWarning.unknownInstrument);
+        },
+        onResult: (value) => result = value,
+      ),
+    );
+    await _openPicker(tester);
+
+    expect(
+      tester.getSemantics(find.byKey(const Key('score-part-piano'))).label,
+      endsWith('已选择'),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const Key('score-part-violin'))).label,
+      endsWith('未选择'),
+    );
+    expect(find.textContaining('部分节奏已对齐到可显示的记谱网格'), findsOneWidget);
+    expect(find.textContaining('部分乐器无法识别'), findsNothing);
+
+    warnings
+      ..clear()
+      ..add(MidiNotationWarning.densePassage);
+    selectedPartIds.clear();
+    await tester.tap(find.text('小提琴'));
+    await tester.pump();
+
+    expect(find.textContaining('部分节奏已对齐到可显示的记谱网格'), findsOneWidget);
+    expect(find.textContaining('部分段落声部过密'), findsNothing);
+    await tester.tap(find.text('应用'));
+    await tester.pumpAndSettle();
+    expect(result?.partIds, {'piano', 'violin'});
+  });
+
   testWidgets('声部面板允许多选组合总谱', (tester) async {
     ScorePartPickerResult? result;
     await tester.pumpWidget(
@@ -243,6 +290,7 @@ Widget _pickerHarness(
   MidiSelectionOrigin origin = MidiSelectionOrigin.songDefault,
   Set<MidiNotationWarning> warnings = const {},
   ValueChanged<ScorePartPickerResult?>? onResult,
+  VoidCallback? afterShow,
   TextScaler textScaler = TextScaler.noScaling,
 }) {
   return CupertinoApp(
@@ -255,13 +303,15 @@ Widget _pickerHarness(
         child: Center(
           child: CupertinoButton(
             onPressed: () async {
-              final result = await showScorePartPicker(
+              final resultFuture = showScorePartPicker(
                 context,
                 catalog: catalog,
                 selectedPartIds: selectedPartIds,
                 origin: origin,
                 warnings: warnings,
               );
+              afterShow?.call();
+              final result = await resultFuture;
               onResult?.call(result);
             },
             child: const Text('打开声部面板'),
