@@ -244,6 +244,7 @@ class MidiToMusicXmlConverter {
     );
     final validBarTieIds = _validBarTieIds(voicesByMeasure, measures, warnings);
     final previousStaffByVoice = <int, int>{};
+    final staffByBarTieId = <int, int>{};
     buffer.writeln('  <part id="$partId">');
     for (var measureIndex = 0; measureIndex < measures.length; measureIndex++) {
       final measure = measures[measureIndex];
@@ -268,6 +269,7 @@ class MidiToMusicXmlConverter {
         part,
         previousStaffByVoice,
         validBarTieIds,
+        staffByBarTieId,
       );
       buffer.writeln('    </measure>');
       _checkGeneratedMusicXmlCharacterLimit(buffer);
@@ -440,7 +442,7 @@ class MidiToMusicXmlConverter {
     }
     return groupedByMeasure
         .map((grouped) {
-          final events = grouped.entries.expand((entry) {
+          final events = grouped.entries.map((entry) {
             final segments = List<_NoteSegment>.of(entry.value)
               ..sort((left, right) {
                 final duration = right.duration.compareTo(left.duration);
@@ -448,55 +450,42 @@ class MidiToMusicXmlConverter {
                     ? duration
                     : left.noteNumber.compareTo(right.noteNumber);
               });
-            final compatibleGroups = <String, List<_NoteSegment>>{};
-            for (final segment in segments) {
-              final key = segment.notations.length == 1
-                  ? 'single'
-                  : segment.notations
-                        .map((notation) => notation.ticks)
-                        .join(',');
-              compatibleGroups.putIfAbsent(key, () => []).add(segment);
-            }
-            return compatibleGroups.values.expand((compatibleSegments) {
-              final duration = compatibleSegments
-                  .map((segment) => segment.duration)
-                  .reduce(math.max);
-              final pitches = compatibleSegments
-                  .map((segment) => segment.noteNumber)
-                  .toList(growable: false);
-              final lowestPitch = pitches.reduce(math.min);
-              final highestPitch = pitches.reduce(math.max);
-              final shouldSplitGrandStaffChord =
+            final duration = segments
+                .map((segment) => segment.duration)
+                .reduce(math.max);
+            final pitches = segments
+                .map((segment) => segment.noteNumber)
+                .toList(growable: false);
+            final lowestPitch = pitches.reduce(math.min);
+            final highestPitch = pitches.reduce(math.max);
+            final shouldSplitGrandStaffChord =
+                part.staffMode == MidiStaffMode.grandStaff &&
+                lowestPitch < _middleCMidiNote &&
+                highestPitch >= _middleCMidiNote &&
+                highestPitch - lowestPitch >=
+                    _grandStaffChordSplitSpanSemitones;
+            final averagePitch =
+                pitches.reduce((left, right) => left + right) ~/
+                segments.length;
+            final chordNotes = shouldSplitGrandStaffChord
+                ? segments
+                      .map(
+                        (segment) => segment.withStaff(
+                          segment.noteNumber >= _middleCMidiNote ? 1 : 2,
+                        ),
+                      )
+                      .toList(growable: false)
+                : segments;
+            return _ChordEvent(
+              start: entry.key,
+              duration: duration,
+              notes: chordNotes,
+              staff:
                   part.staffMode == MidiStaffMode.grandStaff &&
-                  lowestPitch < _middleCMidiNote &&
-                  highestPitch >= _middleCMidiNote &&
-                  highestPitch - lowestPitch >=
-                      _grandStaffChordSplitSpanSemitones;
-              final averagePitch =
-                  pitches.reduce((left, right) => left + right) ~/
-                  compatibleSegments.length;
-              final chordNotes = shouldSplitGrandStaffChord
-                  ? compatibleSegments
-                        .map(
-                          (segment) => segment.withStaff(
-                            segment.noteNumber >= _middleCMidiNote ? 1 : 2,
-                          ),
-                        )
-                        .toList(growable: false)
-                  : compatibleSegments;
-              return [
-                _ChordEvent(
-                  start: entry.key,
-                  duration: duration,
-                  notes: chordNotes,
-                  staff:
-                      part.staffMode == MidiStaffMode.grandStaff &&
-                          averagePitch < _middleCMidiNote
-                      ? 2
-                      : 1,
-                ),
-              ];
-            });
+                      averagePitch < _middleCMidiNote
+                  ? 2
+                  : 1,
+            );
           }).toList();
           events.sort((a, b) {
             final onset = a.start.compareTo(b.start);
@@ -672,6 +661,7 @@ class MidiToMusicXmlConverter {
     MidiScorePart part,
     Map<int, int> previousStaffByVoice,
     Set<int> validBarTieIds,
+    Map<int, int> staffByBarTieId,
   ) {
     for (var voiceIndex = 0; voiceIndex < voices.length; voiceIndex++) {
       if (voiceIndex > 0) {
@@ -700,62 +690,17 @@ class MidiToMusicXmlConverter {
         final percussion =
             part.kind == MidiPartKind.percussion ||
             part.staffMode == MidiStaffMode.percussionStaff;
-        if (event.notes.every((note) => note.notations.length == 1)) {
-          for (var noteIndex = 0; noteIndex < event.notes.length; noteIndex++) {
-            final note = event.notes[noteIndex];
-            final tieStop =
-                note.barTieStopId != null &&
-                validBarTieIds.contains(note.barTieStopId);
-            final tieStart =
-                note.barTieStartId != null &&
-                validBarTieIds.contains(note.barTieStartId);
-            _writeNote(
-              buffer,
-              note,
-              notation: note.notations.single,
-              tieStop: tieStop,
-              tieStart: tieStart,
-              voice: voiceIndex + 1,
-              staff: _staffForNote(part, event, note, previousStaff),
-              chord: noteIndex > 0,
-              percussion: percussion,
-              ticksPerBeat: ticksPerBeat,
-            );
-          }
-        } else {
-          for (
-            var notationIndex = 0;
-            notationIndex < event.notes.first.notations.length;
-            notationIndex++
-          ) {
-            for (
-              var noteIndex = 0;
-              noteIndex < event.notes.length;
-              noteIndex++
-            ) {
-              final note = event.notes[noteIndex];
-              final barTieStop =
-                  note.barTieStopId != null &&
-                  validBarTieIds.contains(note.barTieStopId);
-              final barTieStart =
-                  note.barTieStartId != null &&
-                  validBarTieIds.contains(note.barTieStartId);
-              _writeNote(
-                buffer,
-                note,
-                notation: note.notations[notationIndex],
-                tieStop: barTieStop || notationIndex > 0,
-                tieStart:
-                    barTieStart || notationIndex < note.notations.length - 1,
-                voice: voiceIndex + 1,
-                staff: _staffForNote(part, event, note, previousStaff),
-                chord: noteIndex > 0,
-                percussion: percussion,
-                ticksPerBeat: ticksPerBeat,
-              );
-            }
-          }
-        }
+        _writeChordEvent(
+          buffer,
+          event,
+          voice: voiceIndex + 1,
+          part: part,
+          previousStaff: previousStaff,
+          validBarTieIds: validBarTieIds,
+          staffByBarTieId: staffByBarTieId,
+          percussion: percussion,
+          ticksPerBeat: ticksPerBeat,
+        );
         cursor = event.end;
         previousStaff = staff;
       }
@@ -773,20 +718,125 @@ class MidiToMusicXmlConverter {
     }
   }
 
+  void _writeChordEvent(
+    StringBuffer buffer,
+    _ChordEvent event, {
+    required int voice,
+    required MidiScorePart part,
+    required int? previousStaff,
+    required Set<int> validBarTieIds,
+    required Map<int, int> staffByBarTieId,
+    required bool percussion,
+    required int ticksPerBeat,
+  }) {
+    final scheduledByOffset = <int, List<_ScheduledNote>>{};
+    for (final note in event.notes) {
+      var offset = 0;
+      for (
+        var notationIndex = 0;
+        notationIndex < note.notations.length;
+        notationIndex++
+      ) {
+        final notation = note.notations[notationIndex];
+        scheduledByOffset
+            .putIfAbsent(offset, () => <_ScheduledNote>[])
+            .add(
+              _ScheduledNote(
+                note: note,
+                notation: notation,
+                notationIndex: notationIndex,
+              ),
+            );
+        offset += notation.ticks;
+      }
+    }
+    final offsets = scheduledByOffset.keys.toList()..sort();
+    var cursor = 0;
+    for (final offset in offsets) {
+      _writeCursorMove(buffer, offset - cursor, voice, event.staff);
+      final scheduledNotes = scheduledByOffset[offset]!;
+      for (var noteIndex = 0; noteIndex < scheduledNotes.length; noteIndex++) {
+        final scheduled = scheduledNotes[noteIndex];
+        final note = scheduled.note;
+        final notationIndex = scheduled.notationIndex;
+        final barTieStop =
+            note.barTieStopId != null &&
+            validBarTieIds.contains(note.barTieStopId);
+        final barTieStart =
+            note.barTieStartId != null &&
+            validBarTieIds.contains(note.barTieStartId);
+        _writeNote(
+          buffer,
+          note,
+          notation: scheduled.notation,
+          tieStop: barTieStop || notationIndex > 0,
+          tieStart: barTieStart || notationIndex < note.notations.length - 1,
+          voice: voice,
+          staff: _staffForNote(
+            part,
+            event,
+            note,
+            previousStaff,
+            validBarTieIds,
+            staffByBarTieId,
+          ),
+          chord: noteIndex > 0,
+          percussion: percussion,
+          ticksPerBeat: ticksPerBeat,
+        );
+      }
+      cursor = offset + scheduledNotes.first.notation.ticks;
+    }
+    _writeCursorMove(buffer, event.duration - cursor, voice, event.staff);
+  }
+
+  void _writeCursorMove(
+    StringBuffer buffer,
+    int duration,
+    int voice,
+    int staff,
+  ) {
+    if (duration == 0) return;
+    final element = duration > 0 ? 'forward' : 'backup';
+    buffer
+      ..writeln('      <$element>')
+      ..writeln('        <duration>${duration.abs()}</duration>');
+    if (duration > 0) {
+      buffer
+        ..writeln('        <voice>$voice</voice>')
+        ..writeln('        <staff>$staff</staff>');
+    }
+    buffer.writeln('      </$element>');
+    _checkGeneratedMusicXmlCharacterLimit(buffer);
+  }
+
   int _staffForNote(
     MidiScorePart part,
     _ChordEvent event,
     _NoteSegment note,
     int? previousStaff,
+    Set<int> validBarTieIds,
+    Map<int, int> staffByBarTieId,
   ) {
-    final explicitStaff = note.staff;
-    if (explicitStaff != null) return explicitStaff;
-    var staff = event.staff;
-    if (part.staffMode == MidiStaffMode.grandStaff &&
-        previousStaff != null &&
-        event.averagePitch >= 57 &&
-        event.averagePitch <= 64) {
-      staff = previousStaff;
+    final barTieStopId = note.barTieStopId;
+    var staff =
+        barTieStopId != null &&
+            validBarTieIds.contains(barTieStopId) &&
+            staffByBarTieId.containsKey(barTieStopId)
+        ? staffByBarTieId[barTieStopId]!
+        : note.staff;
+    if (staff == null) {
+      staff = event.staff;
+      if (part.staffMode == MidiStaffMode.grandStaff &&
+          previousStaff != null &&
+          event.averagePitch >= 57 &&
+          event.averagePitch <= 64) {
+        staff = previousStaff;
+      }
+    }
+    final barTieStartId = note.barTieStartId;
+    if (barTieStartId != null && validBarTieIds.contains(barTieStartId)) {
+      staffByBarTieId[barTieStartId] = staff;
     }
     return staff;
   }
@@ -1055,6 +1105,18 @@ class _ChordEvent {
         .toList(growable: false),
     staff: staff,
   );
+}
+
+class _ScheduledNote {
+  final _NoteSegment note;
+  final _DurationCandidate notation;
+  final int notationIndex;
+
+  const _ScheduledNote({
+    required this.note,
+    required this.notation,
+    required this.notationIndex,
+  });
 }
 
 class _DurationCandidate {

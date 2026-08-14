@@ -590,6 +590,33 @@ void main() {
     expect(_auditFirstMeasure(result.musicXml).durationByVoice, {1: 1920});
   });
 
+  test('跨谱表和弦含多记谱片段时仍是单一逻辑 chord 且 voice 守恒', () {
+    final track = _track(0, 'Piano', 0, [
+      _note(48, 0, 0, 600),
+      _note(72, 0, 0, 480),
+    ]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.piano,
+      totalTicks: 1920,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.musicXml, contains('<chord/>'));
+    final firstMeasureNotes = _pitchedNotesByMeasure(result.musicXml).first;
+    final lowerNotes = _notesAtPitch(firstMeasureNotes, step: 'C', octave: 3);
+    expect(lowerNotes, hasLength(2));
+    expect(lowerNotes.first, contains('<tie type="start"/>'));
+    expect(lowerNotes.last, contains('<tie type="stop"/>'));
+    expect(_auditFirstMeasure(result.musicXml).durationByVoice, {1: 1920});
+  });
+
   test('上一小节高音后宽和弦的 B3 不被 staff 历史覆盖', () {
     final track = _track(0, 'Piano', 0, [
       _note(72, 0, 1440, 1920),
@@ -616,6 +643,41 @@ void main() {
       contains('<staff>2</staff>'),
     );
     expect(_auditMeasures(result.musicXml)[1].durationByVoice, {1: 1920});
+  });
+
+  test('跨小节 tie 的中央 C 在宽和弦拆分后保持同一 staff', () {
+    final track = _track(0, 'Piano', 0, [
+      _note(48, 0, 1440, 1920),
+      _note(60, 0, 1440, 2400),
+    ]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.piano,
+      totalTicks: 3840,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final notesByMeasure = _pitchedNotesByMeasure(result.musicXml);
+    final tieStart = _notesAtPitch(
+      notesByMeasure[0],
+      step: 'C',
+      octave: 4,
+    ).single;
+    final tieStop = _notesAtPitch(
+      notesByMeasure[1],
+      step: 'C',
+      octave: 4,
+    ).single;
+    expect(tieStart, contains('<tie type="start"/>'));
+    expect(tieStart, contains('<staff>1</staff>'));
+    expect(tieStop, contains('<tie type="stop"/>'));
+    expect(tieStop, contains('<staff>1</staff>'));
   });
 
   test('小节尾不足最短时值的普通音符不会让转换崩溃', () {
