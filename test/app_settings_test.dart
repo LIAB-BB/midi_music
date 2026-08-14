@@ -94,11 +94,11 @@ void main() {
   test('谱面声部设置稳定排序并可恢复', () async {
     final storage = _MemorySettingsStorage();
     final settings = AppSettingsController(storage: storage);
-    settings.setDefaultScorePartKinds({
+    await settings.setDefaultScorePartKinds({
       MidiPartKind.strings,
       MidiPartKind.piano,
     });
-    settings.setScorePartSelectionForSong('asset:a.mid', {'z', 'a'});
+    await settings.setScorePartSelectionForSong('asset:a.mid', {'z', 'a'});
     await settings.flush();
 
     expect(storage.values['defaultScorePartKinds'], ['piano', 'strings']);
@@ -158,10 +158,13 @@ void main() {
     expect(settings.scorePartSelectionForSong('1'), isNull);
 
     final suppliedIds = {for (var index = 99; index >= 0; index--) 'id$index'};
-    settings.setScorePartSelectionForSong('asset:limits.mid', suppliedIds);
+    await settings.setScorePartSelectionForSong(
+      'asset:limits.mid',
+      suppliedIds,
+    );
     suppliedIds.clear();
     for (var index = 100; index >= 0; index--) {
-      settings.setScorePartSelectionForSong('zz:$index.mid', {'part'});
+      await settings.setScorePartSelectionForSong('zz:$index.mid', {'part'});
     }
     await settings.flush();
 
@@ -198,9 +201,9 @@ void main() {
     final storage = _MemorySettingsStorage();
     final settings = AppSettingsController(storage: storage);
     for (var index = 0; index < 100; index++) {
-      settings.setScorePartSelectionForSong('song:$index', {'part'});
+      await settings.setScorePartSelectionForSong('song:$index', {'part'});
     }
-    settings.setScorePartSelectionForSong('zz:new', {'new'});
+    await settings.setScorePartSelectionForSong('zz:new', {'new'});
     await settings.flush();
 
     expect(settings.scorePartSelectionForSong(' zz:new '), {'new'});
@@ -209,7 +212,7 @@ void main() {
       'new',
     ]);
 
-    settings.clearScorePartSelectionForSong(' zz:new ');
+    await settings.clearScorePartSelectionForSong(' zz:new ');
     await settings.flush();
     expect(settings.scorePartSelectionForSong('zz:new'), isNull);
     expect(
@@ -268,6 +271,32 @@ void main() {
 
     expect(settings.lastPersistenceError, isNull);
     expect(storage.values['defaultPlaybackSpeed'], 2.0);
+  });
+
+  test('声部默认写入可等待且失败会抛出，写队列仍可恢复', () async {
+    final storage = _MemorySettingsStorage(failNextWrite: true);
+    final settings = AppSettingsController(storage: storage);
+
+    await expectLater(
+      settings.setScorePartSelectionForSong('asset:failed.mid', {'violin'}),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(settings.scorePartSelectionForSong('asset:failed.mid'), isNull);
+    expect(settings.lastPersistenceError, isA<StateError>());
+
+    await settings.setScorePartSelectionForSong('asset:recovered.mid', {
+      'piano',
+    });
+
+    expect(settings.scorePartSelectionForSong('asset:recovered.mid'), {
+      'piano',
+    });
+    expect(
+      (storage.values['songScorePartSelections'] as Map)['asset:recovered.mid'],
+      ['piano'],
+    );
+    expect(settings.lastPersistenceError, isNull);
   });
 
   test('文件存储在主文件损坏时从 backup 恢复', () async {

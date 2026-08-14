@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/import/score_import_service.dart';
+import 'package:midi_music/core/midi/midi_parser.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
 import 'package:midi_music/core/notation/midi_notation_service.dart';
 import 'package:midi_music/core/notation/midi_score_selection.dart';
@@ -207,6 +208,11 @@ void main() {
         initialSession: null,
         assetPath: assetPath,
         notationBuilder: builder,
+        midiParser: MidiFileParser(
+          backgroundRunner: (bytes, fileName) => SynchronousFuture(
+            MidiFileParser().parseBytes(bytes, fileName: fileName),
+          ),
+        ),
       ),
     );
     await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
@@ -482,8 +488,10 @@ void main() {
     await tester.pump();
 
     await _requestViolinRebuild(tester);
+    final cancellationsBeforeRebuild = builder.cancelCount;
     await _requestViolinRebuild(tester);
     expect(builder.rebuildRequests, hasLength(2));
+    expect(builder.cancelCount, cancellationsBeforeRebuild + 1);
 
     builder.rebuildRequests[1].complete(
       _notationSession(
@@ -504,6 +512,21 @@ void main() {
 
     expect(surface.port.loadedXml.last, contains('newer-b'));
     expect(surface.port.loadedXml.last, isNot(contains('stale-a')));
+  });
+
+  testWidgets('页面 dispose 会终止正在执行的记谱 worker', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final builder = _ControlledNotationBuilder();
+    await tester.pumpWidget(
+      _page(player, _ScoreSurfaceHarness(), notationBuilder: builder),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+    final cancellationsBeforeDispose = builder.cancelCount;
+
+    await tester.pumpWidget(const SizedBox());
+
+    expect(builder.cancelCount, cancellationsBeforeDispose + 1);
   });
 
   testWidgets('转换失败保留上一次谱面与选择', (tester) async {
@@ -597,6 +620,94 @@ void main() {
       MidiPartKind.piano,
       MidiPartKind.strings,
     });
+  });
+
+  testWidgets('默认写盘失败保留已重建谱为临时选择并明确提示', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    final settings = AppSettingsController(
+      storage: _MemorySettingsStorage(failNextWrite: true),
+    );
+    await tester.pumpWidget(
+      _page(player, surface, notationBuilder: builder, settings: settings),
+    );
+    await _completeInitialNotation(tester, builder, midiSession.songData);
+    surface.emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('小提琴'));
+    await tester.tap(find.text('设为本曲默认'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.isNotEmpty);
+    builder.rebuildRequests.single.complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'temporary-after-save-failure',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('无法保存默认声部'), findsOneWidget);
+    expect(
+      surface.port.loadedXml.last,
+      contains('temporary-after-save-failure'),
+    );
+    expect(settings.scorePartSelectionForSong('fixture-fingerprint'), isNull);
+    expect(find.text('已设为本曲默认声部'), findsNothing);
+
+    await tester.tap(find.text('好的'));
+    await tester.pump();
+    surface.emit(const ScoreRendererMessage.ready());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pumpAndSettle();
+    expect(find.text('当前临时选择'), findsOneWidget);
+    expect(find.text('使用本曲默认'), findsNothing);
+  });
+
+  testWidgets('等待默认写盘时不允许再次打开声部面板', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    final storage = _ControlledWriteSettingsStorage();
+    final settings = AppSettingsController(storage: storage);
+    await tester.pumpWidget(
+      _page(player, surface, notationBuilder: builder, settings: settings),
+    );
+    await _completeInitialNotation(tester, builder, midiSession.songData);
+    surface.emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('小提琴'));
+    await tester.tap(find.text('设为本曲默认'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.isNotEmpty);
+    builder.rebuildRequests.single.complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'waiting-for-persistence',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await _pumpUntil(tester, () => storage.writeCompleters.isNotEmpty);
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('选择显示声部'), findsNothing);
+
+    storage.writeCompleters.single.complete();
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('选择显示声部'), findsOneWidget);
   });
 
   testWidgets('首次生成失败进入可重试错误态且不泄漏旧曲', (tester) async {
@@ -1182,6 +1293,7 @@ Widget _page(
   String? sourceFingerprint,
   ScoreImportService? importService,
   MidiNotationBuilder? notationBuilder,
+  MidiFileParser? midiParser,
   AppSettingsController? settings,
   TextScaler textScaler = TextScaler.noScaling,
 }) {
@@ -1218,6 +1330,7 @@ Widget _page(
         surfaceFactory: surface.create,
         importService: importService,
         notationBuilder: notationBuilder,
+        midiParser: midiParser,
       ),
     ),
   );
@@ -1239,6 +1352,9 @@ class _ScoreSurfaceHarness {
 
 class _MemorySettingsStorage implements AppSettingsStorage {
   Map<String, Object?> values = {};
+  bool failNextWrite;
+
+  _MemorySettingsStorage({this.failNextWrite = false});
 
   @override
   Future<Map<String, Object?>> read() async =>
@@ -1246,7 +1362,23 @@ class _MemorySettingsStorage implements AppSettingsStorage {
 
   @override
   Future<void> write(Map<String, Object?> values) async {
+    if (failNextWrite) {
+      failNextWrite = false;
+      throw StateError('simulated write failure');
+    }
     this.values = Map<String, Object?>.from(values);
+  }
+}
+
+class _ControlledWriteSettingsStorage extends _MemorySettingsStorage {
+  final List<Completer<void>> writeCompleters = [];
+
+  @override
+  Future<void> write(Map<String, Object?> values) async {
+    final completer = Completer<void>();
+    writeCompleters.add(completer);
+    await completer.future;
+    await super.write(values);
   }
 }
 
@@ -1442,6 +1574,10 @@ class _RebuildRequest {
 class _ControlledNotationBuilder implements MidiNotationBuilder {
   final List<_PrepareRequest> prepareRequests = [];
   final List<_RebuildRequest> rebuildRequests = [];
+  int cancelCount = 0;
+
+  @override
+  void cancel() => cancelCount += 1;
 
   @override
   Future<MidiNotationPreparation> prepare(

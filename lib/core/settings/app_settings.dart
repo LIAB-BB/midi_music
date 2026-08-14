@@ -330,40 +330,85 @@ class AppSettingsController extends ChangeNotifier {
     return selection == null ? null : Set<String>.unmodifiable(selection);
   }
 
-  void setDefaultScorePartKinds(Set<MidiPartKind> kinds) {
-    _update(() {
-      _defaultScorePartKinds = kinds.isEmpty
-          ? defaultScorePartKindsValue
-          : Set<MidiPartKind>.of(kinds);
-    });
+  Future<void> setDefaultScorePartKinds(Set<MidiPartKind> kinds) async {
+    final previous = Set<MidiPartKind>.of(_defaultScorePartKinds);
+    final next = kinds.isEmpty
+        ? defaultScorePartKindsValue
+        : Set<MidiPartKind>.of(kinds);
+    _defaultScorePartKinds = next;
+    notifyListeners();
+    try {
+      await _enqueueWrite(_toJson());
+    } catch (error, stackTrace) {
+      _lastPersistenceError = error;
+      if (setEquals(_defaultScorePartKinds, next)) {
+        _defaultScorePartKinds = previous;
+        notifyListeners();
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
-  void setScorePartSelectionForSong(String fingerprint, Set<String> partIds) {
+  Future<void> setScorePartSelectionForSong(
+    String fingerprint,
+    Set<String> partIds,
+  ) async {
     final normalizedFingerprint = fingerprint.trim();
     if (normalizedFingerprint.isEmpty) return;
     final normalizedPartIds = _normalizedPartIds(partIds);
     if (normalizedPartIds.isEmpty) {
-      clearScorePartSelectionForSong(normalizedFingerprint);
-      return;
+      return clearScorePartSelectionForSong(normalizedFingerprint);
     }
-    _update(() {
-      final updated = Map<String, Set<String>>.from(_songScorePartSelections)
-        ..[normalizedFingerprint] = normalizedPartIds;
-      _songScorePartSelections = _sortedSongScorePartSelections(
-        updated,
-        preserveKey: normalizedFingerprint,
-      );
-    });
+    final previous = _songScorePartSelections[normalizedFingerprint];
+    final updated = Map<String, Set<String>>.from(_songScorePartSelections)
+      ..[normalizedFingerprint] = normalizedPartIds;
+    _songScorePartSelections = _sortedSongScorePartSelections(
+      updated,
+      preserveKey: normalizedFingerprint,
+    );
+    notifyListeners();
+    try {
+      await _enqueueWrite(_toJson());
+    } catch (error, stackTrace) {
+      _lastPersistenceError = error;
+      final current = _songScorePartSelections[normalizedFingerprint];
+      if (current != null && setEquals(current, normalizedPartIds)) {
+        final restored = Map<String, Set<String>>.from(
+          _songScorePartSelections,
+        );
+        if (previous == null) {
+          restored.remove(normalizedFingerprint);
+        } else {
+          restored[normalizedFingerprint] = previous;
+        }
+        _songScorePartSelections = _sortedSongScorePartSelections(restored);
+        notifyListeners();
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
-  void clearScorePartSelectionForSong(String fingerprint) {
+  Future<void> clearScorePartSelectionForSong(String fingerprint) async {
     final normalizedFingerprint = fingerprint.trim();
     if (!_songScorePartSelections.containsKey(normalizedFingerprint)) return;
-    _update(() {
-      _songScorePartSelections = Map<String, Set<String>>.from(
-        _songScorePartSelections,
-      )..remove(normalizedFingerprint);
-    });
+    final previous = _songScorePartSelections[normalizedFingerprint]!;
+    _songScorePartSelections = Map<String, Set<String>>.from(
+      _songScorePartSelections,
+    )..remove(normalizedFingerprint);
+    notifyListeners();
+    try {
+      await _enqueueWrite(_toJson());
+    } catch (error, stackTrace) {
+      _lastPersistenceError = error;
+      if (!_songScorePartSelections.containsKey(normalizedFingerprint)) {
+        _songScorePartSelections = _sortedSongScorePartSelections({
+          ..._songScorePartSelections,
+          normalizedFingerprint: previous,
+        });
+        notifyListeners();
+      }
+      Error.throwWithStackTrace(error, stackTrace);
+    }
   }
 
   MidiSessionSnapshot? sessionForSong(String songId) => _songSessions[songId];
@@ -484,19 +529,21 @@ class AppSettingsController extends ChangeNotifier {
   void _update(VoidCallback updateValues) {
     updateValues();
     notifyListeners();
-    _enqueueWrite(_toJson());
+    unawaited(_enqueueWrite(_toJson()).catchError((Object _) {}));
   }
 
-  void _enqueueWrite(Map<String, Object?> values) {
-    _pendingWrite = _pendingWrite.then((_) async {
-      try {
-        await _storage.write(values);
+  Future<void> _enqueueWrite(Map<String, Object?> values) {
+    final operation = _pendingWrite.then((_) => _storage.write(values));
+    _pendingWrite = operation.then<void>(
+      (_) {
         _lastPersistenceError = null;
-      } catch (error) {
+      },
+      onError: (Object error, StackTrace _) {
         _lastPersistenceError = error;
-      }
-    });
+      },
+    );
     unawaited(_pendingWrite);
+    return operation;
   }
 
   Map<String, Object?> _toJson() => {

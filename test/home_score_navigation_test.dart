@@ -244,6 +244,9 @@ class _ImmediateNotationBuilder implements MidiNotationBuilder {
   final List<String> fingerprints = [];
 
   @override
+  void cancel() {}
+
+  @override
   Future<MidiNotationPreparation> prepare(
     MidiSongData song, {
     required String fingerprint,

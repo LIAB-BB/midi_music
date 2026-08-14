@@ -66,6 +66,46 @@ void main() {
     expect(fileReadCount, 1);
   });
 
+  test('parseFile 和字节入口共用可等待的后台 worker', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'midi-parser-background-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/fixture.mid');
+    final bytes = _largeMidi(noteCount: 1);
+    await file.writeAsBytes(bytes);
+    final requests = <({Uint8List bytes, String fileName})>[];
+    final completers = <Completer<MidiSongData>>[];
+    final parser = MidiFileParser(
+      backgroundRunner: (bytes, fileName) {
+        requests.add((bytes: bytes, fileName: fileName));
+        final completer = Completer<MidiSongData>();
+        completers.add(completer);
+        return completer.future;
+      },
+    );
+
+    final bytesFuture = parser.parseBytesInBackground(
+      bytes,
+      fileName: 'bytes.mid',
+    );
+    expect(requests.single.fileName, 'bytes.mid');
+    final bytesSong = _song();
+    completers.single.complete(bytesSong);
+    expect(await bytesFuture, same(bytesSong));
+
+    final fileFuture = parser.parseFile(file.path);
+    while (requests.length < 2) {
+      await Future<void>.delayed(const Duration(milliseconds: 1));
+    }
+    expect(requests, hasLength(2));
+    expect(requests.last.fileName, 'fixture.mid');
+    expect(requests.last.bytes, bytes);
+    final fileSong = _song();
+    completers.last.complete(fileSong);
+    expect(await fileFuture, same(fileSong));
+  });
+
   test('服务在异步边界分析、解析默认并生成显示会话', () async {
     final song = _song();
 
@@ -111,6 +151,29 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  test('取消会终止当前 isolate worker 且后续任务可继续', () async {
+    final service = MidiNotationService();
+    final cancelled = service.prepare(
+      _largeSong(noteCount: 500000),
+      fingerprint: 'asset:cancel.mid',
+      globalDefaultKinds: {MidiPartKind.piano},
+    );
+    final cancellationExpectation = expectLater(
+      cancelled,
+      throwsA(isA<MidiNotationCancelledException>()),
+    );
+
+    service.cancel();
+
+    await cancellationExpectation;
+    final recovered = await service.prepare(
+      _song(),
+      fingerprint: 'asset:recovered.mid',
+      globalDefaultKinds: {MidiPartKind.piano},
+    );
+    expect(recovered.session.sourceFingerprint, 'asset:recovered.mid');
+  });
 }
 
 MidiImportWorkerResult _slowMidiImportWorker(
@@ -154,6 +217,40 @@ MidiSongData _song() {
     ],
     totalTicks: 1920,
     totalDuration: 2,
+  );
+}
+
+MidiSongData _largeSong({required int noteCount}) {
+  final notes = [
+    for (var index = 0; index < noteCount; index++)
+      MidiNote(
+        noteNumber: 60 + (index % 12),
+        velocity: 90,
+        channel: 0,
+        startTick: index * 120,
+        endTick: index * 120 + 120,
+        endTime: index / 4 + 0.25,
+      ),
+  ];
+  final track = MidiTrackInfo(
+    index: 0,
+    name: 'Piano',
+    channels: {0},
+    programByChannel: {0: 0},
+    notes: notes,
+  );
+  return MidiSongData(
+    fileName: 'large.mid',
+    format: 0,
+    ticksPerBeat: 480,
+    tracks: [track],
+    timeline: const [],
+    tempoChanges: [TempoChange(tick: 0, microsecondsPerBeat: 500000)],
+    timeSignatureChanges: [
+      TimeSignatureChange(tick: 0, numerator: 4, denominator: 4),
+    ],
+    totalTicks: noteCount * 120,
+    totalDuration: noteCount / 4,
   );
 }
 

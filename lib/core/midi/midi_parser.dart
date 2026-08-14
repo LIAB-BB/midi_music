@@ -6,12 +6,19 @@ import 'package:flutter/foundation.dart';
 import '../../models/midi_track.dart';
 import 'tempo_map.dart';
 
+typedef MidiParseBackgroundRunner =
+    Future<MidiSongData> Function(Uint8List bytes, String fileName);
+
 /// MIDI 文件解析器
 ///
 /// 使用 dart_midi_pro 解析原始 MIDI 数据，
 /// 然后转换为我们的 MidiSongData 模型（绝对时间、音符配对）。
 class MidiFileParser {
   final midi.MidiParser _parser = midi.MidiParser();
+  final MidiParseBackgroundRunner _backgroundRunner;
+
+  MidiFileParser({MidiParseBackgroundRunner? backgroundRunner})
+    : _backgroundRunner = backgroundRunner ?? _runMidiParserInBackground;
 
   /// 从文件路径解析
   Future<MidiSongData> parseFile(String filePath) async {
@@ -20,11 +27,14 @@ class MidiFileParser {
       throw FileSystemException('MIDI file not found', filePath);
     }
     final bytes = await file.readAsBytes();
-    return compute(
-      _parseMidiFileInBackground,
-      _MidiParseRequest(bytes, file.uri.pathSegments.last),
-    );
+    return parseBytesInBackground(bytes, fileName: file.uri.pathSegments.last);
   }
+
+  /// 在后台 isolate 中从字节数据解析。
+  Future<MidiSongData> parseBytesInBackground(
+    Uint8List bytes, {
+    String fileName = 'unknown.mid',
+  }) => _backgroundRunner(bytes, fileName);
 
   /// 从字节数据解析
   MidiSongData parseBytes(Uint8List bytes, {String fileName = 'unknown.mid'}) {
@@ -344,6 +354,11 @@ class _PendingNote {
 MidiSongData _parseMidiFileInBackground(_MidiParseRequest request) {
   return MidiFileParser().parseBytes(request.bytes, fileName: request.fileName);
 }
+
+Future<MidiSongData> _runMidiParserInBackground(
+  Uint8List bytes,
+  String fileName,
+) => compute(_parseMidiFileInBackground, _MidiParseRequest(bytes, fileName));
 
 class _MidiParseRequest {
   final Uint8List bytes;

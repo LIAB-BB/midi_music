@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:flutter/cupertino.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -16,6 +17,7 @@ class ScoreSurface {
 
 typedef ScoreSurfaceFactory =
     ScoreSurface Function(ValueChanged<ScoreRendererMessage> onMessage);
+typedef MusicXmlEncoder = Future<String> Function(String musicXml);
 
 class InteractiveScoreView extends StatefulWidget {
   final String? musicXml;
@@ -23,6 +25,7 @@ class InteractiveScoreView extends StatefulWidget {
   final ValueChanged<ScoreRendererPort>? onPortReady;
   final VoidCallback? onImportScore;
   final ScoreSurfaceFactory? surfaceFactory;
+  final MusicXmlEncoder? musicXmlEncoder;
 
   const InteractiveScoreView({
     super.key,
@@ -31,6 +34,7 @@ class InteractiveScoreView extends StatefulWidget {
     this.onPortReady,
     this.onImportScore,
     this.surfaceFactory,
+    this.musicXmlEncoder,
   });
 
   @override
@@ -105,7 +109,10 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
 
     late final WebViewController controller;
     controller = WebViewController();
-    final port = _WebViewScoreRendererPort(controller);
+    final port = _WebViewScoreRendererPort(
+      controller,
+      encoder: widget.musicXmlEncoder,
+    );
     controller
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFFF8F0DC))
@@ -329,13 +336,18 @@ class _ScoreErrorOverlay extends StatelessWidget {
 
 class _WebViewScoreRendererPort implements ScoreRendererPort {
   final WebViewController controller;
+  final MusicXmlEncoder _encoder;
+  int _loadGeneration = 0;
 
-  _WebViewScoreRendererPort(this.controller);
+  _WebViewScoreRendererPort(this.controller, {MusicXmlEncoder? encoder})
+    : _encoder = encoder ?? _encodeMusicXmlInBackground;
 
   @override
-  Future<void> loadMusicXml(String musicXml) {
-    final encoded = base64Encode(utf8.encode(musicXml));
-    return controller.runJavaScript(
+  Future<void> loadMusicXml(String musicXml) async {
+    final generation = ++_loadGeneration;
+    final encoded = await _encoder(musicXml);
+    if (generation != _loadGeneration) return;
+    await controller.runJavaScript(
       'window.scoreBridge.loadMusicXmlBase64(${jsonEncode(encoded)})',
     );
   }
@@ -352,3 +364,8 @@ class _WebViewScoreRendererPort implements ScoreRendererPort {
     return controller.runJavaScript('window.scoreBridge.clearHighlight()');
   }
 }
+
+Future<String> _encodeMusicXmlInBackground(String musicXml) => Isolate.run(
+  () => base64Encode(utf8.encode(musicXml)),
+  debugName: 'MusicXML UTF-8/base64 encoding',
+);

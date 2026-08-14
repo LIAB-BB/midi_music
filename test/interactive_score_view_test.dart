@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/score/score_renderer_protocol.dart';
@@ -302,6 +305,7 @@ void main() {
         home: InteractiveScoreView(
           musicXml: '<score-partwise/>',
           onMessage: (_) {},
+          musicXmlEncoder: (_) => SynchronousFuture<String>('encoded'),
           onPortReady: (port) {
             readyPorts.add(port);
             port.highlightMeasure(2, scrollIntoView: true);
@@ -348,6 +352,59 @@ void main() {
     expect(readyPorts, hasLength(1));
     expect(platform.controller.scripts, hasLength(2));
   });
+
+  testWidgets('后台编码使用 last-request-wins 不让旧大谱覆盖新谱', (tester) async {
+    final platform = _TestWebViewPlatform();
+    WebViewPlatform.instance = platform;
+    final encoder = _ControlledMusicXmlEncoder();
+
+    Widget build(String xml) => CupertinoApp(
+      home: InteractiveScoreView(
+        musicXml: xml,
+        onMessage: (_) {},
+        musicXmlEncoder: encoder.encode,
+      ),
+    );
+
+    await tester.pumpWidget(build('<score-partwise id="old-large"/>'));
+    platform.navigationDelegate.onPageFinished!(
+      'file:///flutter_assets/assets/score_renderer/index.html',
+    );
+    await tester.pump();
+    expect(encoder.requests, ['<score-partwise id="old-large"/>']);
+
+    await tester.pumpWidget(build('<score-partwise id="new"/>'));
+    await tester.pump();
+    expect(encoder.requests, [
+      '<score-partwise id="old-large"/>',
+      '<score-partwise id="new"/>',
+    ]);
+
+    encoder.completers[1].complete('encoded-new');
+    await tester.pump();
+    expect(platform.controller.scripts, hasLength(1));
+    expect(platform.controller.scripts.single, contains('encoded-new'));
+
+    encoder.completers[0].complete('encoded-stale');
+    await tester.pump();
+    expect(platform.controller.scripts, hasLength(1));
+    expect(
+      platform.controller.scripts.single,
+      isNot(contains('encoded-stale')),
+    );
+  });
+}
+
+class _ControlledMusicXmlEncoder {
+  final List<String> requests = [];
+  final List<Completer<String>> completers = [];
+
+  Future<String> encode(String musicXml) {
+    requests.add(musicXml);
+    final completer = Completer<String>();
+    completers.add(completer);
+    return completer.future;
+  }
 }
 
 class _TestWebViewPlatform extends WebViewPlatform {

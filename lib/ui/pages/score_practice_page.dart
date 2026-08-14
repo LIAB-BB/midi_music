@@ -73,6 +73,7 @@ class ScorePracticePage extends StatefulWidget {
   final ScoreSurfaceFactory? surfaceFactory;
   final ScoreImportService? importService;
   final MidiNotationBuilder? notationBuilder;
+  final MidiFileParser? midiParser;
 
   const ScorePracticePage({
     super.key,
@@ -81,6 +82,7 @@ class ScorePracticePage extends StatefulWidget {
     this.surfaceFactory,
     this.importService,
     this.notationBuilder,
+    this.midiParser,
   });
 
   @override
@@ -88,7 +90,7 @@ class ScorePracticePage extends StatefulWidget {
 }
 
 class _ScorePracticePageState extends State<ScorePracticePage> {
-  final MidiFileParser _parser = MidiFileParser();
+  late final MidiFileParser _parser;
   late final ScoreImportService _importService;
   late final MidiNotationBuilder _notationBuilder;
   MidiPlayerController? _player;
@@ -102,6 +104,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   bool _didScheduleInitialLoad = false;
   bool _isImporting = false;
   bool _isGeneratingNotation = false;
+  bool _isSavingDefault = false;
   bool _isTemporarySelection = false;
   bool _notationWarningsDismissed = false;
   String? _notationError;
@@ -120,6 +123,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   @override
   void initState() {
     super.initState();
+    _parser = widget.midiParser ?? MidiFileParser();
     _importService = widget.importService ?? ScoreImportService();
     _notationBuilder = widget.notationBuilder ?? MidiNotationService();
     final initialSession = widget.initialSession;
@@ -149,7 +153,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
 
   @override
   void dispose() {
-    _notationGeneration += 1;
+    _beginNotationGeneration();
     _player?.removeListener(_handlePlayerChanged);
     _transientMessageTimer?.cancel();
     _transientMessage?.remove();
@@ -163,7 +167,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   Future<void> _loadInitialScore() async {
     final player = _player;
     if (player == null) return;
-    final generation = ++_notationGeneration;
+    final generation = _beginNotationGeneration();
     final initialSession = widget.initialSession;
     if (initialSession != null) {
       player.loadScore(initialSession, songId: widget.score.title);
@@ -216,7 +220,8 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     });
     try {
       final data = await rootBundle.load(assetPath);
-      final song = _parser.parseBytes(
+      if (!_isCurrentGeneration(generation)) return;
+      final song = await _parser.parseBytesInBackground(
         data.buffer.asUint8List(),
         fileName: assetPath.split('/').last,
       );
@@ -357,7 +362,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
 
       wasAwaitingInitialNotation =
           _displaySession == null && _isGeneratingNotation;
-      importGeneration = ++_notationGeneration;
+      importGeneration = _beginNotationGeneration();
       _setImportRetryTarget(path);
       await _importPath(
         path,
@@ -482,7 +487,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     bool isImport = false,
   }) {
     if (isImport) _isImporting = true;
-    final generation = ++_notationGeneration;
+    final generation = _beginNotationGeneration();
     _activeRetryGeneration = generation;
     unawaited(
       operation(generation).whenComplete(() {
@@ -527,6 +532,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   }
 
   Future<void> _openPartPicker() async {
+    if (_isSavingDefault) return;
     final catalog = _catalog;
     final selection = _selection;
     final session = _displaySession;
@@ -553,7 +559,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       return;
     }
     final settings = context.read<AppSettingsController>();
-    final generation = ++_notationGeneration;
+    final generation = _beginNotationGeneration();
     setState(() => _isGeneratingNotation = true);
     try {
       final rebuilt = await _notationBuilder.rebuild(
@@ -568,54 +574,83 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
         throw StateError('生成的谱面无法与当前 MIDI 对齐');
       }
 
-      final nextOrigin = switch (result.action) {
-        ScorePartPickerAction.setSongDefault => MidiSelectionOrigin.songDefault,
-        ScorePartPickerAction.setGlobalDefault =>
-          MidiSelectionOrigin.globalDefault,
-        ScorePartPickerAction.apply => previousSelection.origin,
-      };
       setState(() {
         _displaySession = rebuilt;
         _selection = MidiScoreSelection(
           partIds: result.partIds,
-          origin: nextOrigin,
+          origin: previousSelection.origin,
         );
         if (result.action == ScorePartPickerAction.apply) {
           final baseline = _selectionBaselinePartIds;
           _isTemporarySelection =
               baseline != null && !setEquals(result.partIds, baseline);
         } else {
-          _selectionBaselinePartIds = Set<String>.unmodifiable(result.partIds);
-          _isTemporarySelection = false;
+          _isTemporarySelection = true;
         }
         _isGeneratingNotation = false;
         _notationWarningsDismissed = false;
       });
+    } catch (error) {
+      if (error is MidiNotationCancelledException) return;
+      if (!_isCurrentGeneration(generation)) return;
+      setState(() => _isGeneratingNotation = false);
+      _showAlert('无法更新五线谱', _describeNotationError(error));
+      return;
+    }
 
+    if (result.action == ScorePartPickerAction.apply) return;
+    setState(() => _isSavingDefault = true);
+    try {
+      final MidiSelectionOrigin savedOrigin;
+      final String successMessage;
       switch (result.action) {
         case ScorePartPickerAction.apply:
-          break;
+          return;
         case ScorePartPickerAction.setSongDefault:
-          settings.setScorePartSelectionForSong(
+          await settings.setScorePartSelectionForSong(
             catalog.fingerprint,
             result.partIds,
           );
-          _showTransientMessage('已设为本曲默认声部');
-          break;
+          savedOrigin = MidiSelectionOrigin.songDefault;
+          successMessage = '已设为本曲默认声部';
         case ScorePartPickerAction.setGlobalDefault:
           final selectedKinds = {
             for (final part in catalog.parts)
               if (result.partIds.contains(part.id)) part.kind,
           };
-          settings.setDefaultScorePartKinds(selectedKinds);
-          _showTransientMessage('已设为全局默认声部');
-          break;
+          await settings.setDefaultScorePartKinds(selectedKinds);
+          savedOrigin = MidiSelectionOrigin.globalDefault;
+          successMessage = '已设为全局默认声部';
       }
+      if (!_isCurrentGeneration(generation)) return;
+      setState(() {
+        _selection = MidiScoreSelection(
+          partIds: result.partIds,
+          origin: savedOrigin,
+        );
+        _selectionBaselinePartIds = Set<String>.unmodifiable(result.partIds);
+        _isTemporarySelection = false;
+      });
+      _showTransientMessage(successMessage);
     } catch (error) {
       if (!_isCurrentGeneration(generation)) return;
-      setState(() => _isGeneratingNotation = false);
-      _showAlert('无法更新五线谱', _describeNotationError(error));
+      _showAlert(
+        '无法保存默认声部',
+        '当前谱面已作为临时选择保留，但设置未能写入：'
+            '${_describeNotationError(error)}',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingDefault = false);
+      } else {
+        _isSavingDefault = false;
+      }
     }
+  }
+
+  int _beginNotationGeneration() {
+    _notationBuilder.cancel();
+    return ++_notationGeneration;
   }
 
   void _openSettings() {
@@ -701,6 +736,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
         ),
         trailing: _ScorePageActions(
           showParts: _catalog != null,
+          partsEnabled: !_isSavingDefault,
           onOpenParts: _openPartPicker,
           onOpenSettings: _openSettings,
         ),
@@ -775,11 +811,13 @@ ScoreSession _emptyMidiSession(String title) => ScoreSession.midiOnly(
 
 class _ScorePageActions extends StatelessWidget {
   final bool showParts;
+  final bool partsEnabled;
   final VoidCallback onOpenParts;
   final VoidCallback onOpenSettings;
 
   const _ScorePageActions({
     required this.showParts,
+    required this.partsEnabled,
     required this.onOpenParts,
     required this.onOpenSettings,
   });
@@ -794,12 +832,12 @@ class _ScorePageActions extends StatelessWidget {
             key: const Key('score-parts'),
             label: '选择显示声部',
             button: true,
-            onTap: onOpenParts,
+            onTap: partsEnabled ? onOpenParts : null,
             child: ExcludeSemantics(
               child: CupertinoButton(
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(44, 44),
-                onPressed: onOpenParts,
+                onPressed: partsEnabled ? onOpenParts : null,
                 child: const Icon(
                   CupertinoIcons.person_2,
                   size: 19,
