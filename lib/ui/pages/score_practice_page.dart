@@ -98,6 +98,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   bool _didScheduleInitialLoad = false;
   bool _isImporting = false;
   bool _isGeneratingNotation = false;
+  bool _isTemporarySelection = false;
   bool _notationWarningsDismissed = false;
   String? _notationError;
   int _notationGeneration = 0;
@@ -172,14 +173,16 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       return;
     }
 
-    final emptySession = _emptyMidiSession(widget.score.title);
-    player.loadScore(emptySession, songId: widget.score.title);
-    player.setSpeed(context.read<AppSettingsController>().defaultPlaybackSpeed);
-    if (mounted && widget.score.assetPath == null) {
-      setState(() => _displaySession = emptySession);
-    }
     final assetPath = widget.score.assetPath;
-    if (assetPath == null) return;
+    if (assetPath == null) {
+      final emptySession = _emptyMidiSession(widget.score.title);
+      player.loadScore(emptySession, songId: widget.score.title);
+      player.setSpeed(
+        context.read<AppSettingsController>().defaultPlaybackSpeed,
+      );
+      if (mounted) setState(() => _displaySession = emptySession);
+      return;
+    }
     try {
       final data = await rootBundle.load(assetPath);
       final song = _parser.parseBytes(
@@ -214,6 +217,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       _displaySession = null;
       _catalog = null;
       _selection = null;
+      _isTemporarySelection = false;
       _notationError = null;
       _isGeneratingNotation = true;
       _notationWarningsDismissed = false;
@@ -241,6 +245,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
         _displaySession = generated;
         _catalog = preparation.catalog;
         _selection = preparation.selection;
+        _isTemporarySelection = false;
         _notationError = null;
         _isGeneratingNotation = false;
         _notationWarningsDismissed = false;
@@ -259,6 +264,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       _displaySession = null;
       _catalog = null;
       _selection = null;
+      _isTemporarySelection = false;
       _notationError = _describeNotationError(error);
       _isGeneratingNotation = false;
       _notationWarningsDismissed = false;
@@ -299,6 +305,8 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   Future<void> _importScoreForCurrentPage() async {
     if (_isImporting) return;
     _isImporting = true;
+    int? importGeneration;
+    var wasAwaitingInitialNotation = false;
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -309,9 +317,12 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       final path = result.files.single.path;
       if (path == null) return;
 
+      wasAwaitingInitialNotation =
+          _displaySession == null && _isGeneratingNotation;
+      importGeneration = ++_notationGeneration;
       final session = await _importService.importFile(path);
       if (!mounted) return;
-      final generation = ++_notationGeneration;
+      if (!_isCurrentGeneration(importGeneration)) return;
       _player?.loadScore(session, songId: widget.score.title, filePath: path);
       _player?.setSpeed(
         context.read<AppSettingsController>().defaultPlaybackSpeed,
@@ -319,23 +330,31 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       if (session.sourceType == ScoreSourceType.midiOnly) {
         await _prepareMidiNotation(
           session,
-          generation: generation,
+          generation: importGeneration,
           fingerprint:
               session.sourceFingerprint ??
               _fallbackFingerprint(session.songData),
         );
-      } else if (_isCurrentGeneration(generation)) {
+      } else if (_isCurrentGeneration(importGeneration)) {
         setState(() {
           _displaySession = session;
           _catalog = null;
           _selection = null;
+          _isTemporarySelection = false;
           _notationError = null;
           _isGeneratingNotation = false;
           _notationWarningsDismissed = false;
         });
       }
     } catch (error) {
-      if (mounted) _showAlert('导入失败', '无法导入乐谱文件：$error');
+      if (!mounted) return;
+      final generation = importGeneration;
+      if (generation != null && !_isCurrentGeneration(generation)) return;
+      if (generation != null && wasAwaitingInitialNotation) {
+        _enterNotationError(error);
+      } else {
+        _showAlert('导入失败', '无法导入乐谱文件：$error');
+      }
     } finally {
       _isImporting = false;
     }
@@ -371,6 +390,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       selectedPartIds: selection.partIds,
       origin: selection.origin,
       warnings: session.notationWarnings,
+      originLabelOverride: _isTemporarySelection ? '当前临时选择' : null,
     );
     if (!mounted || result == null) return;
     await _applyPartSelection(result);
@@ -413,6 +433,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
           partIds: result.partIds,
           origin: nextOrigin,
         );
+        _isTemporarySelection = result.action == ScorePartPickerAction.apply;
         _isGeneratingNotation = false;
         _notationWarningsDismissed = false;
       });
@@ -610,25 +631,40 @@ class _ScorePageActions extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (showParts)
-          CupertinoButton(
+          Semantics(
             key: const Key('score-parts'),
-            padding: const EdgeInsets.symmetric(horizontal: 7),
-            minimumSize: const Size(32, 32),
-            onPressed: onOpenParts,
-            child: const Icon(
-              CupertinoIcons.person_2,
-              size: 19,
-              color: Color(0xFF5F4A35),
+            label: '选择显示声部',
+            button: true,
+            onTap: onOpenParts,
+            child: ExcludeSemantics(
+              child: CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(44, 44),
+                onPressed: onOpenParts,
+                child: const Icon(
+                  CupertinoIcons.person_2,
+                  size: 19,
+                  color: Color(0xFF5F4A35),
+                ),
+              ),
             ),
           ),
-        CupertinoButton(
-          padding: EdgeInsets.zero,
-          minimumSize: const Size(32, 32),
-          onPressed: onOpenSettings,
-          child: const Icon(
-            CupertinoIcons.gear_alt_fill,
-            size: 18,
-            color: Color(0xFF5F4A35),
+        Semantics(
+          key: const Key('score-settings'),
+          label: '打开设置',
+          button: true,
+          onTap: onOpenSettings,
+          child: ExcludeSemantics(
+            child: CupertinoButton(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(44, 44),
+              onPressed: onOpenSettings,
+              child: const Icon(
+                CupertinoIcons.gear_alt_fill,
+                size: 18,
+                color: Color(0xFF5F4A35),
+              ),
+            ),
           ),
         ),
       ],
@@ -675,22 +711,36 @@ class _NotationGeneratingState extends StatelessWidget {
   Widget build(BuildContext context) {
     return ColoredBox(
       color: const Color(0xFFF8F0DC),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CupertinoActivityIndicator(color: Color(0xFFA2773F)),
-            const SizedBox(height: 12),
-            const Text(
-              '正在生成五线谱',
-              style: TextStyle(color: Color(0xFF5F4A35), fontSize: 14),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          key: const Key('notation-generating-scroll'),
+          padding: const EdgeInsets.all(20),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: (constraints.maxHeight - 40).clamp(
+                0.0,
+                double.infinity,
+              ),
             ),
-            const SizedBox(height: 14),
-            CupertinoButton(
-              onPressed: onImportScore,
-              child: const Text('导入文件'),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CupertinoActivityIndicator(color: Color(0xFFA2773F)),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '正在生成五线谱',
+                    style: TextStyle(color: Color(0xFF5F4A35), fontSize: 14),
+                  ),
+                  const SizedBox(height: 14),
+                  CupertinoButton(
+                    onPressed: onImportScore,
+                    child: const Text('导入文件'),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -712,49 +762,65 @@ class _NotationErrorState extends StatelessWidget {
   Widget build(BuildContext context) {
     return ColoredBox(
       color: const Color(0xFFF8F0DC),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                CupertinoIcons.exclamationmark_triangle,
-                size: 32,
-                color: Color(0xFFA2773F),
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          key: const Key('notation-error-scroll'),
+          padding: const EdgeInsets.all(20),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: (constraints.maxHeight - 40).clamp(
+                0.0,
+                double.infinity,
               ),
-              const SizedBox(height: 12),
-              const Text(
-                '无法生成五线谱',
-                style: TextStyle(
-                  color: Color(0xFF2A2118),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xFF7E6C55), fontSize: 13),
-              ),
-              const SizedBox(height: 18),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+            ),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  CupertinoButton(
-                    color: const Color(0xFF5F4A35),
-                    onPressed: onRetry,
-                    child: const Text('重试'),
+                  const Icon(
+                    CupertinoIcons.exclamationmark_triangle,
+                    size: 32,
+                    color: Color(0xFFA2773F),
                   ),
-                  const SizedBox(width: 12),
-                  CupertinoButton(
-                    onPressed: onImportScore,
-                    child: const Text('导入文件'),
+                  const SizedBox(height: 12),
+                  const Text(
+                    '无法生成五线谱',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFF2A2118),
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Color(0xFF7E6C55),
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: [
+                      CupertinoButton(
+                        color: const Color(0xFF5F4A35),
+                        onPressed: onRetry,
+                        child: const Text('重试'),
+                      ),
+                      CupertinoButton(
+                        onPressed: onImportScore,
+                        child: const Text('导入文件'),
+                      ),
+                    ],
                   ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -823,15 +889,22 @@ class _NotationWarningBanner extends StatelessWidget {
                 style: const TextStyle(fontSize: 12, color: Color(0xFF5F4A35)),
               ),
             ),
-            CupertinoButton(
+            Semantics(
               key: const Key('dismiss-notation-warnings'),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              minimumSize: const Size(40, 32),
-              onPressed: onDismiss,
-              child: const Icon(
-                CupertinoIcons.xmark,
-                size: 14,
-                color: Color(0xFF715B41),
+              label: '关闭记谱提示',
+              button: true,
+              onTap: onDismiss,
+              child: ExcludeSemantics(
+                child: CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(44, 44),
+                  onPressed: onDismiss,
+                  child: const Icon(
+                    CupertinoIcons.xmark,
+                    size: 14,
+                    color: Color(0xFF715B41),
+                  ),
+                ),
               ),
             ),
           ],

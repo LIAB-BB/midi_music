@@ -27,6 +27,7 @@ Future<ScorePartPickerResult?> showScorePartPicker(
   required Set<String> selectedPartIds,
   required MidiSelectionOrigin origin,
   required Set<MidiNotationWarning> warnings,
+  String? originLabelOverride,
 }) {
   final selectedPartIdsSnapshot = Set<String>.unmodifiable(
     Set<String>.of(selectedPartIds),
@@ -41,6 +42,7 @@ Future<ScorePartPickerResult?> showScorePartPicker(
       selectedPartIds: selectedPartIdsSnapshot,
       origin: origin,
       warnings: warningsSnapshot,
+      originLabelOverride: originLabelOverride,
     ),
   );
 }
@@ -50,12 +52,14 @@ class _ScorePartPickerSheet extends StatefulWidget {
   final Set<String> selectedPartIds;
   final MidiSelectionOrigin origin;
   final Set<MidiNotationWarning> warnings;
+  final String? originLabelOverride;
 
   const _ScorePartPickerSheet({
     required this.catalog,
     required this.selectedPartIds,
     required this.origin,
     required this.warnings,
+    required this.originLabelOverride,
   });
 
   @override
@@ -168,7 +172,7 @@ class _ScorePartPickerSheetState extends State<_ScorePartPickerSheet> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _originLabel(widget.origin),
+                    widget.originLabelOverride ?? _originLabel(widget.origin),
                     style: const TextStyle(
                       color: _mutedInk,
                       fontSize: 13,

@@ -179,6 +179,76 @@ void main() {
     expect(player.scoreSession?.songData, same(midiSession.songData));
   });
 
+  testWidgets('asset 首开只加载一次真实 MIDI 且不经过 empty 会话', (tester) async {
+    const assetPath = 'assets/midi/Beethoven-Moonlight-Sonata.mid';
+    final player = readyPlayer();
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    final observedSongs = <MidiSongData>[];
+    player.addListener(() {
+      final song = player.songData;
+      if (song != null && !observedSongs.any((item) => identical(item, song))) {
+        observedSongs.add(song);
+      }
+    });
+
+    await tester.pumpWidget(
+      _page(
+        player,
+        surface,
+        initialSession: null,
+        assetPath: assetPath,
+        notationBuilder: builder,
+      ),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+
+    expect(observedSongs, hasLength(1));
+    expect(observedSongs.single.totalTicks, greaterThan(0));
+    expect(builder.prepareRequests.single.song, same(observedSongs.single));
+    expect(builder.prepareRequests.single.fingerprint, 'asset:$assetPath');
+  });
+
+  testWidgets('慢导入一选中路径就使旧 prepare 失效且失败回到可重试终态', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    final importer = _ControlledScoreImportService();
+    FilePicker.platform = _FakeFilePicker(
+      () => SynchronousFuture(
+        FilePickerResult([
+          PlatformFile(name: 'slow.mid', size: 1, path: '/tmp/slow.mid'),
+        ]),
+      ),
+    );
+    await tester.pumpWidget(
+      _page(player, surface, notationBuilder: builder, importService: importer),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+
+    await tester.tap(find.text('导入文件'));
+    await _pumpUntil(tester, () => importer.paths.isNotEmpty);
+    builder.prepareRequests.single.complete(
+      _preparation(midiSession.songData, xmlMarker: 'stale-before-import'),
+    );
+    await tester.pump();
+
+    expect(surface.createCount, 0);
+    expect(player.songData, same(midiSession.songData));
+    expect(find.text('正在生成五线谱'), findsOneWidget);
+
+    importer.completer.completeError(StateError('slow import failed'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('无法生成五线谱'), findsOneWidget);
+    expect(find.textContaining('slow import failed'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+    expect(find.text('导入文件'), findsOneWidget);
+    expect(find.text('正在生成五线谱'), findsNothing);
+  });
+
   testWidgets('切换声部保持播放状态并在 renderer ready 后同步高亮', (tester) async {
     final midiSession = midiOnlySession();
     final player = readyPlayer()..loadScore(midiSession);
@@ -283,7 +353,8 @@ void main() {
     await tester.pump();
 
     await tester.tap(find.byKey(const Key('score-parts')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.text('小提琴'));
     await tester.tap(find.text('设为本曲默认'));
     await _pumpUntil(tester, () => builder.rebuildRequests.isNotEmpty);
@@ -516,6 +587,123 @@ void main() {
     expect(find.byKey(const Key('notation-warning-banner')), findsNothing);
   });
 
+  testWidgets('生成与首次错误态在横屏大字号下可滚动且操作可达', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(844, 390);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final builder = _ControlledNotationBuilder();
+    await tester.pumpWidget(
+      _page(
+        player,
+        _ScoreSurfaceHarness(),
+        notationBuilder: builder,
+        textScaler: const TextScaler.linear(1.8),
+      ),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('notation-generating-scroll')), findsOneWidget);
+    expect(find.text('导入文件'), findsOneWidget);
+    expect(tester.getBottomRight(find.text('导入文件')).dy, lessThan(390));
+
+    builder.prepareRequests.single.completeError(StateError('layout failed'));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('notation-error-scroll')), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+    expect(find.text('导入文件'), findsOneWidget);
+    await tester.ensureVisible(find.text('重试'));
+    await tester.ensureVisible(find.text('导入文件'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('声部、设置和关闭 warning 提供中文语义与 44 点击区', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final builder = _ControlledNotationBuilder();
+    await tester.pumpWidget(
+      _page(player, _ScoreSurfaceHarness(), notationBuilder: builder),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+    builder.prepareRequests.single.complete(
+      _preparation(
+        midiSession.songData,
+        xmlMarker: 'semantics',
+        warnings: const {MidiNotationWarning.rhythmQuantized},
+      ),
+    );
+    await tester.pump();
+
+    for (final entry in {
+      'score-parts': '选择显示声部',
+      'score-settings': '打开设置',
+      'dismiss-notation-warnings': '关闭记谱提示',
+    }.entries) {
+      final finder = find.byKey(Key(entry.key));
+      expect(
+        tester.getSemantics(finder),
+        matchesSemantics(
+          label: entry.value,
+          isButton: true,
+          hasTapAction: true,
+        ),
+      );
+      final size = tester.getSize(finder);
+      expect(size.width, greaterThanOrEqualTo(44));
+      expect(size.height, greaterThanOrEqualTo(44));
+    }
+    semantics.dispose();
+  });
+
+  testWidgets('普通应用后面板显示当前临时选择而设为默认后恢复真实来源', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    await tester.pumpWidget(_page(player, surface, notationBuilder: builder));
+    await _completeInitialNotation(tester, builder, midiSession.songData);
+    surface.emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+
+    await _requestViolinRebuild(tester);
+    builder.rebuildRequests.single.complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'temporary',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('当前临时选择'), findsOneWidget);
+    expect(find.text('自动选择钢琴'), findsNothing);
+    await tester.tap(find.text('设为本曲默认'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.length == 2);
+    builder.rebuildRequests[1].complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'saved-default',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('使用本曲默认'), findsOneWidget);
+    expect(find.text('当前临时选择'), findsNothing);
+  });
+
   testWidgets('复杂反复显示顺序播放提示', (tester) async {
     final base = interactiveSession();
     final session = ScoreSession(
@@ -710,6 +898,7 @@ Widget _page(
   ScoreImportService? importService,
   MidiNotationBuilder? notationBuilder,
   AppSettingsController? settings,
+  TextScaler textScaler = TextScaler.noScaling,
 }) {
   return MultiProvider(
     providers: [
@@ -721,6 +910,10 @@ Widget _page(
       ),
     ],
     child: CupertinoApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+        child: child!,
+      ),
       home: ScorePracticePage(
         score: PracticeScoreMetadata(
           title: 'Interactive Fixture',
@@ -808,6 +1001,17 @@ class _FakeScoreImportService extends ScoreImportService {
   @override
   Future<ScoreSession> importFile(String filePath) =>
       SynchronousFuture<ScoreSession>(session);
+}
+
+class _ControlledScoreImportService extends ScoreImportService {
+  final Completer<ScoreSession> completer = Completer();
+  final List<String> paths = [];
+
+  @override
+  Future<ScoreSession> importFile(String filePath) {
+    paths.add(filePath);
+    return completer.future;
+  }
 }
 
 Future<void> _pumpUntil(WidgetTester tester, bool Function() predicate) async {
