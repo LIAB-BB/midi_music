@@ -4,8 +4,10 @@
 
 ## ✨ 核心功能
 
-- **交互五线谱** — MusicXML 在 App 内离线排版；点击小节可跳转，播放时高亮当前小节
-- **统一导入管线** — MusicXML 直接进入交互谱面；PDF 经 OMR 转为 MusicXML；MIDI-only 曲目标记为“仅伴奏”
+- **真实 MIDI 五线谱** — 内置和导入 MIDI 都从原始音符离线生成可点击的 MusicXML，不使用 seed 假谱；默认显示钢琴高低音双谱表，也可多选弦乐等声部组成总谱
+- **统一导入管线** — MIDI 自动记谱；MusicXML 保持原文直接进入交互谱面；PDF 经 OMR 转成 MusicXML 后走同一直接路径
+- **无损声部切换** — 原 `MidiSongData` 始终是唯一播放真值，换显示谱不重新加载歌曲，当前时间、速度、AB 循环和播放/暂停状态保持不变
+- **可持久化声部默认** — 选择优先级为本曲默认 > 全局声部类别 > 自动钢琴 > 非打击乐合奏 > 打击乐回退
 - **MIDI 文件播放** — 支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
 - **SoundFont 音色引擎** — 基于 FluidSynth (Android) / AVFoundation (iOS)，加载 SF2/SF3 音色库
 - **轨道控制** — 按轨道控制音量和静音；共享通道上的同音重叠及通道级控制事件目前存在限制
@@ -20,7 +22,7 @@
 | Cupertino Widgets | iOS 风格 UI |
 | flutter_midi_pro | MIDI 引擎（FluidSynth/AVFoundation） |
 | dart_midi_pro | MIDI 文件解析 |
-| MusicXML 解析器 + 离线 OSMD | 保留原文、生成播放小节映射并离线排版交互五线谱 |
+| MIDI 记谱 + MusicXML + 离线 OSMD | 分析声部、生成显示谱、保留导入原文并离线排版交互五线谱；运行时不加载远程脚本 |
 | iOS CoreMIDI | USB MIDI 设备发现和按键输入 |
 | Provider | 状态管理 |
 
@@ -42,6 +44,11 @@ lib/
 │   ├── import/
 │   │   ├── musicxml_parser.dart       # MusicXML 转播放时间线
 │   │   └── score_import_service.dart  # MIDI/MusicXML/PDF 导入分流
+│   ├── notation/
+│   │   ├── midi_part_analyzer.dart     # 按轨道/channel 分析可选声部
+│   │   ├── midi_score_selection.dart   # 本曲/全局/自动默认解析
+│   │   ├── midi_to_musicxml_converter.dart # MIDI 转显示用 MusicXML
+│   │   └── midi_notation_service.dart  # isolate 记谱服务边界
 │   ├── score/                         # 谱面桥接协议与播放同步
 │   └── follow/
 │       ├── pitch_input.dart           # 音高输入抽象
@@ -71,7 +78,13 @@ test/
 ├── score_playback_coordinator_test.dart # 谱面与播放同步
 ├── score_practice_page_test.dart       # 练习页控制栏与状态
 ├── home_score_navigation_test.dart     # 首页导入导航
+├── midi_part_analyzer_test.dart        # 声部识别与 K.478 默认钢琴
+├── midi_score_selection_test.dart      # 默认选择优先级
+├── midi_to_musicxml_converter_test.dart # 量化、总谱、tie/三连音
+├── midi_notation_service_test.dart     # isolate 服务与播放真值
 └── …                                  # MIDI、跟随与 App 回归测试
+integration_test/
+└── midi_notation_render_test.dart      # 真机本地 OSMD fixture
 assets/
 ├── midi/
     ├── mozart_k478_piano_quartet.mid # USB MIDI demo（钢琴四重奏）
@@ -91,6 +104,10 @@ docs/
 - iOS 13.6+
 
 当前验证基线：Flutter 3.44.1 / Dart 3.12.1。
+
+当前 `flutter test` 共 261 项；真机 OSMD fixture 另由
+`integration_test/midi_notation_render_test.dart` 验证 dotted/triplet/tie、
+multi-voice、grand-staff 和 percussion 布局。
 
 ### 安装与运行
 
@@ -115,13 +132,13 @@ flutter test
 
 ### 上线前验收
 
-自动化测试通过后，发布或交付试用版前还需要完成人工验收。当前核心发布必测为 SoundFont、MIDI-only 的固定播放控制，以及交互 MusicXML 谱面。真实电子琴 USB、轨道静音和跟随属于高级演奏台专项：仅在本版本提供该产品入口或调试入口时验收，且不阻断当前首页可达的核心发布路径。
+自动化测试通过后，发布或交付试用版前还需要完成人工验收。当前核心发布必测为 SoundFont、MIDI 自动五线谱、声部默认与无损总谱切换，以及 MusicXML/PDF 直接路径。真实电子琴 USB、轨道静音和跟随属于高级演奏台专项：仅在本版本提供该产品入口或调试入口时验收，且不阻断当前首页可达的核心发布路径。
 
 详见 [`docs/release_checklist.md`](docs/release_checklist.md)。
 
 ### 准备资源文件
 
-App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录。App 支持从设备文件系统选择 MIDI、MusicXML 和 PDF：MusicXML 直接进入离线交互谱面，PDF 需要先经 OMR 服务生成 MusicXML，纯 MIDI 保持可播放的“仅伴奏”状态。
+App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录。App 支持从设备文件系统选择 MIDI、MusicXML 和 PDF：MIDI 从真实音符自动生成显示谱，MusicXML 直接进入离线交互谱面，PDF 先经 OMR 服务生成 MusicXML。自动谱只负责显示，声音始终来自原始 MIDI 时间线。
 
 PDF 识谱服务通过 Dart define 配置：
 
@@ -176,6 +193,8 @@ Change、Control Change、Pitch Bend 等通道级状态发生冲突时，暂不�
 - 以约 5ms 周期轮询时间线，实际调度精度受平台、UI 和系统负载影响
 - TempoMap 支持多 tempo 变化（如月光奏鸣曲含 61 个 tempo 变化点）
 - 二分查找实现高效 seek 定位
+- `updateScorePresentation()` 只替换复用同一 `MidiSongData` 的有效交互显示会话，因此声部切换不会重载播放数据
+- `clearScore()` 用于等待异步资源或切换曲目时原子卸载旧播放会话，清空旧位置和 AB 循环，同时保留已准备的 SoundFont 与全局速度
 
 ## 📄 License
 

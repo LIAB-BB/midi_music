@@ -58,6 +58,7 @@ flutter test
 | `lib/core/midi/tempo_map.dart` | 🔒 高 | 纯算法模块，tick ↔ 秒互转，有充分测试，改动安全 |
 | `lib/models/score_session.dart` | 🔒 高 | 谱面会话边界；原文、播放数据和小节映射必须保持一致 |
 | `lib/core/score/` | 🔒 高 | 受控谱面桥接与播放同步边界，网页层不得直接操作播放器 |
+| `lib/core/notation/` | 🔒 高 | MIDI 声部分析、默认解析与显示谱生成；不得把量化结果写回播放数据 |
 | `lib/core/follow/follow_mode_controller.dart` | 🔄 中 | 跟随算法核心，参数调优为主战场 |
 | `lib/core/follow/follow_mode_session.dart` | 🔄 中 | 会话生命周期协调层，改动注意并发安全 |
 | `lib/core/follow/midi_follow_mode_session.dart` | 🔒 高 | 当前 iOS USB MIDI 跟随会话，管理多条电子琴轨静音恢复 |
@@ -113,20 +114,27 @@ flutter test
 
 ### Models (`lib/models/`)
 - `midi_track.dart` — 全部数据模型：`MidiEventType`（枚举）、`MidiNote`（音符）、`TimelineEvent`（时间线事件，带 `trackIndex`、`Comparable`，通过 `_eventPriority` 确保同 tick 时 NoteOff 优先于 NoteOn）、`MidiTrackInfo`（轨道，支持多 channel、静音/音量）、`MidiSongData`（歌曲）、`TempoChange`/`TimeSignatureChange`
-- `score_session.dart` — `ScoreSession` 统一保留谱面原文、`MidiSongData`、来源/映射状态与 `ScoreMeasureBoundary` 真实小节边界；MIDI-only 会话不伪造可交互谱面
+- `midi_score_part.dart` — MIDI 自动谱的声部类别、谱表模式、轨道/channel 来源、目录、默认来源与记谱警告模型
+- `score_session.dart` — `ScoreSession` 统一保留谱面原文、`MidiSongData`、来源/映射状态与 `ScoreMeasureBoundary` 真实小节边界；`midiNotation` 会话保存生成谱、曲目指纹、选择和警告
 
 ### MIDI Playback (`lib/core/midi/`)
 - `midi_engine.dart` — `MidiPlaybackEngine` 抽象 + `MidiEngine` 实现。封装 `flutter_midi_pro`，按 channel 串行化操作队列（`_channelOperations`），通过 `_operationGeneration` 代际机制确保 `allNotesOff` 时取消未完成的排队操作
 - `midi_parser.dart` — `MidiFileParser`，使用 `dart_midi_pro` 解析 MIDI 文件。FIFO 配对重叠音符（`_PendingNote` 链表），后台 isolate 执行（`compute`）
 - `tempo_map.dart` — tick ↔ 秒互转，支持多 tempo 变化点，自动补齐 tick 0 默认 tempo、排序并合并同 tick 事件，二分查找，批量顺序应用优化
 - `measure_map.dart` — `MeasureMap` 在 MIDI-only 会话中按拍号推算小节，在谱面会话中优先消费显式 MusicXML 真实边界；安全查询会拒绝越界或不可交互小节
-- `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、`loadScore()`/`loadSong()` 原子替换会话与小节映射，并提供 `currentMeasureOrdinal`、`seekToMeasure()` 及前后可交互小节导航；按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存
+- `midi_player.dart` — **核心播放控制器**，`ChangeNotifier`。5ms 调度 + 33ms UI 节流（~30Hz）、播放/暂停/停止/跳转/变速（0.25–4.0x）、`loadScore()`/`loadSong()` 原子替换会话与小节映射，并提供 `currentMeasureOrdinal`、`seekToMeasure()` 及前后可交互小节导航；`updateScorePresentation()` 只接受复用当前 `MidiSongData` 的有效交互会话，无损保持 time/speed/AB/playing；`clearScore()` 在等待异步资源时原子卸载旧曲、位置与 AB，但保留 SoundFont 和全局速度；按 `track.index` 查找轨道（非列表位置）、静音/音量控制（零音量自动停音）、每轨道活动音符追踪（重叠音符正确计数）、seek 后 Program Change 状态恢复、`_fireAndForget` 统一管理异步引擎操作 + `onPlaybackError` 异常回调、SoundFont 自动下载/缓存
+
+### MIDI Notation (`lib/core/notation/`)
+- `midi_part_analyzer.dart` — 按有音符轨道和 channel 建稳定来源，结合通道 10、明确轨道名和 GM program 分类；合并钢琴来源为默认 grand staff，并限制 64 条轨道 / 500,000 个音符
+- `midi_score_selection.dart` — 默认优先级为有效本曲默认 > 匹配全局声部类别 > 自动钢琴 > 非打击乐合奏 > 打击乐回退，失效 ID 自动忽略且不会生成空谱
+- `midi_to_musicxml_converter.dart` — 从原 MIDI 音符生成只供显示的 MusicXML 和原 tick 对齐的小节边界，覆盖双谱表、和弦、休止、附点、三连音、最多四 voice、跨小节 tie 与打击乐；量化不进入播放时间线
+- `midi_notation_service.dart` — analyzer/resolver/converter 的 isolate 编排边界；`prepare()` 生成初始目录、选择与会话，`rebuild()` 只更换选择后的显示谱
 
 ### Interactive Score (`lib/core/score/`)
 - `ScoreSession` 是谱面原文、播放数据与小节映射的唯一会话边界。
 - `ScorePlaybackCoordinator` 是网页谱面事件进入播放器的唯一入口。
 - OSMD 仅负责离线排版、命中候选与高亮；它不能直接调用播放器。
-- 纯 MIDI 不自动转谱，只显示“仅伴奏”。
+- MIDI 使用真实音符自动生成谱面，不恢复 seed 假谱、PDF 黑框或钢琴卷帘；OSMD 只消费显示用 MusicXML。
 - `score_renderer_protocol.dart` 校验本地 renderer 消息的类型、范围和小节号；不可信或不可映射的小节不得触发跳转。
 
 ### Score Import (`lib/core/import/`)
@@ -157,9 +165,9 @@ flutter test
 
 ### UI Layer (`lib/ui/`)
 - `pages/home_page.dart` — 首页。通过可注入的 `ScoreFilePicker` 与 `ScoreImportService` 选择并导入 MIDI/MusicXML/PDF；所有格式统一进入 `ScorePracticePage`，首页不预加载播放器会话
-- `pages/score_practice_page.dart` — 统一谱面练习页。以单一 `InteractiveScoreView` 和固定 `ScoreTransportBar` 组成主界面；MusicXML 显示可交互谱面，MIDI-only 显示“仅伴奏”空态，`initialSession` 是首页导入会话的唯一加载点
+- `pages/score_practice_page.dart` — 统一谱面练习页。以单一 `InteractiveScoreView` 和固定 `ScoreTransportBar` 组成主界面；MIDI 等待设置加载后自动生成默认谱并支持无损多选总谱，MusicXML/PDF 保持直接路径；异步载入前用 `clearScore()` 隔离旧曲，失败态可重试且不泄漏上一曲
 - `pages/player_page.dart` — 保留的旧高级演奏台。初始化 USB MIDI、展示连接状态并管理 `MidiFollowModeSession`；用户 seek 后同步跟随会话重对齐，但首页导入不再导航至此页
-- `widgets/interactive_score_view.dart` — 离线 MusicXML 谱面表面，负责加载/错误/仅伴奏状态并通过受控 renderer port 与本地 OSMD 桥接
+- `widgets/interactive_score_view.dart` — 离线 MusicXML 谱面表面，负责加载/错误/暂无谱面状态并通过受控 renderer port 与本地 OSMD 桥接
 - `widgets/score_transport_bar.dart` — 练习页固定控制栏，提供前后小节、播放/暂停、速度和 AB 循环
 - `widgets/score_part_picker.dart` — `showScorePartPicker()` Cupertino 多选声部面板；入口快照选择与警告集合，返回应用、本曲默认或全局默认的不可变声部结果
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调
@@ -172,7 +180,7 @@ flutter test
 - `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，保留组件不作为练习页主视图；PDF 导入须先经 OMR 生成 MusicXML
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，当前全量 240 项)
+### Tests (`test/`，Flutter 3.44.1 / Dart 3.12.1 基线当前全量 261 项)
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
@@ -186,9 +194,13 @@ flutter test
 - `score_session_test.dart` / `musicxml_import_test.dart` — `ScoreSession`、MusicXML 原文保留、真实小节边界与 PDF OMR 导入回归
 - `score_renderer_protocol_test.dart` / `interactive_score_view_test.dart` / `score_renderer_assets_test.dart` — 本地 OSMD 桥接消息校验、谱面表面与 asset bundle 回归
 - `score_playback_coordinator_test.dart` / `score_measure_navigation_test.dart` — 小节命中、播放同步、自动跟随与小节导航回归
-- `score_practice_page_test.dart` / `home_score_navigation_test.dart` — 练习页固定控制栏、MIDI-only 状态和首页导入导航回归
+- `midi_part_analyzer_test.dart` / `midi_score_selection_test.dart` — 轨道名、GM、打击乐、K.478 钢琴组合和本曲/全局/自动默认优先级
+- `midi_to_musicxml_converter_test.dart` / `midi_notation_service_test.dart` — 双谱表、总谱、量化、tie、三连音、多 voice、复杂度上限、isolate 会话与原播放真值
+- `app_settings_test.dart` — 声部类别与曲目选择的 schema 迁移、非法值回退、稳定排序和容量限制
+- `score_practice_page_test.dart` / `home_score_navigation_test.dart` — 自动记谱、生成/错误/重试、无损换谱、默认保存、竞态隔离和首页导入导航回归
 - `score_part_picker_test.dart` — 声部多选、默认动作、输入快照、中文语义及横屏大字号滚动回归
 - `widget_test.dart` — App smoke test
+- `integration_test/midi_notation_render_test.dart` — 不计入上述 261 项；在 iOS 真机用生产 `InteractiveScoreView` 等待本地 OSMD `ready` 和非空 layout，覆盖 dotted/triplet/tie、multi-voice、grand-staff 与 percussion fixture
 
 测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
 
