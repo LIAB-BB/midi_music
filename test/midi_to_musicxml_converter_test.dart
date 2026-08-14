@@ -619,6 +619,108 @@ void main() {
       ),
     );
   });
+
+  test('不规则边界两侧实际输出有 gap 时不跨小节 tie', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Gap tie', 0, [_note(60, 0, 0, 200)]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+      timeSignatures: [
+        TimeSignatureChange(tick: 0, numerator: 4, denominator: 4),
+        TimeSignatureChange(tick: 101, numerator: 4, denominator: 4),
+      ],
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final notesByMeasure = _pitchedNotesByMeasure(result.musicXml);
+    expect(notesByMeasure[0].last, isNot(contains('<tie type="start"/>')));
+    expect(notesByMeasure[1].first, isNot(contains('<tie type="stop"/>')));
+    expect(result.warnings, contains(MidiNotationWarning.rhythmQuantized));
+  });
+
+  test('完全跳过中间片段时不连接非相邻小节', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Skipped fragment', 0, [_note(60, 0, 0, 220)]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+      timeSignatures: [
+        TimeSignatureChange(tick: 0, numerator: 4, denominator: 4),
+        TimeSignatureChange(tick: 120, numerator: 4, denominator: 4),
+        TimeSignatureChange(tick: 140, numerator: 4, denominator: 4),
+      ],
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final notesByMeasure = _pitchedNotesByMeasure(result.musicXml);
+    expect(notesByMeasure[0].last, isNot(contains('<tie type="start"/>')));
+    expect(notesByMeasure[1], isEmpty);
+    expect(notesByMeasure[2].first, isNot(contains('<tie type="stop"/>')));
+    expect(result.warnings, contains(MidiNotationWarning.rhythmQuantized));
+  });
+
+  test('等误差时按元素数与 complexity 选普通 32nd', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Tie break', 0, [_note(60, 0, 0, 20)]),
+      kind: MidiPartKind.strings,
+      totalTicks: 768,
+      ticksPerBeat: 192,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+    final note = _pitchedNotesByMeasure(result.musicXml).first.single;
+
+    expect(note, contains('<duration>24</duration>'));
+    expect(note, contains('<type>32nd</type>'));
+    expect(note, isNot(contains('<time-modification>')));
+  });
+
+  test('多个不同 duration 的 DP cache miss 共享累计状态上限', () {
+    final fixture = _singlePartFixture(
+      track: _track(
+        0,
+        'DP budget',
+        0,
+        List<MidiNote>.generate(
+          120,
+          (index) => _note(60 + index % 12, 0, 0, 10000 + index * 5),
+        ),
+      ),
+      kind: MidiPartKind.strings,
+      totalTicks: 20000,
+      timeSignatures: [
+        TimeSignatureChange(tick: 0, numerator: 100, denominator: 4),
+      ],
+    );
+
+    expect(
+      () => MidiToMusicXmlConverter().convertSync(
+        fixture.song,
+        catalog: fixture.catalog,
+        selectedPartIds: fixture.catalog.recommendedPartIds,
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('时值分解累计状态'),
+        ),
+      ),
+    );
+  });
 }
 
 ({MidiSongData song, MidiScoreCatalog catalog}) _pianoFixture() {
@@ -661,10 +763,11 @@ MidiSongData _song({
   required int totalTicks,
   List<TempoChange>? tempoChanges,
   List<TimeSignatureChange>? timeSignatures,
+  int ticksPerBeat = 480,
 }) => MidiSongData(
   fileName: fileName,
   format: 1,
-  ticksPerBeat: 480,
+  ticksPerBeat: ticksPerBeat,
   tracks: tracks,
   timeline: const [],
   tempoChanges:
@@ -673,7 +776,7 @@ MidiSongData _song({
       timeSignatures ??
       [TimeSignatureChange(tick: 0, numerator: 4, denominator: 4)],
   totalTicks: totalTicks,
-  totalDuration: totalTicks / 960,
+  totalDuration: totalTicks / (ticksPerBeat * 2),
 );
 
 MidiTrackInfo _track(
@@ -706,6 +809,7 @@ MidiNote _note(int noteNumber, int channel, int startTick, int endTick) =>
   String? label,
   List<TimeSignatureChange>? timeSignatures,
   List<TempoChange>? tempoChanges,
+  int ticksPerBeat = 480,
 }) {
   final part = MidiScorePart(
     id: 'source:${track.index}:${track.channels.first}',
@@ -724,6 +828,7 @@ MidiNote _note(int noteNumber, int channel, int startTick, int endTick) =>
       totalTicks: totalTicks,
       timeSignatures: timeSignatures,
       tempoChanges: tempoChanges,
+      ticksPerBeat: ticksPerBeat,
     ),
     catalog: MidiScoreCatalog(
       fingerprint: 'fixture',
@@ -820,3 +925,15 @@ int _notatedDurationTicks(String note, {required int ticksPerBeat}) {
   };
   return note.contains('<time-modification>') ? dotted * 2 ~/ 3 : dotted;
 }
+
+List<List<String>> _pitchedNotesByMeasure(String xml) =>
+    RegExp(r'<measure\b[^>]*>([\s\S]*?)</measure>')
+        .allMatches(xml)
+        .map((measureMatch) {
+          return RegExp(r'<note>([\s\S]*?)</note>')
+              .allMatches(measureMatch.group(1)!)
+              .map((noteMatch) => noteMatch.group(1)!)
+              .where((note) => !note.contains('<rest/>'))
+              .toList(growable: false);
+        })
+        .toList(growable: false);

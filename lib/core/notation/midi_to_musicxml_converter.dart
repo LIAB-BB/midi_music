@@ -36,6 +36,7 @@ class MidiToMusicXmlConverter {
   static const int _maxMeasures = 10000;
   static const int _maxGeneratedFragments = 1000000;
   static const int _maxNotationElements = 2000000;
+  static const int _maxDynamicStates = 200000;
 
   MidiNotationResult convertSync(
     MidiSongData song, {
@@ -149,6 +150,7 @@ class MidiToMusicXmlConverter {
     final budget = _ConversionBudget(
       maxFragments: _maxGeneratedFragments,
       maxNotationElements: _maxNotationElements,
+      maxDynamicStates: _maxDynamicStates,
     );
     final buffer = StringBuffer()
       ..writeln('<?xml version="1.0" encoding="UTF-8" standalone="no"?>')
@@ -271,7 +273,7 @@ class MidiToMusicXmlConverter {
     _ConversionBudget budget,
   ) {
     final candidates = _durationCandidates(ticksPerBeat);
-    final decomposer = _DurationDecomposer(candidates);
+    final decomposer = _DurationDecomposer(candidates, budget);
     final groupedByMeasure = List<Map<int, List<_NoteSegment>>>.generate(
       measures.length,
       (_) => <int, List<_NoteSegment>>{},
@@ -317,6 +319,7 @@ class MidiToMusicXmlConverter {
       }
       final quantizedEnd = quantizedStart + quantizedDuration.duration;
       final fragments = <_PendingFragment>[];
+      var hasBrokenCrossBarContinuity = false;
       var measureIndex = onsetMeasureIndex;
       while (measureIndex < measures.length &&
           measures[measureIndex].startTick < quantizedEnd) {
@@ -342,6 +345,8 @@ class MidiToMusicXmlConverter {
               notations: decomposition.notations,
             ),
           );
+        } else {
+          hasBrokenCrossBarContinuity = true;
         }
         measureIndex++;
       }
@@ -359,6 +364,23 @@ class MidiToMusicXmlConverter {
               ticksPerBeat / 48) {
         warnings.add(MidiNotationWarning.rhythmQuantized);
       }
+      final crossBarTies = <bool>[];
+      for (var index = 0; index < fragments.length - 1; index++) {
+        final current = fragments[index];
+        final next = fragments[index + 1];
+        final reachesMeasureEnd =
+            current.start + current.duration ==
+            measures[current.measureIndex].lengthTick;
+        final startsAtMeasureStart = next.start == 0;
+        final adjacentMeasures = next.measureIndex == current.measureIndex + 1;
+        final canTieAcrossBar =
+            adjacentMeasures && reachesMeasureEnd && startsAtMeasureStart;
+        crossBarTies.add(canTieAcrossBar);
+        if (!canTieAcrossBar) hasBrokenCrossBarContinuity = true;
+      }
+      if (hasBrokenCrossBarContinuity) {
+        warnings.add(MidiNotationWarning.rhythmQuantized);
+      }
       for (
         var fragmentIndex = 0;
         fragmentIndex < fragments.length;
@@ -371,8 +393,10 @@ class MidiToMusicXmlConverter {
               _NoteSegment(
                 noteNumber: note.noteNumber,
                 notations: fragment.notations,
-                tieStop: fragmentIndex > 0,
-                tieStart: fragmentIndex < fragments.length - 1,
+                tieStop: fragmentIndex > 0 && crossBarTies[fragmentIndex - 1],
+                tieStart:
+                    fragmentIndex < fragments.length - 1 &&
+                    crossBarTies[fragmentIndex],
               ),
             );
       }
@@ -744,6 +768,9 @@ class _PendingFragment {
     required this.start,
     required this.notations,
   });
+
+  int get duration =>
+      notations.fold<int>(0, (total, notation) => total + notation.ticks);
 }
 
 class _DurationDecomposition {
@@ -758,12 +785,15 @@ class _DurationDecomposition {
 class _ConversionBudget {
   final int maxFragments;
   final int maxNotationElements;
+  final int maxDynamicStates;
   int _fragments = 0;
   int _notationElements = 0;
+  int _dynamicStates = 0;
 
   _ConversionBudget({
     required this.maxFragments,
     required this.maxNotationElements,
+    required this.maxDynamicStates,
   });
 
   void addFragment() {
@@ -777,6 +807,13 @@ class _ConversionBudget {
     _notationElements += count;
     if (_notationElements > maxNotationElements) {
       throw StateError('MusicXML 记谱元素超过 $maxNotationElements 个，无法生成谱面');
+    }
+  }
+
+  void reserveDynamicStates(int count) {
+    _dynamicStates += count;
+    if (_dynamicStates > maxDynamicStates) {
+      throw StateError('时值分解累计状态超过 $maxDynamicStates 个，无法生成谱面');
     }
   }
 }
@@ -830,12 +867,12 @@ class _DurationCandidate {
 }
 
 class _DurationDecomposer {
-  static const int _maxDynamicStates = 200000;
   static const int _maxDecompositionElements = 2000000;
   final List<_DurationCandidate> _candidates;
+  final _ConversionBudget _budget;
   final Map<int, List<_DurationCandidate>?> _exactCache = {};
 
-  _DurationDecomposer(List<_DurationCandidate> candidates)
+  _DurationDecomposer(List<_DurationCandidate> candidates, this._budget)
     : _candidates = _deduplicateCandidates(candidates);
 
   _DurationDecomposition? nearest(int duration, int maximum) {
@@ -843,16 +880,20 @@ class _DurationDecomposer {
     final target = math.min(duration, maximum);
     final upper = math.min(maximum, target + _candidates.first.ticks);
     for (var error = 0; error <= _candidates.first.ticks; error++) {
+      final matches = <List<_DurationCandidate>>[];
       final shorter = target - error;
       if (shorter > 0 && shorter <= maximum) {
         final exact = _decomposeExact(shorter);
-        if (exact != null) return _DurationDecomposition(exact);
+        if (exact != null) matches.add(exact);
       }
-      if (error == 0) continue;
       final longer = target + error;
-      if (longer <= upper) {
+      if (error > 0 && longer <= upper) {
         final exact = _decomposeExact(longer);
-        if (exact != null) return _DurationDecomposition(exact);
+        if (exact != null) matches.add(exact);
+      }
+      if (matches.isNotEmpty) {
+        matches.sort(_compareDecompositions);
+        return _DurationDecomposition(matches.first);
       }
     }
     return null;
@@ -872,23 +913,23 @@ class _DurationDecomposer {
         .toList(growable: false);
     final scaledDuration = duration ~/ gcd;
     final largest = scaledCandidates.last;
-    var prefixCount = scaledDuration > _maxDynamicStates
-        ? (scaledDuration - _maxDynamicStates + largest - 1) ~/ largest
+    var prefixCount = scaledDuration > _budget.maxDynamicStates
+        ? (scaledDuration - _budget.maxDynamicStates + largest - 1) ~/ largest
         : 0;
     List<_DurationCandidate>? suffix;
     for (var attempt = 0; attempt <= 32 && prefixCount >= 0; attempt++) {
       final remainder = scaledDuration - prefixCount * largest;
-      if (remainder > _maxDynamicStates) break;
+      if (remainder > _budget.maxDynamicStates) break;
       suffix = _solveRemainder(remainder, scaledCandidates);
       if (suffix != null) break;
       prefixCount--;
     }
     if (suffix == null) {
-      if (scaledDuration <= _maxDynamicStates) {
+      if (scaledDuration <= _budget.maxDynamicStates) {
         _exactCache[duration] = null;
         return null;
       }
-      throw StateError('时值分解工作量超过 $_maxDynamicStates 个状态');
+      throw StateError('单次时值分解工作量超过 ${_budget.maxDynamicStates} 个状态');
     }
     if (prefixCount + suffix.length > _maxDecompositionElements) {
       throw StateError('单个时值的记谱元素超过 $_maxDecompositionElements 个');
@@ -910,6 +951,7 @@ class _DurationDecomposer {
     List<int> scaledCandidates,
   ) {
     if (target == 0) return const [];
+    _budget.reserveDynamicStates(target + 1);
     final bestCounts = List<int?>.filled(target + 1, null);
     final bestComplexities = List<int?>.filled(target + 1, null);
     final previousCandidate = List<int?>.filled(target + 1, null);
@@ -943,6 +985,37 @@ class _DurationDecomposer {
     result.sort((left, right) => right.ticks.compareTo(left.ticks));
     return result;
   }
+}
+
+int _compareDecompositions(
+  List<_DurationCandidate> left,
+  List<_DurationCandidate> right,
+) {
+  final elementCount = left.length.compareTo(right.length);
+  if (elementCount != 0) return elementCount;
+  final leftComplexity = left.fold<int>(
+    0,
+    (total, candidate) => total + candidate.complexity,
+  );
+  final rightComplexity = right.fold<int>(
+    0,
+    (total, candidate) => total + candidate.complexity,
+  );
+  final complexity = leftComplexity.compareTo(rightComplexity);
+  if (complexity != 0) return complexity;
+  for (var index = 0; index < left.length; index++) {
+    final ticks = right[index].ticks.compareTo(left[index].ticks);
+    if (ticks != 0) return ticks;
+    final type = left[index].type.compareTo(right[index].type);
+    if (type != 0) return type;
+    final dots = left[index].dots.compareTo(right[index].dots);
+    if (dots != 0) return dots;
+    final triplet = (left[index].triplet ? 1 : 0).compareTo(
+      right[index].triplet ? 1 : 0,
+    );
+    if (triplet != 0) return triplet;
+  }
+  return 0;
 }
 
 List<_DurationCandidate> _durationCandidates(int ticksPerBeat) {
