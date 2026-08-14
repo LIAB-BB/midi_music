@@ -1,0 +1,739 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:midi_music/core/import/musicxml_parser.dart';
+import 'package:midi_music/core/midi/measure_map.dart';
+import 'package:midi_music/core/midi/tempo_map.dart';
+import 'package:midi_music/core/notation/midi_to_musicxml_converter.dart';
+import 'package:midi_music/models/midi_score_part.dart';
+import 'package:midi_music/models/midi_track.dart';
+import 'package:midi_music/models/score_session.dart';
+
+typedef _MeasureAudit = ({
+  Map<int, List<(int, int)>> intervalsByVoice,
+  Map<int, int> durationByVoice,
+  List<int> backups,
+});
+
+void main() {
+  test('钢琴输出双谱表、和弦、休止和跨小节 tie', () {
+    final fixture = _pianoFixture();
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.musicXml, contains('<staves>2</staves>'));
+    expect(result.musicXml, contains('<clef number="1">'));
+    expect(result.musicXml, contains('<clef number="2">'));
+    expect(result.musicXml, contains('<chord/>'));
+    expect(result.musicXml, contains('<rest/>'));
+    expect(result.musicXml, contains('<tie type="start"/>'));
+    expect(result.musicXml, contains('<tie type="stop"/>'));
+    expect(
+      MusicXmlParser().parseDocumentString(result.musicXml).mappingStatus,
+      ScoreMappingStatus.complete,
+    );
+    final expected = MeasureMap(
+      song: fixture.song,
+      tempoMap: TempoMap(
+        ticksPerBeat: fixture.song.ticksPerBeat,
+        tempoChanges: fixture.song.tempoChanges,
+      ),
+    ).measures;
+    expect(
+      result.measures.map((measure) => (measure.startTick, measure.endTick)),
+      expected.map((measure) => (measure.startTick, measure.endTick)),
+    );
+  });
+
+  test('附点、三连音和超阈值误差使用候选时值并发出量化警告', () {
+    final track = _track(0, 'Violin', 0, [
+      _note(60, 0, 0, 720),
+      _note(62, 0, 960, 1280),
+      _note(64, 0, 1440, 1460),
+    ]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.musicXml, contains('<dot/>'));
+    expect(result.musicXml, contains('<time-modification>'));
+    expect(result.musicXml, contains('<actual-notes>3</actual-notes>'));
+    expect(result.warnings, contains(MidiNotationWarning.rhythmQuantized));
+  });
+
+  test('前置校验拒绝空选择、失效 ID、无音符声部和超限 MIDI', () {
+    final valid = _singlePartFixture(
+      track: _track(0, 'Violin', 0, [_note(60, 0, 0, 480)]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+    );
+    final converter = MidiToMusicXmlConverter();
+
+    expect(
+      () => converter.convertSync(
+        valid.song,
+        catalog: valid.catalog,
+        selectedPartIds: const {},
+      ),
+      throwsArgumentError,
+    );
+    expect(
+      () => converter.convertSync(
+        valid.song,
+        catalog: valid.catalog,
+        selectedPartIds: const {'missing'},
+      ),
+      throwsArgumentError,
+    );
+
+    final empty = _singlePartFixture(
+      track: _track(0, 'Silent', 0, const []),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+    );
+    expect(
+      () => converter.convertSync(
+        empty.song,
+        catalog: empty.catalog,
+        selectedPartIds: empty.catalog.recommendedPartIds,
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    final tooManyTracks = _song(
+      fileName: '65-tracks.mid',
+      tracks: List<MidiTrackInfo>.generate(
+        65,
+        (index) => _track(index, 'Track $index', index % 16, [
+          _note(60, index % 16, 0, 480),
+        ]),
+      ),
+      totalTicks: 1920,
+    );
+    expect(
+      () => converter.convertSync(
+        tooManyTracks,
+        catalog: valid.catalog,
+        selectedPartIds: valid.catalog.recommendedPartIds,
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    final sourceTracks = List<MidiTrackInfo>.generate(5, (trackIndex) {
+      final notes = List<MidiNote>.generate(
+        16,
+        (channel) => _note(60, channel, 0, 480),
+      );
+      return MidiTrackInfo(
+        index: trackIndex,
+        name: 'Format 0 slice $trackIndex',
+        channels: Set<int>.from(List<int>.generate(16, (index) => index)),
+        programByChannel: const {},
+        notes: notes,
+      );
+    });
+    final sourceParts = List<MidiScorePart>.generate(65, (index) {
+      final trackIndex = index ~/ 16;
+      final channel = index % 16;
+      return MidiScorePart(
+        id: 'source:$trackIndex:$channel',
+        label: 'Source $index',
+        kind: MidiPartKind.strings,
+        sources: [
+          MidiPartSource(trackIndex: trackIndex, channels: {channel}),
+        ],
+        noteCount: 1,
+        staffMode: MidiStaffMode.singleStaff,
+      );
+    });
+    final tooManySourcesCatalog = MidiScoreCatalog(
+      fingerprint: '65-sources',
+      parts: sourceParts,
+      recommendedPartIds: {sourceParts.first.id},
+      recommendedOrigin: MidiSelectionOrigin.automaticEnsemble,
+    );
+    expect(
+      () => converter.convertSync(
+        _song(
+          fileName: '65-sources.mid',
+          tracks: sourceTracks,
+          totalTicks: 1920,
+        ),
+        catalog: tooManySourcesCatalog,
+        selectedPartIds: {sourceParts.first.id},
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    final repeated = List<MidiNote>.filled(
+      500001,
+      _note(60, 0, 0, 480),
+      growable: false,
+    );
+    final tooManyNotes = _song(
+      fileName: 'too-many-notes.mid',
+      tracks: [_track(0, 'Huge', 0, repeated)],
+      totalTicks: 1920,
+    );
+    expect(
+      () => converter.convertSync(
+        tooManyNotes,
+        catalog: valid.catalog,
+        selectedPartIds: valid.catalog.recommendedPartIds,
+      ),
+      throwsA(isA<StateError>()),
+    );
+  });
+
+  test('多选声部生成等长总谱且 Format 0 严格按 track 和 channel 过滤', () {
+    final sharedTrack = MidiTrackInfo(
+      index: 0,
+      name: 'Shared',
+      channels: {0, 1},
+      programByChannel: const {0: 0, 1: 40},
+      notes: [_note(60, 0, 0, 480), _note(61, 1, 0, 480)],
+    );
+    final lower = _track(1, 'Lower', 2, [_note(48, 2, 0, 960)]);
+    final violin = _track(2, '<Violin & "Lead">', 3, [_note(67, 3, 480, 1200)]);
+    final pianoPart = MidiScorePart(
+      id: 'piano:0:0,1:2',
+      label: 'Piano & Keys',
+      kind: MidiPartKind.piano,
+      sources: [
+        MidiPartSource(trackIndex: 0, channels: {0}),
+        MidiPartSource(trackIndex: 1, channels: {2}),
+      ],
+      noteCount: 2,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+    final violinPart = MidiScorePart(
+      id: 'source:2:3',
+      label: '<Violin & "Lead">',
+      kind: MidiPartKind.strings,
+      sources: [
+        MidiPartSource(trackIndex: 2, channels: {3}),
+      ],
+      noteCount: 1,
+      staffMode: MidiStaffMode.singleStaff,
+    );
+    final song = _song(
+      fileName: '<Suite & "Finale">.mid',
+      tracks: [sharedTrack, lower, violin],
+      totalTicks: 3840,
+    );
+    final catalog = MidiScoreCatalog(
+      fingerprint: 'ensemble',
+      parts: [pianoPart, violinPart],
+      recommendedPartIds: {pianoPart.id, violinPart.id},
+      recommendedOrigin: MidiSelectionOrigin.automaticEnsemble,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      song,
+      catalog: catalog,
+      selectedPartIds: {pianoPart.id, violinPart.id},
+    );
+
+    expect(
+      RegExp(r'<score-part id=').allMatches(result.musicXml),
+      hasLength(2),
+    );
+    expect(_measureCountsByPart(result.musicXml).toSet(), {
+      result.measures.length,
+    });
+    expect(result.musicXml, contains('&lt;Suite &amp; &quot;Finale&quot;&gt;'));
+    expect(result.musicXml, contains('&lt;Violin &amp; &quot;Lead&quot;&gt;'));
+    expect(result.musicXml, isNot(contains('<alter>1</alter>')));
+    expect(
+      MusicXmlParser().parseDocumentString(result.musicXml).mappingStatus,
+      ScoreMappingStatus.complete,
+    );
+    expect(() => result.selectedPartIds.add('x'), throwsUnsupportedError);
+  });
+
+  test('拍号变化、低音、打击乐和未知乐器均保留可解析边界', () {
+    final bass = _track(0, '低音提琴', 0, [_note(43, 0, 0, 960)]);
+    final drums = _track(1, 'Drums', 9, [_note(36, 9, 1920, 2160)]);
+    final mystery = _track(2, '???', 2, [_note(72, 2, 2400, 2720)]);
+    final parts = [
+      _partForTrack(bass, MidiPartKind.strings),
+      _partForTrack(
+        drums,
+        MidiPartKind.percussion,
+        staffMode: MidiStaffMode.percussionStaff,
+      ),
+      _partForTrack(mystery, MidiPartKind.other),
+    ];
+    final song = _song(
+      fileName: 'meter-change.mid',
+      tracks: [bass, drums, mystery],
+      totalTicks: 3360,
+      timeSignatures: [
+        TimeSignatureChange(tick: 0, numerator: 4, denominator: 4),
+        TimeSignatureChange(tick: 1920, numerator: 3, denominator: 4),
+      ],
+    );
+    final catalog = MidiScoreCatalog(
+      fingerprint: 'meter',
+      parts: parts,
+      recommendedPartIds: parts.map((part) => part.id).toSet(),
+      recommendedOrigin: MidiSelectionOrigin.automaticEnsemble,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      song,
+      catalog: catalog,
+      selectedPartIds: catalog.recommendedPartIds,
+    );
+
+    expect(result.musicXml, contains('<sign>F</sign><line>4</line>'));
+    expect(result.musicXml, contains('<sign>percussion</sign>'));
+    expect(result.musicXml, contains('<unpitched>'));
+    expect(result.musicXml, contains('<beats>3</beats>'));
+    expect(
+      result.warnings,
+      containsAll({
+        MidiNotationWarning.irregularTimeSignature,
+        MidiNotationWarning.unknownInstrument,
+      }),
+    );
+    expect(_measureCountsByPart(result.musicXml).toSet(), {
+      result.measures.length,
+    });
+    expect(
+      MusicXmlParser().parseDocumentString(result.musicXml).mappingStatus,
+      ScoreMappingStatus.complete,
+    );
+  });
+
+  test('五路交错重叠明确降级且每个 voice 不重叠、时值守恒', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Dense', 0, [
+        _note(60, 0, 0, 1000),
+        _note(62, 0, 120, 1120),
+        _note(64, 0, 240, 1240),
+        _note(65, 0, 360, 1360),
+        _note(67, 0, 480, 1480),
+        _note(60, 0, 1920, 2920),
+        _note(62, 0, 2040, 3040),
+        _note(64, 0, 2160, 3160),
+        _note(65, 0, 2280, 3280),
+        _note(67, 0, 2400, 3400),
+      ]),
+      kind: MidiPartKind.strings,
+      totalTicks: 3840,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.warnings, contains(MidiNotationWarning.densePassage));
+    for (final audit in _auditMeasures(result.musicXml)) {
+      expect(audit.intervalsByVoice.length, lessThanOrEqualTo(4));
+      for (final intervals in audit.intervalsByVoice.values) {
+        for (var index = 1; index < intervals.length; index++) {
+          expect(
+            intervals[index].$1,
+            greaterThanOrEqualTo(intervals[index - 1].$2),
+          );
+        }
+      }
+      expect(audit.durationByVoice.values.toSet(), {1920});
+      expect(
+        audit.backups,
+        List<int>.filled(audit.durationByVoice.length - 1, 1920),
+      );
+    }
+  });
+
+  test('四个 voice 占满小节时第五路只从谱面丢弃并警告', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Full', 0, [
+        _note(60, 0, 0, 2500),
+        _note(62, 0, 120, 2500),
+        _note(64, 0, 240, 2500),
+        _note(65, 0, 360, 2500),
+        _note(67, 0, 960, 1200),
+      ]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.warnings, contains(MidiNotationWarning.densePassage));
+    expect(result.musicXml, isNot(contains('<step>G</step>')));
+    expect(fixture.song.tracks.single.notes, hasLength(5));
+    final audit = _auditFirstMeasure(result.musicXml);
+    expect(audit.durationByVoice.values.toSet(), {1920});
+  });
+
+  test('钢琴 voice 首个中间音没有前继 staff 时仍以 middle C 分谱表', () {
+    final track = _track(0, 'Piano', 0, [_note(59, 0, 0, 480)]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.piano,
+      totalTicks: 1920,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(
+      result.musicXml,
+      contains(
+        '<step>B</step>\n'
+        '          <octave>3</octave>\n'
+        '        </pitch>\n'
+        '        <duration>480</duration>\n'
+        '        <voice>1</voice>\n'
+        '        <type>quarter</type>\n'
+        '        <staff>2</staff>',
+      ),
+    );
+  });
+
+  test('钢琴同 onset 音符先合成和弦再按平均音高分 staff', () {
+    final track = _track(0, 'Piano', 0, [
+      _note(59, 0, 0, 480),
+      _note(61, 0, 0, 480),
+    ]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.piano,
+      totalTicks: 1920,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.musicXml, contains('<chord/>'));
+    expect(RegExp(r'<voice>1</voice>').allMatches(result.musicXml).length, 3);
+    expect(RegExp(r'<staff>1</staff>').allMatches(result.musicXml).length, 3);
+    expect(result.musicXml, isNot(contains('<backup>')));
+  });
+
+  test('小节尾不足最短时值的普通音符不会让转换崩溃', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Tail', 0, [_note(71, 0, 1900, 1910)]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.warnings, contains(MidiNotationWarning.rhythmQuantized));
+    expect(
+      MusicXmlParser().parseDocumentString(result.musicXml).mappingStatus,
+      ScoreMappingStatus.complete,
+    );
+  });
+
+  test('拍号变化切出小于 1/32 的短小节时仍保持边界可解析', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Irregular', 0, [_note(71, 0, 0, 10)]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+      timeSignatures: [
+        TimeSignatureChange(tick: 0, numerator: 4, denominator: 4),
+        TimeSignatureChange(tick: 20, numerator: 4, denominator: 4),
+      ],
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.measures.first.endTick, 20);
+    expect(
+      result.warnings,
+      contains(MidiNotationWarning.irregularTimeSignature),
+    );
+    expect(
+      MusicXmlParser().parseDocumentString(result.musicXml).mappingStatus,
+      ScoreMappingStatus.complete,
+    );
+  });
+
+  test('同 onset 不同时值的和弦音保留各自附点与三连音表示', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Split durations', 0, [
+        _note(60, 0, 0, 720),
+        _note(64, 0, 0, 320),
+      ]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.musicXml, contains('<chord/>'));
+    expect(RegExp(r'<dot/>').allMatches(result.musicXml), hasLength(1));
+    expect(
+      RegExp(r'<time-modification>').allMatches(result.musicXml),
+      hasLength(1),
+    );
+    expect(_auditFirstMeasure(result.musicXml).durationByVoice.values, [1920]);
+  });
+
+  test('钢琴中间音在跨小节相邻和弦中沿用前一 staff', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Piano', 0, [
+        _note(55, 0, 1440, 1920),
+        _note(61, 0, 1920, 2400),
+      ]),
+      kind: MidiPartKind.piano,
+      totalTicks: 3840,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final cSharp = RegExp(
+      r'<note>\s*<pitch>\s*<step>C</step>\s*<alter>1</alter>'
+      r'[\s\S]*?</pitch>[\s\S]*?<staff>(\d+)</staff>',
+    ).firstMatch(result.musicXml);
+    expect(cSharp?.group(1), '2');
+  });
+
+  test('小节中途 tempo 变化以 offset 保留在 MusicXML 中', () {
+    final track = _track(0, 'Tempo', 0, [_note(60, 0, 0, 1920)]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+      tempoChanges: [
+        TempoChange(tick: 0, microsecondsPerBeat: 500000),
+        TempoChange(tick: 960, microsecondsPerBeat: 400000),
+      ],
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(result.musicXml, contains('<sound tempo="120"/>'));
+    expect(result.musicXml, contains('<offset>960</offset>'));
+    expect(result.musicXml, contains('<sound tempo="150"/>'));
+  });
+}
+
+({MidiSongData song, MidiScoreCatalog catalog}) _pianoFixture() {
+  final upper = _track(0, 'Piano Upper', 0, [
+    _note(60, 0, 480, 960),
+    _note(64, 0, 480, 960),
+    _note(67, 0, 1800, 2100),
+  ]);
+  final lower = _track(1, 'Piano Lower', 1, [_note(48, 1, 0, 960)]);
+  final song = _song(
+    fileName: 'Piano & Friends.mid',
+    tracks: [upper, lower],
+    totalTicks: 3840,
+  );
+  final part = MidiScorePart(
+    id: 'piano:0:0,1:1',
+    label: 'Grand Piano',
+    kind: MidiPartKind.piano,
+    sources: [
+      MidiPartSource(trackIndex: 0, channels: {0}),
+      MidiPartSource(trackIndex: 1, channels: {1}),
+    ],
+    noteCount: 4,
+    staffMode: MidiStaffMode.grandStaff,
+  );
+  return (
+    song: song,
+    catalog: MidiScoreCatalog(
+      fingerprint: 'piano',
+      parts: [part],
+      recommendedPartIds: {part.id},
+      recommendedOrigin: MidiSelectionOrigin.automaticPiano,
+    ),
+  );
+}
+
+MidiSongData _song({
+  required String fileName,
+  required List<MidiTrackInfo> tracks,
+  required int totalTicks,
+  List<TempoChange>? tempoChanges,
+  List<TimeSignatureChange>? timeSignatures,
+}) => MidiSongData(
+  fileName: fileName,
+  format: 1,
+  ticksPerBeat: 480,
+  tracks: tracks,
+  timeline: const [],
+  tempoChanges:
+      tempoChanges ?? [TempoChange(tick: 0, microsecondsPerBeat: 500000)],
+  timeSignatureChanges:
+      timeSignatures ??
+      [TimeSignatureChange(tick: 0, numerator: 4, denominator: 4)],
+  totalTicks: totalTicks,
+  totalDuration: totalTicks / 960,
+);
+
+MidiTrackInfo _track(
+  int index,
+  String name,
+  int channel,
+  List<MidiNote> notes,
+) => MidiTrackInfo(
+  index: index,
+  name: name,
+  channels: {channel},
+  programByChannel: {channel: 0},
+  notes: notes,
+);
+
+MidiNote _note(int noteNumber, int channel, int startTick, int endTick) =>
+    MidiNote(
+      noteNumber: noteNumber,
+      velocity: 96,
+      channel: channel,
+      startTick: startTick,
+      endTick: endTick,
+    );
+
+({MidiSongData song, MidiScoreCatalog catalog}) _singlePartFixture({
+  required MidiTrackInfo track,
+  required MidiPartKind kind,
+  required int totalTicks,
+  MidiStaffMode staffMode = MidiStaffMode.singleStaff,
+  String? label,
+  List<TimeSignatureChange>? timeSignatures,
+  List<TempoChange>? tempoChanges,
+}) {
+  final part = MidiScorePart(
+    id: 'source:${track.index}:${track.channels.first}',
+    label: label ?? track.name,
+    kind: kind,
+    sources: [
+      MidiPartSource(trackIndex: track.index, channels: track.channels),
+    ],
+    noteCount: track.noteCount,
+    staffMode: staffMode,
+  );
+  return (
+    song: _song(
+      fileName: 'fixture.mid',
+      tracks: [track],
+      totalTicks: totalTicks,
+      timeSignatures: timeSignatures,
+      tempoChanges: tempoChanges,
+    ),
+    catalog: MidiScoreCatalog(
+      fingerprint: 'fixture',
+      parts: [part],
+      recommendedPartIds: {part.id},
+      recommendedOrigin: MidiSelectionOrigin.automaticEnsemble,
+    ),
+  );
+}
+
+MidiScorePart _partForTrack(
+  MidiTrackInfo track,
+  MidiPartKind kind, {
+  MidiStaffMode staffMode = MidiStaffMode.singleStaff,
+}) => MidiScorePart(
+  id: 'source:${track.index}:${track.channels.first}',
+  label: track.name,
+  kind: kind,
+  sources: [MidiPartSource(trackIndex: track.index, channels: track.channels)],
+  noteCount: track.noteCount,
+  staffMode: staffMode,
+);
+
+List<int> _measureCountsByPart(String xml) =>
+    RegExp(r'<part id="[^"]+">([\s\S]*?)</part>')
+        .allMatches(xml)
+        .map((match) {
+          final body = match.group(1)!;
+          return RegExp(r'<measure\b').allMatches(body).length;
+        })
+        .toList(growable: false);
+
+_MeasureAudit _auditFirstMeasure(String xml) => _auditMeasures(xml).first;
+
+List<_MeasureAudit> _auditMeasures(String xml) => RegExp(
+  r'<measure\b[^>]*>([\s\S]*?)</measure>',
+).allMatches(xml).map((match) => _auditMeasureBody(match.group(1)!)).toList();
+
+_MeasureAudit _auditMeasureBody(String measure) {
+  final tokens = RegExp(
+    r'<note>([\s\S]*?)</note>|<backup><duration>(\d+)</duration></backup>',
+  ).allMatches(measure);
+  final intervals = <int, List<(int, int)>>{};
+  final totals = <int, int>{};
+  final backups = <int>[];
+  var cursor = 0;
+  for (final token in tokens) {
+    final backup = token.group(2);
+    if (backup != null) {
+      final duration = int.parse(backup);
+      backups.add(duration);
+      cursor -= duration;
+      continue;
+    }
+    final note = token.group(1)!;
+    final duration = int.parse(
+      RegExp(r'<duration>(\d+)</duration>').firstMatch(note)!.group(1)!,
+    );
+    final voice = int.parse(
+      RegExp(r'<voice>(\d+)</voice>').firstMatch(note)!.group(1)!,
+    );
+    if (!note.contains('<chord/>')) {
+      totals[voice] = (totals[voice] ?? 0) + duration;
+      if (!note.contains('<rest/>')) {
+        intervals.putIfAbsent(voice, () => []).add((cursor, cursor + duration));
+      }
+      cursor += duration;
+    }
+  }
+  return (
+    intervalsByVoice: intervals,
+    durationByVoice: totals,
+    backups: backups,
+  );
+}

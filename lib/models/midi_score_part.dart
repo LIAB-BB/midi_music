@@ -22,9 +22,16 @@ enum MidiSelectionOrigin {
 }
 
 enum MidiNotationWarning {
+  /// MIDI tick 与可显示的记谱网格偏差超过容差。
   rhythmQuantized,
+
+  /// 乐器分类无法确定，已使用通用单谱表。
   unknownInstrument,
+
+  /// MIDI 在非初始位置改变拍号。
   irregularTimeSignature,
+
+  /// 重叠线条超过四个 voice，显示谱面已明确降级。
   densePassage,
 }
 
