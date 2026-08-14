@@ -237,6 +237,32 @@ class MidiPlayerController extends ChangeNotifier {
     _notifyListenersIfActive();
   }
 
+  /// 无损替换当前歌曲的交互谱面显示会话。
+  ///
+  /// 仅接受复用当前 [MidiSongData] 的可交互会话；播放位置、状态、速度与
+  /// 循环设置均保持不变。
+  bool updateScorePresentation(ScoreSession session) {
+    final tempoMap = _tempoMap;
+    if (_isDisposed ||
+        !identical(session.songData, _songData) ||
+        tempoMap == null ||
+        !session.hasInteractiveScore) {
+      return false;
+    }
+
+    final nextMap = MeasureMap(
+      song: session.songData,
+      tempoMap: tempoMap,
+      scoreMeasures: session.measures,
+    );
+    if (nextMap.measures.isEmpty) return false;
+
+    _scoreSession = session;
+    _measureMap = nextMap;
+    _notifyListenersIfActive();
+    return true;
+  }
+
   void _loadSongData(MidiSongData song, {String? songId, String? filePath}) {
     _resetPlaybackPosition();
     _songData = song;

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
+import 'package:midi_music/models/score_session.dart';
 
 import 'helpers/score_test_fixtures.dart';
 
@@ -86,6 +87,74 @@ void main() {
     expect(snapshots.every((snapshot) => snapshot.isConsistent), isTrue);
     expect(snapshots, hasLength(1));
     expect(snapshots.single.hasExplicitMeasures, isTrue);
+  });
+
+  test('替换 MIDI 显示谱不重置播放状态且只通知一次', () {
+    final player = readyPlayer();
+    addTearDown(player.dispose);
+    final presentation = interactiveSession();
+    final base = ScoreSession.midiOnly(
+      presentation.songData,
+      sourceFingerprint: 'asset:a.mid',
+    );
+    player.loadScore(base, songId: 'a');
+    player.setSpeed(1.25);
+    player.seekTo(0.25);
+    player.setLoopRange(start: 0.1, end: 0.4);
+    player.setLoopEnabled(enabled: true);
+    player.play();
+    final notifications = <_PlayerSnapshot>[];
+    player.addListener(
+      () => notifications.add(_PlayerSnapshot.capture(player)),
+    );
+
+    expect(player.updateScorePresentation(presentation), isTrue);
+
+    expect(player.scoreSession, same(presentation));
+    expect(player.songData, same(presentation.songData));
+    expect(player.currentTime, closeTo(0.25, 0.01));
+    expect(player.playbackSpeed, 1.25);
+    expect(player.loopStartTime, 0.1);
+    expect(player.loopEndTime, 0.4);
+    expect(player.isLoopEnabled, isTrue);
+    expect(player.isPlaying, isTrue);
+    expect(notifications, hasLength(1));
+    expect(notifications.single.isConsistent, isTrue);
+    expect(notifications.single.hasExplicitMeasures, isTrue);
+  });
+
+  test('拒绝无效显示谱替换且不通知或改变旧会话', () {
+    final player = readyPlayer();
+    addTearDown(player.dispose);
+    final presentation = interactiveSession();
+    final base = ScoreSession.midiOnly(presentation.songData);
+    player.loadScore(base);
+    var notifications = 0;
+    player.addListener(() => notifications++);
+
+    expect(player.updateScorePresentation(interactiveSession()), isFalse);
+    expect(
+      player.updateScorePresentation(
+        ScoreSession.midiOnly(presentation.songData),
+      ),
+      isFalse,
+    );
+
+    expect(notifications, 0);
+    expect(player.scoreSession, same(base));
+    expect(player.measureMap?.scoreMeasures, isEmpty);
+  });
+
+  test('未加载歌曲时拒绝显示谱替换且不通知', () {
+    final player = readyPlayer();
+    addTearDown(player.dispose);
+    var notifications = 0;
+    player.addListener(() => notifications++);
+
+    expect(player.updateScorePresentation(interactiveSession()), isFalse);
+
+    expect(notifications, 0);
+    expect(player.scoreSession, isNull);
   });
 }
 
