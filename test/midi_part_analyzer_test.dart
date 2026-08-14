@@ -60,6 +60,18 @@ void main() {
     expect(catalog.recommendedPartIds, {piano.id});
   });
 
+  test('乱序钢琴轨道仍生成固定排序的稳定 ID', () {
+    final catalog = MidiPartAnalyzer().analyze(
+      _songWithTracks([
+        _track(8, name: 'Piano', notes: [_note(3, 72)], programs: const {3: 0}),
+        _track(2, name: 'upper', notes: [_note(5, 48)], programs: const {5: 0}),
+      ]),
+      fingerprint: 'unordered-piano',
+    );
+
+    expect(catalog.parts.single.id, 'piano:2:5,8:3');
+  });
+
   test('模型对构造时输入的集合进行防御性复制', () {
     final channels = <int>{0};
     final sources = <MidiPartSource>[
@@ -190,6 +202,19 @@ void main() {
       percussionOnly.recommendedOrigin,
       MidiSelectionOrigin.percussionFallback,
     );
+  });
+
+  test('空名打击乐 channel 不使用旋律 GM program 作为标签', () {
+    final catalog = MidiPartAnalyzer().analyze(
+      _songWithTracks([
+        _track(0, notes: [_note(9, 36)], programs: const {9: 0}),
+      ]),
+      fingerprint: 'unnamed-percussion',
+    );
+
+    final percussion = catalog.parts.single;
+    expect(percussion.kind, MidiPartKind.percussion);
+    expect(percussion.label, '打击乐');
   });
 
   test('upper、lower 和中英文左右手单声道轨道识别为钢琴', () {

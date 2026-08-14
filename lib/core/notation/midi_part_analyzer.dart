@@ -250,6 +250,7 @@ const _maximumNoteCount = 500000;
 String _labelForSource(_AnalyzedSource source) {
   final name = source.track.name.trim();
   if (name.isNotEmpty && _kindForTrackName(name) == source.kind) return name;
+  if (source.kind == MidiPartKind.percussion) return _labelForKind(source.kind);
   final programLabel = _labelForProgram(source.program);
   return programLabel ?? _labelForKind(source.kind);
 }
