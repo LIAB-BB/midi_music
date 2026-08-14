@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/import/musicxml_parser.dart';
 import 'package:midi_music/core/import/score_import_service.dart';
+import 'package:midi_music/models/midi_score_part.dart';
 import 'package:midi_music/models/score_session.dart';
 
 void main() {
@@ -41,6 +42,45 @@ void main() {
     expect(session.musicXml, isNull);
     expect(session.mappingStatus, ScoreMappingStatus.unavailable);
     expect(session.hasInteractiveScore, isFalse);
+  });
+
+  test('MIDI 记谱会话对显示元数据集合进行防御性复制', () {
+    final selectedPartIds = <String>{'piano:0:0'};
+    final notationWarnings = <MidiNotationWarning>{
+      MidiNotationWarning.rhythmQuantized,
+    };
+    final session = ScoreSession(
+      songData: MusicXmlParser().parseDocumentString(_backupMusicXml).songData,
+      musicXml: _backupMusicXml,
+      sourceType: ScoreSourceType.midiNotation,
+      measures: const [
+        ScoreMeasureBoundary(
+          ordinal: 1,
+          label: '1',
+          startTick: 0,
+          endTick: 960,
+        ),
+      ],
+      mappingStatus: ScoreMappingStatus.complete,
+      sourceFingerprint: 'asset:a.mid',
+      selectedPartIds: selectedPartIds,
+      notationWarnings: notationWarnings,
+    );
+
+    selectedPartIds.add('source:1:1');
+    notationWarnings.add(MidiNotationWarning.densePassage);
+
+    expect(session.sourceFingerprint, 'asset:a.mid');
+    expect(session.selectedPartIds, {'piano:0:0'});
+    expect(session.notationWarnings, {MidiNotationWarning.rhythmQuantized});
+    expect(
+      () => session.selectedPartIds.add('source:2:2'),
+      throwsUnsupportedError,
+    );
+    expect(
+      () => session.notationWarnings.add(MidiNotationWarning.densePassage),
+      throwsUnsupportedError,
+    );
   });
 
   test('backup 不会让下一书写小节退回前一小节', () {

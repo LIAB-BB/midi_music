@@ -1,6 +1,7 @@
+import 'midi_score_part.dart';
 import 'midi_track.dart';
 
-enum ScoreSourceType { midiOnly, musicXml, pdfOmr }
+enum ScoreSourceType { midiOnly, midiNotation, musicXml, pdfOmr }
 
 enum ScoreMappingStatus { unavailable, complete, partial }
 
@@ -42,20 +43,56 @@ class ScoreSession {
   final List<ScoreMeasureBoundary> measures;
   final ScoreMappingStatus mappingStatus;
   final Set<ScoreWarning> warnings;
+  final String? sourceFingerprint;
+  final Set<String> selectedPartIds;
+  final Set<MidiNotationWarning> notationWarnings;
 
-  const ScoreSession({
+  factory ScoreSession({
+    required MidiSongData songData,
+    required ScoreSourceType sourceType,
+    String? musicXml,
+    List<ScoreMeasureBoundary> measures = const [],
+    required ScoreMappingStatus mappingStatus,
+    Set<ScoreWarning> warnings = const {},
+    String? sourceFingerprint,
+    Set<String> selectedPartIds = const {},
+    Set<MidiNotationWarning> notationWarnings = const {},
+  }) => ScoreSession._(
+    songData: songData,
+    musicXml: musicXml,
+    sourceType: sourceType,
+    measures: List<ScoreMeasureBoundary>.unmodifiable(
+      List<ScoreMeasureBoundary>.of(measures),
+    ),
+    mappingStatus: mappingStatus,
+    warnings: Set<ScoreWarning>.unmodifiable(Set<ScoreWarning>.of(warnings)),
+    sourceFingerprint: sourceFingerprint,
+    selectedPartIds: Set<String>.unmodifiable(Set<String>.of(selectedPartIds)),
+    notationWarnings: Set<MidiNotationWarning>.unmodifiable(
+      Set<MidiNotationWarning>.of(notationWarnings),
+    ),
+  );
+
+  const ScoreSession._({
     required this.songData,
+    required this.musicXml,
     required this.sourceType,
-    this.musicXml,
-    this.measures = const [],
+    required this.measures,
     required this.mappingStatus,
-    this.warnings = const {},
+    required this.warnings,
+    required this.sourceFingerprint,
+    required this.selectedPartIds,
+    required this.notationWarnings,
   });
 
-  factory ScoreSession.midiOnly(MidiSongData songData) => ScoreSession(
+  factory ScoreSession.midiOnly(
+    MidiSongData songData, {
+    String? sourceFingerprint,
+  }) => ScoreSession(
     songData: songData,
     sourceType: ScoreSourceType.midiOnly,
     mappingStatus: ScoreMappingStatus.unavailable,
+    sourceFingerprint: sourceFingerprint,
   );
 
   bool get hasInteractiveScore =>
