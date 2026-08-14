@@ -810,6 +810,50 @@ void main() {
     expect(_auditFirstMeasure(result.musicXml).durationByVoice.values, [1920]);
   });
 
+  test('公共端点差不可记谱时受控量化且输出稳定', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Short chord', 0, [
+        _note(60, 0, 0, 40),
+        _note(64, 0, 0, 60),
+      ]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+    );
+    final converter = MidiToMusicXmlConverter();
+
+    final first = converter.convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+    final second = converter.convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    expect(first.musicXml, second.musicXml);
+    expect(first.warnings, contains(MidiNotationWarning.rhythmQuantized));
+    expect(first.musicXml, contains('<chord/>'));
+    final pitchedNotes = _pitchedNotesByMeasure(first.musicXml).first;
+    expect(
+      _totalNoteDuration(_notesAtPitch(pitchedNotes, step: 'C', octave: 4)),
+      40,
+    );
+    expect(
+      _totalNoteDuration(_notesAtPitch(pitchedNotes, step: 'E', octave: 4)),
+      40,
+    );
+    final audit = _auditFirstMeasure(first.musicXml);
+    expect(audit.backups, isEmpty);
+    expect(audit.forwards, isEmpty);
+    expect(audit.durationByVoice, {1: 1920});
+    expect(
+      MusicXmlParser().parseDocumentString(first.musicXml).mappingStatus,
+      ScoreMappingStatus.complete,
+    );
+  });
+
   test('钢琴中间音在跨小节相邻和弦中沿用前一 staff', () {
     final fixture = _singlePartFixture(
       track: _track(0, 'Piano', 0, [

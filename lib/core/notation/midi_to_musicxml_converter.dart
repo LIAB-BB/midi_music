@@ -443,13 +443,17 @@ class MidiToMusicXmlConverter {
         .map((grouped) {
           final events = grouped.entries.map((entry) {
             final segments =
-                _alignChordNotationBoundaries(entry.value, decomposer, budget)
-                  ..sort((left, right) {
-                    final duration = right.duration.compareTo(left.duration);
-                    return duration != 0
-                        ? duration
-                        : left.noteNumber.compareTo(right.noteNumber);
-                  });
+                _alignChordNotationBoundaries(
+                  entry.value,
+                  decomposer,
+                  budget,
+                  warnings,
+                )..sort((left, right) {
+                  final duration = right.duration.compareTo(left.duration);
+                  return duration != 0
+                      ? duration
+                      : left.noteNumber.compareTo(right.noteNumber);
+                });
             final duration = segments
                 .map((segment) => segment.duration)
                 .reduce(math.max);
@@ -501,6 +505,7 @@ class MidiToMusicXmlConverter {
     List<_NoteSegment> segments,
     _DurationDecomposer decomposer,
     _ConversionBudget budget,
+    Set<MidiNotationWarning> warnings,
   ) {
     final endpoints =
         segments.map((segment) => segment.duration).toSet().toList()..sort();
@@ -517,7 +522,8 @@ class MidiToMusicXmlConverter {
         intervalDuration,
       );
       if (decomposition == null || decomposition.duration != intervalDuration) {
-        throw StateError('无法对齐同 onset 和弦的记谱时值');
+        warnings.add(MidiNotationWarning.rhythmQuantized);
+        continue;
       }
       for (var index = 0; index < segments.length; index++) {
         if (segments[index].duration >= endpoint) {
