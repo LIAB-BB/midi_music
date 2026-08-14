@@ -180,7 +180,7 @@ flutter test
 - `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，保留组件不作为练习页主视图；PDF 导入须先经 OMR 生成 MusicXML
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，Flutter 3.44.1 / Dart 3.12.1 基线当前全量 263 项)
+### Tests (`test/`，Flutter 3.44.1 / Dart 3.12.1 基线当前全量 264 项)
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
@@ -200,7 +200,7 @@ flutter test
 - `score_practice_page_test.dart` / `home_score_navigation_test.dart` — 自动记谱、生成/错误/重试、无损换谱、默认保存、竞态隔离和首页导入导航回归
 - `score_part_picker_test.dart` — 声部多选、默认动作、输入快照、中文语义及横屏大字号滚动回归
 - `widget_test.dart` — App smoke test
-- `integration_test/midi_notation_render_test.dart` — 不计入上述 263 项；在 iOS 真机用生产 `InteractiveScoreView` 等待本地 OSMD `ready` 和非空 layout，覆盖 dotted/triplet/tie、multi-voice、grand-staff 与 percussion fixture
+- `integration_test/midi_notation_render_test.dart` — 不计入上述 264 项；在 iOS WebView 用生产 `InteractiveScoreView` 等待本地 OSMD `ready` 和非空 layout，覆盖 dotted/triplet/tie、multi-voice、grand-staff、percussion、CSS rect、resize 与非首小节 gesture 命中
 
 测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
 

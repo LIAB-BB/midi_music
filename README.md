@@ -105,7 +105,7 @@ docs/
 
 当前验证基线：Flutter 3.44.1 / Dart 3.12.1。
 
-当前 `flutter test` 共 263 项；真机 OSMD fixture 另由
+当前 `flutter test` 共 264 项；真机 OSMD fixture 另由
 `integration_test/midi_notation_render_test.dart` 验证 dotted/triplet/tie、
 multi-voice、grand-staff 和 percussion 布局。
 

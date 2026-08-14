@@ -56,6 +56,6 @@ flutter test
 - `lib/core/follow/`：麦克风输入、onset 检测、跟随算法、跟随会话生命周期。
 - `lib/models/`：MIDI 曲目、轨道、音符、时间线事件和速度/拍号模型。
 - `lib/ui/`：Cupertino UI 页面和黑金主题组件。
-- `test/`：当前 Flutter 3.44.1 / Dart 3.12.1 基线共 263 项，包含声部分析、默认选择、MIDI→MusicXML、记谱服务、设置迁移、无损换谱和 App 回归；`integration_test/midi_notation_render_test.dart` 另做真实本地 OSMD 布局验收。
+- `test/`：当前 Flutter 3.44.1 / Dart 3.12.1 基线共 264 项，包含声部分析、默认选择、MIDI→MusicXML、记谱服务、设置迁移、无损换谱和 App 回归；`integration_test/midi_notation_render_test.dart` 另做真实本地 OSMD 布局、CSS 坐标、resize 和点击验收。
 
 更多模块风险等级、接口细节和测试说明见 `CLAUDE.md`。

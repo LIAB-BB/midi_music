@@ -59,6 +59,22 @@ void main() {
     expect(script, isNot(contains('drawTitle: true')));
   });
 
+  test('桥接按 SVG viewBox 和实际 client rect 归一化小节联合边界', () async {
+    final script = await rootBundle.loadString(
+      'assets/score_renderer/score_bridge.js',
+    );
+
+    expect(script, contains('const createDocumentMapper'));
+    expect(script, contains('svg.viewBox.baseVal'));
+    expect(script, contains('svg.getBoundingClientRect()'));
+    expect(script, contains('layer.getBoundingClientRect()'));
+    expect(
+      script,
+      contains('renderer.GraphicSheet.MusicPages[0]?.PositionAndShape'),
+    );
+    expect(script, isNot(contains('EngravingRules.unit')));
+  });
+
   test('桥接跟踪活动指针且取消手势不会被视为点击', () async {
     final script = await rootBundle.loadString(
       'assets/score_renderer/score_bridge.js',

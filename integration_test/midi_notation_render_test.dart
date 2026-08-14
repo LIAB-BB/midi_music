@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
@@ -9,6 +10,7 @@ import 'package:midi_music/core/score/score_renderer_protocol.dart';
 import 'package:midi_music/models/midi_score_part.dart';
 import 'package:midi_music/models/midi_track.dart';
 import 'package:midi_music/ui/widgets/interactive_score_view.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -33,51 +35,69 @@ void main() {
       var receivedReady = false;
       var receivedLayout = false;
       var renderedOrdinals = <int>[];
+      var renderedRects = <ScoreMeasureRect>[];
+      Completer<void>? resizeFinished;
 
-      await tester.pumpWidget(
-        CupertinoApp(
-          home: InteractiveScoreView(
-            key: ValueKey<String>(entry.key),
-            musicXml: result.musicXml,
-            onMessage: (message) {
-              switch (message.type) {
-                case ScoreRendererMessageType.ready:
-                  receivedReady = true;
-                case ScoreRendererMessageType.layout:
-                  if (!message.layoutComplete) return;
-                  renderedOrdinals = message.measureRects
-                      .map((rect) => rect.ordinal)
-                      .toList(growable: false);
-                  if (!_sameOrdinals(renderedOrdinals, expectedOrdinals)) {
-                    if (!finished.isCompleted) {
-                      finished.completeError(
-                        StateError(
-                          '${entry.key} 小节布局序号不匹配: '
-                          '$renderedOrdinals != $expectedOrdinals',
-                        ),
-                      );
-                    }
-                    return;
-                  }
-                  receivedLayout = true;
-                case ScoreRendererMessageType.error:
-                  if (!finished.isCompleted) {
-                    finished.completeError(
-                      StateError(
-                        '${entry.key} OSMD 错误: ${message.errorMessage}',
-                      ),
-                    );
-                  }
-                case ScoreRendererMessageType.gestureEnd:
-                  break;
+      void handleMessage(ScoreRendererMessage message) {
+        switch (message.type) {
+          case ScoreRendererMessageType.ready:
+            receivedReady = true;
+          case ScoreRendererMessageType.layout:
+            if (!message.layoutComplete) return;
+            renderedRects = message.measureRects;
+            renderedOrdinals = message.measureRects
+                .map((rect) => rect.ordinal)
+                .toList(growable: false);
+            if (!_sameOrdinals(renderedOrdinals, expectedOrdinals)) {
+              final error = StateError(
+                '${entry.key} 小节布局序号不匹配: '
+                '$renderedOrdinals != $expectedOrdinals',
+              );
+              if (resizeFinished case final resize? when !resize.isCompleted) {
+                resize.completeError(error);
+              } else if (!finished.isCompleted) {
+                finished.completeError(error);
               }
-              if (receivedReady && receivedLayout && !finished.isCompleted) {
-                finished.complete();
-              }
-            },
-          ),
-        ),
-      );
+              return;
+            }
+            receivedLayout = true;
+            if (resizeFinished case final resize? when !resize.isCompleted) {
+              resize.complete();
+            }
+          case ScoreRendererMessageType.error:
+            final error = StateError(
+              '${entry.key} OSMD 错误: ${message.errorMessage}',
+            );
+            if (resizeFinished case final resize? when !resize.isCompleted) {
+              resize.completeError(error);
+            } else if (!finished.isCompleted) {
+              finished.completeError(error);
+            }
+          case ScoreRendererMessageType.gestureEnd:
+            break;
+        }
+        if (receivedReady && receivedLayout && !finished.isCompleted) {
+          finished.complete();
+        }
+      }
+
+      Widget buildScore({double? width}) {
+        final score = InteractiveScoreView(
+          key: ValueKey<String>(entry.key),
+          musicXml: result.musicXml,
+          onMessage: handleMessage,
+        );
+        return CupertinoApp(
+          home: width == null
+              ? score
+              : Align(
+                  alignment: Alignment.topCenter,
+                  child: SizedBox(width: width, child: score),
+                ),
+        );
+      }
+
+      await tester.pumpWidget(buildScore());
       await tester.pump();
       await tester.runAsync(
         () => finished.future.timeout(
@@ -90,10 +110,145 @@ void main() {
       expect(receivedReady, isTrue, reason: entry.key);
       expect(receivedLayout, isTrue, reason: entry.key);
       expect(renderedOrdinals, expectedOrdinals, reason: entry.key);
+      final scoreWidth = tester
+          .getSize(find.byKey(const Key('interactive-score-webview')))
+          .width;
+      final furthestRight = renderedRects
+          .map((rect) => rect.left + rect.width)
+          .reduce((left, right) => left > right ? left : right);
+      expect(
+        furthestRight,
+        greaterThan(scoreWidth * 0.75),
+        reason: '${entry.key} 小节 rect 必须使用 WebView 文档 CSS 坐标',
+      );
+
+      if (entry.key == 'dotted-triplet-tie') {
+        final surface = find.byKey(const Key('interactive-score-webview'));
+        resizeFinished = Completer<void>();
+        final resizedWidth = scoreWidth * 0.72;
+        await tester.pumpWidget(buildScore(width: resizedWidth));
+        await tester.pump();
+        await tester.runAsync(() async {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          await resizeFinished!.future.timeout(
+            const Duration(seconds: 15),
+            onTimeout: () => throw TimeoutException(
+              'WebView resize 后 15 秒内未收到 complete layout',
+            ),
+          );
+        });
+        final actualResizedWidth = tester.getSize(surface).width;
+        final resizedFurthestRight = renderedRects
+            .map((rect) => rect.left + rect.width)
+            .reduce((left, right) => left > right ? left : right);
+        expect(
+          resizedFurthestRight,
+          greaterThan(actualResizedWidth * 0.75),
+          reason: 'resize 后 rect 必须重新映射到新的 CSS 宽度',
+        );
+        expect(
+          resizedFurthestRight,
+          lessThan(furthestRight - 20),
+          reason: 'resize 后必须发布新 layout，不能沿用旧坐标',
+        );
+      }
 
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
     }
+  }, skip: !Platform.isIOS);
+
+  testWidgets('真实 WKWebView 的非首小节点击与 layout 使用同一文档坐标', (tester) async {
+    final renderCase = _renderCases()['dotted-triplet-tie']!;
+    final layoutFinished = Completer<ScoreRendererMessage>();
+    final gestureFinished = Completer<ScoreRendererMessage>();
+    final controller = WebViewController();
+    await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+    await controller.addJavaScriptChannel(
+      'ScoreBridge',
+      onMessageReceived: (raw) {
+        final message = ScoreRendererMessage.parse(raw.message);
+        switch (message.type) {
+          case ScoreRendererMessageType.layout:
+            if (message.layoutComplete && !layoutFinished.isCompleted) {
+              layoutFinished.complete(message);
+            }
+          case ScoreRendererMessageType.gestureEnd:
+            if (!gestureFinished.isCompleted) {
+              gestureFinished.complete(message);
+            }
+          case ScoreRendererMessageType.error:
+            final error = StateError('OSMD bridge 错误: ${message.errorMessage}');
+            if (!layoutFinished.isCompleted) {
+              layoutFinished.completeError(error);
+            }
+            if (!gestureFinished.isCompleted) {
+              gestureFinished.completeError(error);
+            }
+          case ScoreRendererMessageType.ready:
+            break;
+        }
+      },
+    );
+    await controller.setNavigationDelegate(
+      NavigationDelegate(
+        onPageFinished: (url) {
+          if (!url.endsWith('/assets/score_renderer/index.html')) return;
+          final encoded = base64Encode(utf8.encode(renderCase.result.musicXml));
+          unawaited(
+            controller.runJavaScript(
+              'window.scoreBridge.loadMusicXmlBase64(${jsonEncode(encoded)})',
+            ),
+          );
+        },
+      ),
+    );
+    await controller.loadFlutterAsset('assets/score_renderer/index.html');
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: WebViewWidget(
+          key: const Key('gesture-contract-webview'),
+          controller: controller,
+        ),
+      ),
+    );
+    await tester.pump();
+    final layout = (await tester.runAsync(
+      () => layoutFinished.future.timeout(const Duration(seconds: 15)),
+    ))!;
+    final target = layout.measureRects[1];
+
+    await controller.runJavaScript('''
+      (() => {
+        const target = document.querySelector('[data-ordinal="2"]');
+        if (!target) throw new Error('找不到第二小节 overlay');
+        const rect = target.getBoundingClientRect();
+        const options = {
+          bubbles: true,
+          pointerId: 1,
+          isPrimary: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        };
+        document.dispatchEvent(new PointerEvent('pointerdown', options));
+        document.dispatchEvent(new PointerEvent('pointerup', options));
+      })();
+    ''');
+    final gesture = (await tester.runAsync(
+      () => gestureFinished.future.timeout(const Duration(seconds: 5)),
+    ))!;
+
+    expect(
+      target.contains(gesture.tapX!, gesture.tapY!),
+      isTrue,
+      reason: 'gestureEnd 必须命中第二小节的 published layout rect',
+    );
+    expect(gesture.gesturePointerCount, 1);
+    expect(gesture.gestureTravel, 0);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   }, skip: !Platform.isIOS);
 }
 

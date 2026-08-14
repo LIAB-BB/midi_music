@@ -39,18 +39,49 @@
     layer.replaceChildren();
   };
 
+  const clientToLayer = (clientX, clientY) => {
+    const layerRect = layer.getBoundingClientRect();
+    return { x: clientX - layerRect.left, y: clientY - layerRect.top };
+  };
+
+  const createDocumentMapper = (renderer) => {
+    const svg = score.querySelector('svg');
+    const pageBox = renderer.GraphicSheet.MusicPages[0]?.PositionAndShape;
+    if (!svg || !pageBox || !pageBox.Size || pageBox.Size.width <= 0) {
+      throw new Error('无法定位 OSMD SVG 页面');
+    }
+    const viewBox = svg.viewBox.baseVal;
+    const svgRect = svg.getBoundingClientRect();
+    if (viewBox.width <= 0 || viewBox.height <= 0 || svgRect.width <= 0 || svgRect.height <= 0) {
+      throw new Error('OSMD SVG 页面尺寸无效');
+    }
+    const pageScale = viewBox.width / pageBox.Size.width;
+    const scaleX = svgRect.width / viewBox.width;
+    const scaleY = svgRect.height / viewBox.height;
+    const pageX = pageBox.AbsolutePosition?.x || 0;
+    const pageY = pageBox.AbsolutePosition?.y || 0;
+    return (x, y) => clientToLayer(
+      svgRect.left + (x - pageX) * pageScale * scaleX,
+      svgRect.top + (y - pageY) * pageScale * scaleY,
+    );
+  };
+
   const measureRects = (renderer) => {
-    const unit = opensheetmusicdisplay.EngravingRules.unit;
+    const toDocument = createDocumentMapper(renderer);
     return renderer.GraphicSheet.MeasureList.map((staffMeasures, index) => {
       const boxes = staffMeasures
         .filter(Boolean)
         .map((measure) => measure.PositionAndShape)
         .filter(Boolean);
       if (boxes.length === 0) return null;
-      const left = Math.min(...boxes.map((box) => (box.AbsolutePosition.x + box.BorderLeft) * unit));
-      const top = Math.min(...boxes.map((box) => (box.AbsolutePosition.y + box.BorderTop) * unit));
-      const right = Math.max(...boxes.map((box) => (box.AbsolutePosition.x + box.BorderRight) * unit));
-      const bottom = Math.max(...boxes.map((box) => (box.AbsolutePosition.y + box.BorderBottom) * unit));
+      const corners = boxes.flatMap((box) => [
+        toDocument(box.AbsolutePosition.x + box.BorderLeft, box.AbsolutePosition.y + box.BorderTop),
+        toDocument(box.AbsolutePosition.x + box.BorderRight, box.AbsolutePosition.y + box.BorderBottom),
+      ]);
+      const left = Math.min(...corners.map((point) => point.x));
+      const top = Math.min(...corners.map((point) => point.y));
+      const right = Math.max(...corners.map((point) => point.x));
+      const bottom = Math.max(...corners.map((point) => point.y));
       return { ordinal: index + 1, left, top, width: right - left, height: bottom - top };
     }).filter(Boolean);
   };
@@ -139,9 +170,10 @@
   const finishGesture = (event) => {
     activePointers.delete(event.pointerId);
     if (!down || event.pointerId !== primaryPointerId) return;
+    const point = clientToLayer(event.clientX, event.clientY);
     const gesture = {
-      x: event.clientX + window.scrollX,
-      y: event.clientY + window.scrollY,
+      x: point.x,
+      y: point.y,
       travel: maxTravel,
       durationMs: Math.round(performance.now() - down.at),
       pointerCount: Math.min(10, Math.max(1, maxPointerCount)),
@@ -162,9 +194,10 @@
       activePointers.delete(event.pointerId);
       return;
     }
+    const point = clientToLayer(event.clientX, event.clientY);
     const gesture = {
-      x: event.clientX + window.scrollX,
-      y: event.clientY + window.scrollY,
+      x: point.x,
+      y: point.y,
       travel: Math.max(maxTravel, 11),
       durationMs: Math.round(performance.now() - down.at),
       pointerCount: Math.min(10, Math.max(1, maxPointerCount)),
