@@ -156,6 +156,99 @@ void main() {
     expect(notifications, 0);
     expect(player.scoreSession, isNull);
   });
+
+  test('拒绝 ordinal 重复或乱序的交互显示谱且保持旧映射', () {
+    final source = interactiveSession();
+    final first = source.measures.first;
+    final second = source.measures[1];
+    final duplicateOrdinal = _presentationWithMeasures(source, [
+      first,
+      ScoreMeasureBoundary(
+        ordinal: first.ordinal,
+        label: second.label,
+        startTick: second.startTick,
+        endTick: second.endTick,
+      ),
+    ]);
+    final unordered = _presentationWithMeasures(source, [second, first]);
+
+    _expectRejectedPresentation(source, duplicateOrdinal);
+    _expectRejectedPresentation(source, unordered);
+  });
+
+  test('拒绝越界、反向或重叠的交互显示谱且保持旧映射', () {
+    final source = interactiveSession();
+    final first = source.measures.first;
+    final second = source.measures[1];
+    final negativeStart = _presentationWithMeasures(source, [
+      ScoreMeasureBoundary(
+        ordinal: first.ordinal,
+        label: first.label,
+        startTick: -1,
+        endTick: first.endTick,
+      ),
+      second,
+    ]);
+    final reversedRange = _presentationWithMeasures(source, [
+      ScoreMeasureBoundary(
+        ordinal: first.ordinal,
+        label: first.label,
+        startTick: first.startTick,
+        endTick: first.startTick,
+      ),
+      second,
+    ]);
+    final beyondSong = _presentationWithMeasures(source, [
+      first,
+      ScoreMeasureBoundary(
+        ordinal: second.ordinal,
+        label: second.label,
+        startTick: second.startTick,
+        endTick: source.songData.totalTicks + 1,
+      ),
+    ]);
+    final overlapping = _presentationWithMeasures(source, [
+      first,
+      ScoreMeasureBoundary(
+        ordinal: second.ordinal,
+        label: second.label,
+        startTick: first.endTick - 1,
+        endTick: second.endTick,
+      ),
+    ]);
+
+    _expectRejectedPresentation(source, negativeStart);
+    _expectRejectedPresentation(source, reversedRange);
+    _expectRejectedPresentation(source, beyondSong);
+    _expectRejectedPresentation(source, overlapping);
+  });
+}
+
+ScoreSession _presentationWithMeasures(
+  ScoreSession source,
+  List<ScoreMeasureBoundary> measures,
+) => ScoreSession(
+  songData: source.songData,
+  musicXml: source.musicXml,
+  sourceType: source.sourceType,
+  measures: measures,
+  mappingStatus: ScoreMappingStatus.complete,
+);
+
+void _expectRejectedPresentation(ScoreSession source, ScoreSession candidate) {
+  final player = readyPlayer();
+  addTearDown(player.dispose);
+  final base = ScoreSession.midiOnly(source.songData);
+  player.loadScore(base);
+  final oldMap = player.measureMap;
+  var notifications = 0;
+  player.addListener(() => notifications++);
+
+  expect(candidate.hasInteractiveScore, isTrue);
+  expect(player.updateScorePresentation(candidate), isFalse);
+  expect(notifications, 0);
+  expect(player.scoreSession, same(base));
+  expect(player.measureMap, same(oldMap));
 }
 
 class _PlayerSnapshot {

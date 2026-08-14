@@ -246,7 +246,8 @@ class MidiPlayerController extends ChangeNotifier {
     if (_isDisposed ||
         !identical(session.songData, _songData) ||
         tempoMap == null ||
-        !session.hasInteractiveScore) {
+        !session.hasInteractiveScore ||
+        !_hasValidInteractiveMeasureBoundaries(session)) {
       return false;
     }
 
@@ -255,11 +256,55 @@ class MidiPlayerController extends ChangeNotifier {
       tempoMap: tempoMap,
       scoreMeasures: session.measures,
     );
-    if (nextMap.measures.isEmpty) return false;
+    if (!_matchesScoreMeasureBoundaries(nextMap, session.measures)) {
+      return false;
+    }
 
     _scoreSession = session;
     _measureMap = nextMap;
     _notifyListenersIfActive();
+    return true;
+  }
+
+  bool _hasValidInteractiveMeasureBoundaries(ScoreSession session) {
+    final measures = session.measures;
+    if (measures.isEmpty || session.songData.totalTicks <= 0) return false;
+
+    var hasInteractiveMeasure = false;
+    int? previousOrdinal;
+    int? previousEndTick;
+    for (final measure in measures) {
+      if (measure.ordinal <= 0 ||
+          (previousOrdinal != null && measure.ordinal <= previousOrdinal) ||
+          measure.startTick < 0 ||
+          measure.endTick <= measure.startTick ||
+          measure.endTick > session.songData.totalTicks ||
+          (previousEndTick != null && measure.startTick < previousEndTick)) {
+        return false;
+      }
+      hasInteractiveMeasure = hasInteractiveMeasure || measure.isInteractive;
+      previousOrdinal = measure.ordinal;
+      previousEndTick = measure.endTick;
+    }
+    return hasInteractiveMeasure;
+  }
+
+  bool _matchesScoreMeasureBoundaries(
+    MeasureMap measureMap,
+    List<ScoreMeasureBoundary> boundaries,
+  ) {
+    final measures = measureMap.measures;
+    if (measures.length != boundaries.length) return false;
+    for (var index = 0; index < boundaries.length; index++) {
+      final boundary = boundaries[index];
+      final measure = measures[index];
+      if (measure.number != boundary.ordinal ||
+          measure.startTick != boundary.startTick ||
+          measure.endTick != boundary.endTick ||
+          measure.isInteractive != boundary.isInteractive) {
+        return false;
+      }
+    }
     return true;
   }
 
