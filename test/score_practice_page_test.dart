@@ -622,6 +622,61 @@ void main() {
     expect(builder.prepareRequests[1].song, same(midiSession.songData));
   });
 
+  testWidgets('旧 prepare 重试被新导入取代后不阻塞或清除新路径重试守卫', (tester) async {
+    const importPath = '/tmp/newer-score.musicxml';
+    final initialMidi = midiOnlySession();
+    final player = readyPlayer()..loadScore(initialMidi);
+    final builder = _ControlledNotationBuilder();
+    final importer = _ControlledScoreImportService();
+    final importedSession = interactiveSession();
+    FilePicker.platform = _FakeFilePicker(
+      () => SynchronousFuture(
+        FilePickerResult([
+          PlatformFile(name: 'newer-score.musicxml', size: 1, path: importPath),
+        ]),
+      ),
+    );
+    await tester.pumpWidget(
+      _page(
+        player,
+        _ScoreSurfaceHarness(),
+        initialSession: initialMidi,
+        notationBuilder: builder,
+        importService: importer,
+      ),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.length == 1);
+    builder.prepareRequests[0].completeError(StateError('initial failed'));
+    await tester.pump();
+
+    await tester.tap(find.text('重试'));
+    await _pumpUntil(tester, () => builder.prepareRequests.length == 2);
+    await tester.tap(find.text('导入文件'));
+    await _pumpUntil(tester, () => importer.paths.length == 1);
+    importer.completers[0].completeError(StateError('new import failed'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('无法生成五线谱'), findsOneWidget);
+
+    await tester.tap(find.text('重试'));
+    await tester.tap(find.text('重试'));
+    expect(importer.paths, [importPath, importPath]);
+
+    builder.prepareRequests[1].complete(
+      _preparation(initialMidi.songData, xmlMarker: 'stale-old-retry'),
+    );
+    await tester.idle();
+    await tester.tap(find.text('重试'));
+    expect(importer.paths, [importPath, importPath]);
+
+    importer.completers[1].complete(importedSession);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(player.scoreSession, same(importedSession));
+    expect(player.songData, same(importedSession.songData));
+    expect(player.scoreSession?.musicXml, isNot(contains('stale-old-retry')));
+  });
+
   testWidgets('等待冷启动设置加载后才解析已保存默认', (tester) async {
     final midiSession = midiOnlySession();
     final player = readyPlayer()..loadScore(midiSession);

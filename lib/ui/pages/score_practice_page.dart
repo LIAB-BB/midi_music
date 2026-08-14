@@ -101,12 +101,12 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   Timer? _transientMessageTimer;
   bool _didScheduleInitialLoad = false;
   bool _isImporting = false;
-  bool _isRetryingNotation = false;
   bool _isGeneratingNotation = false;
   bool _isTemporarySelection = false;
   bool _notationWarningsDismissed = false;
   String? _notationError;
   int _notationGeneration = 0;
+  int? _activeRetryGeneration;
   _NotationRetryKind? _retryKind;
   String? _retryAssetPath;
   String? _retryImportPath;
@@ -438,7 +438,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   }
 
   void _retryNotation() {
-    if (_isRetryingNotation) return;
+    if (_activeRetryGeneration == _notationGeneration) return;
     final retryKind = _retryKind;
     switch (retryKind) {
       case _NotationRetryKind.asset:
@@ -481,12 +481,14 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     Future<void> Function(int generation) operation, {
     bool isImport = false,
   }) {
-    _isRetryingNotation = true;
     if (isImport) _isImporting = true;
     final generation = ++_notationGeneration;
+    _activeRetryGeneration = generation;
     unawaited(
       operation(generation).whenComplete(() {
-        _isRetryingNotation = false;
+        if (_activeRetryGeneration == generation) {
+          _activeRetryGeneration = null;
+        }
         if (isImport) _isImporting = false;
       }),
     );
