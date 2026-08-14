@@ -5,8 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/import/score_import_service.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
+import 'package:midi_music/core/notation/midi_notation_service.dart';
+import 'package:midi_music/core/notation/midi_score_selection.dart';
 import 'package:midi_music/core/score/score_renderer_protocol.dart';
 import 'package:midi_music/core/settings/app_settings.dart';
+import 'package:midi_music/models/midi_score_part.dart';
+import 'package:midi_music/models/midi_track.dart';
 import 'package:midi_music/models/score_session.dart';
 import 'package:midi_music/ui/pages/home_page.dart';
 import 'package:midi_music/ui/pages/score_practice_page.dart';
@@ -17,11 +21,48 @@ import 'helpers/score_renderer_test_fakes.dart';
 import 'helpers/score_test_fixtures.dart';
 
 void main() {
-  testWidgets('内置 MIDI 卡片显示仅伴奏且不宣传 PDF 分谱', (tester) async {
+  testWidgets('内置 MIDI 卡片显示可生成五线谱且不伪造谱面', (tester) async {
     await tester.pumpWidget(_appWithHome());
 
-    expect(find.text('仅伴奏'), findsNWidgets(5));
+    expect(find.text('可生成五线谱'), findsNWidgets(5));
+    expect(find.text('仅预览'), findsNWidgets(8));
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is CustomPaint &&
+            widget.painter.runtimeType.toString() == '_SheetPreviewPainter',
+      ),
+      findsNothing,
+    );
     expect(find.textContaining('PDF'), findsNothing);
+  });
+
+  testWidgets('首页导入 MIDI 使用内容指纹且只 prepare 一次后显示生成谱', (tester) async {
+    final song = midiOnlySession().songData;
+    final imported = ScoreSession.midiOnly(
+      song,
+      sourceFingerprint: 'midi:sha256:abc123',
+    );
+    final builder = _ImmediateNotationBuilder();
+    final player = readyPlayer();
+    await tester.pumpWidget(
+      _appWithHome(
+        player: player,
+        picker: _FakeScorePicker(() => SynchronousFuture('/tmp/song.mid')),
+        importer: _FakeScoreImportService(session: imported),
+        notationBuilder: builder,
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('import-score')));
+    await tester.pumpAndSettle();
+
+    expect(builder.prepareCount, 1);
+    expect(builder.fingerprints, ['midi:sha256:abc123']);
+    expect(player.songData, same(song));
+    expect(player.scoreSession?.songData, same(song));
+    expect(player.scoreSession?.sourceType, ScoreSourceType.midiNotation);
+    expect(find.byKey(const Key('fake-score-surface')), findsOneWidget);
   });
 
   testWidgets('MusicXML 导入后进入交互谱面页且只由该页加载一次', (tester) async {
@@ -129,6 +170,7 @@ Widget _appWithHome({
   MidiPlayerController? player,
   ScoreFilePicker? picker,
   ScoreImportService? importer,
+  MidiNotationBuilder? notationBuilder,
 }) {
   final settings = AppSettingsController(storage: _MemorySettingsStorage())
     ..setDefaultPlaybackSpeed(1.25);
@@ -142,6 +184,7 @@ Widget _appWithHome({
         filePicker: picker,
         importService: importer,
         practiceSurfaceFactory: _fakeSurface,
+        practiceNotationBuilder: notationBuilder,
       ),
     ),
   );
@@ -194,4 +237,61 @@ class _MemorySettingsStorage implements AppSettingsStorage {
   Future<void> write(Map<String, Object?> values) async {
     this.values = Map.of(values);
   }
+}
+
+class _ImmediateNotationBuilder implements MidiNotationBuilder {
+  int prepareCount = 0;
+  final List<String> fingerprints = [];
+
+  @override
+  Future<MidiNotationPreparation> prepare(
+    MidiSongData song, {
+    required String fingerprint,
+    required Set<MidiPartKind> globalDefaultKinds,
+    Set<String>? songDefaultPartIds,
+  }) {
+    prepareCount += 1;
+    fingerprints.add(fingerprint);
+    final base = interactiveSession();
+    final catalog = MidiScoreCatalog(
+      fingerprint: fingerprint,
+      parts: [
+        MidiScorePart(
+          id: 'piano',
+          label: '钢琴',
+          kind: MidiPartKind.piano,
+          sources: const [],
+          noteCount: 1,
+          staffMode: MidiStaffMode.grandStaff,
+        ),
+      ],
+      recommendedPartIds: const {'piano'},
+      recommendedOrigin: MidiSelectionOrigin.automaticPiano,
+    );
+    return SynchronousFuture(
+      MidiNotationPreparation(
+        catalog: catalog,
+        selection: MidiScoreSelection(
+          partIds: const {'piano'},
+          origin: MidiSelectionOrigin.automaticPiano,
+        ),
+        session: ScoreSession(
+          songData: song,
+          musicXml: '<score-partwise id="generated"/>',
+          sourceType: ScoreSourceType.midiNotation,
+          measures: base.measures,
+          mappingStatus: ScoreMappingStatus.complete,
+          sourceFingerprint: fingerprint,
+          selectedPartIds: const {'piano'},
+        ),
+      ),
+    );
+  }
+
+  @override
+  Future<ScoreSession> rebuild(
+    MidiSongData song, {
+    required MidiScoreCatalog catalog,
+    required Set<String> selectedPartIds,
+  }) => throw UnimplementedError();
 }

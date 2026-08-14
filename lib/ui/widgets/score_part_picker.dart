@@ -159,7 +159,7 @@ class _ScorePartPickerSheetState extends State<_ScorePartPickerSheet> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    '选择声部',
+                    '选择显示声部',
                     style: TextStyle(
                       color: _ink,
                       fontSize: 21,
@@ -533,7 +533,7 @@ String _staffLabel(MidiStaffMode staffMode) => switch (staffMode) {
 
 String _warningLabel(MidiNotationWarning warning) => switch (warning) {
   MidiNotationWarning.rhythmQuantized => '部分节奏已对齐到可显示的记谱网格，时值可能有轻微调整。',
-  MidiNotationWarning.unknownInstrument => '部分乐器无法识别，已使用通用单谱表显示。',
-  MidiNotationWarning.irregularTimeSignature => '乐曲中途包含拍号变化，请留意小节边界。',
+  MidiNotationWarning.unknownInstrument => '部分轨道名或乐器无法识别，已按独立声部使用通用单谱表显示。',
+  MidiNotationWarning.irregularTimeSignature => '拍号变化不在标准小节边界，已截断当前小节以保持时间轴对齐。',
   MidiNotationWarning.densePassage => '部分段落声部过密，显示谱已简化为最多四个声部。',
 };

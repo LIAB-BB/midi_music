@@ -72,16 +72,16 @@ void main() {
         home: InteractiveScoreView(
           musicXml: null,
           onMessage: (_) {},
-          onImportMusicXml: () => importCount += 1,
+          onImportScore: () => importCount += 1,
         ),
       ),
     );
 
     expect(find.byKey(const Key('interactive-score-webview')), findsNothing);
-    expect(find.text('仅伴奏'), findsOneWidget);
-    expect(find.text('导入对应 MusicXML 以显示可交互乐谱'), findsOneWidget);
+    expect(find.text('暂无可显示乐谱'), findsOneWidget);
+    expect(find.text('导入 MIDI 或 MusicXML'), findsOneWidget);
 
-    await tester.tap(find.text('导入 MusicXML'));
+    await tester.tap(find.text('导入文件'));
     expect(importCount, 1);
   });
 
@@ -127,7 +127,7 @@ void main() {
         home: InteractiveScoreView(
           musicXml: '<score-partwise/>',
           onMessage: received.add,
-          onImportMusicXml: () => importCount += 1,
+          onImportScore: () => importCount += 1,
           surfaceFactory: (onMessage) {
             emit = onMessage;
             return ScoreSurface(

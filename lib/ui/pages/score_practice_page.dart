@@ -8,12 +8,16 @@ import 'package:provider/provider.dart';
 import '../../core/import/score_import_service.dart';
 import '../../core/midi/midi_parser.dart';
 import '../../core/midi/midi_player.dart';
+import '../../core/notation/midi_notation_service.dart';
+import '../../core/notation/midi_score_selection.dart';
 import '../../core/score/score_playback_coordinator.dart';
 import '../../core/score/score_renderer_protocol.dart';
 import '../../core/settings/app_settings.dart';
 import '../../models/midi_track.dart';
+import '../../models/midi_score_part.dart';
 import '../../models/score_session.dart';
 import '../widgets/interactive_score_view.dart';
+import '../widgets/score_part_picker.dart';
 import '../widgets/score_transport_bar.dart';
 import 'settings_page.dart';
 
@@ -27,6 +31,7 @@ class PracticeScoreMetadata {
   final Color accent;
   final int seed;
   final String? assetPath;
+  final String? sourceFingerprint;
 
   const PracticeScoreMetadata({
     required this.title,
@@ -38,9 +43,13 @@ class PracticeScoreMetadata {
     required this.accent,
     required this.seed,
     this.assetPath,
+    this.sourceFingerprint,
   });
 
-  factory PracticeScoreMetadata.imported(String fileName) {
+  factory PracticeScoreMetadata.imported(
+    String fileName, {
+    String? sourceFingerprint,
+  }) {
     return PracticeScoreMetadata(
       title: fileName,
       composer: '导入乐谱',
@@ -50,6 +59,7 @@ class PracticeScoreMetadata {
       saves: '',
       accent: const Color(0xFFA2773F),
       seed: 0,
+      sourceFingerprint: sourceFingerprint,
     );
   }
 }
@@ -59,6 +69,7 @@ class ScorePracticePage extends StatefulWidget {
   final ScoreSession? initialSession;
   final ScoreSurfaceFactory? surfaceFactory;
   final ScoreImportService? importService;
+  final MidiNotationBuilder? notationBuilder;
 
   const ScorePracticePage({
     super.key,
@@ -66,6 +77,7 @@ class ScorePracticePage extends StatefulWidget {
     this.initialSession,
     this.surfaceFactory,
     this.importService,
+    this.notationBuilder,
   });
 
   @override
@@ -75,14 +87,20 @@ class ScorePracticePage extends StatefulWidget {
 class _ScorePracticePageState extends State<ScorePracticePage> {
   final MidiFileParser _parser = MidiFileParser();
   late final ScoreImportService _importService;
+  late final MidiNotationBuilder _notationBuilder;
   MidiPlayerController? _player;
   ScorePlaybackCoordinator? _coordinator;
   ScoreSession? _displaySession;
+  MidiScoreCatalog? _catalog;
+  MidiScoreSelection? _selection;
   OverlayEntry? _transientMessage;
   Timer? _transientMessageTimer;
   bool _didScheduleInitialLoad = false;
   bool _isImporting = false;
-  int _sessionLoadGeneration = 0;
+  bool _isGeneratingNotation = false;
+  bool _notationWarningsDismissed = false;
+  String? _notationError;
+  int _notationGeneration = 0;
 
   bool get _hasComplexRepetition =>
       _displaySession?.warnings.contains(ScoreWarning.complexRepetition) ??
@@ -92,7 +110,14 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   void initState() {
     super.initState();
     _importService = widget.importService ?? ScoreImportService();
-    _displaySession = widget.initialSession;
+    _notationBuilder = widget.notationBuilder ?? MidiNotationService();
+    final initialSession = widget.initialSession;
+    _displaySession = initialSession?.sourceType == ScoreSourceType.midiOnly
+        ? null
+        : initialSession;
+    _isGeneratingNotation =
+        initialSession?.sourceType == ScoreSourceType.midiOnly ||
+        (initialSession == null && widget.score.assetPath != null);
   }
 
   @override
@@ -113,6 +138,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
 
   @override
   void dispose() {
+    _notationGeneration += 1;
     _player?.removeListener(_handlePlayerChanged);
     _transientMessageTimer?.cancel();
     _transientMessage?.remove();
@@ -126,38 +152,126 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   Future<void> _loadInitialScore() async {
     final player = _player;
     if (player == null) return;
+    final generation = ++_notationGeneration;
     final initialSession = widget.initialSession;
     if (initialSession != null) {
       player.loadScore(initialSession, songId: widget.score.title);
       player.setSpeed(
         context.read<AppSettingsController>().defaultPlaybackSpeed,
       );
+      if (initialSession.sourceType == ScoreSourceType.midiOnly) {
+        await _prepareMidiNotation(
+          initialSession,
+          generation: generation,
+          fingerprint:
+              initialSession.sourceFingerprint ??
+              widget.score.sourceFingerprint ??
+              _fallbackFingerprint(initialSession.songData),
+        );
+      }
       return;
     }
 
     final emptySession = _emptyMidiSession(widget.score.title);
     player.loadScore(emptySession, songId: widget.score.title);
-    if (mounted) setState(() => _displaySession = emptySession);
+    player.setSpeed(context.read<AppSettingsController>().defaultPlaybackSpeed);
+    if (mounted && widget.score.assetPath == null) {
+      setState(() => _displaySession = emptySession);
+    }
     final assetPath = widget.score.assetPath;
     if (assetPath == null) return;
-    final loadGeneration = _sessionLoadGeneration;
     try {
       final data = await rootBundle.load(assetPath);
       final song = _parser.parseBytes(
         data.buffer.asUint8List(),
         fileName: assetPath.split('/').last,
       );
-      if (!mounted || loadGeneration != _sessionLoadGeneration) return;
-      final session = ScoreSession.midiOnly(song);
-      player.loadScore(session, songId: widget.score.title);
-      player.setSpeed(
-        context.read<AppSettingsController>().defaultPlaybackSpeed,
+      if (!_isCurrentGeneration(generation)) return;
+      final fingerprint = 'asset:$assetPath';
+      final session = ScoreSession.midiOnly(
+        song,
+        sourceFingerprint: fingerprint,
       );
-      setState(() => _displaySession = session);
+      player.loadScore(session, songId: widget.score.title);
+      await _prepareMidiNotation(
+        session,
+        generation: generation,
+        fingerprint: fingerprint,
+      );
     } catch (error) {
-      if (mounted) _showAlert('载入失败', '无法载入内置 MIDI：$error');
+      if (!_isCurrentGeneration(generation)) return;
+      _enterNotationError(error);
     }
   }
+
+  Future<void> _prepareMidiNotation(
+    ScoreSession midiSession, {
+    required int generation,
+    required String fingerprint,
+  }) async {
+    if (!_isCurrentGeneration(generation)) return;
+    setState(() {
+      _displaySession = null;
+      _catalog = null;
+      _selection = null;
+      _notationError = null;
+      _isGeneratingNotation = true;
+      _notationWarningsDismissed = false;
+    });
+
+    try {
+      final settings = context.read<AppSettingsController>();
+      await settings.load();
+      if (!_isCurrentGeneration(generation)) return;
+      _player?.setSpeed(settings.defaultPlaybackSpeed);
+      final preparation = await _notationBuilder.prepare(
+        midiSession.songData,
+        fingerprint: fingerprint,
+        globalDefaultKinds: settings.defaultScorePartKinds,
+        songDefaultPartIds: settings.scorePartSelectionForSong(fingerprint),
+      );
+      if (!_isCurrentGeneration(generation)) return;
+      final generated = preparation.session;
+      if (!identical(generated.songData, midiSession.songData) ||
+          !generated.hasInteractiveScore ||
+          !(_player?.updateScorePresentation(generated) ?? false)) {
+        throw StateError('生成的谱面无法与当前 MIDI 对齐');
+      }
+      setState(() {
+        _displaySession = generated;
+        _catalog = preparation.catalog;
+        _selection = preparation.selection;
+        _notationError = null;
+        _isGeneratingNotation = false;
+        _notationWarningsDismissed = false;
+      });
+    } catch (error) {
+      if (!_isCurrentGeneration(generation)) return;
+      _enterNotationError(error);
+    }
+  }
+
+  bool _isCurrentGeneration(int generation) =>
+      mounted && generation == _notationGeneration;
+
+  void _enterNotationError(Object error) {
+    setState(() {
+      _displaySession = null;
+      _catalog = null;
+      _selection = null;
+      _notationError = _describeNotationError(error);
+      _isGeneratingNotation = false;
+      _notationWarningsDismissed = false;
+    });
+  }
+
+  String _describeNotationError(Object error) {
+    final message = error.toString().replaceFirst('Bad state: ', '').trim();
+    return message.isEmpty ? '请检查 MIDI 文件后重试。' : message;
+  }
+
+  String _fallbackFingerprint(MidiSongData song) =>
+      'midi:session:${song.fileName}:${song.totalTicks}:${song.timeline.length}';
 
   void _attachRendererPort(ScoreRendererPort port) {
     final player = _player;
@@ -182,13 +296,13 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     _coordinator?.syncFromPlayer(force: true);
   }
 
-  Future<void> _importMusicXmlForCurrentScore() async {
+  Future<void> _importScoreForCurrentPage() async {
     if (_isImporting) return;
     _isImporting = true;
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: const ['musicxml', 'xml'],
+        allowedExtensions: const ['mid', 'midi', 'musicxml', 'xml', 'pdf'],
         allowMultiple: false,
       );
       if (!mounted || result == null || result.files.isEmpty) return;
@@ -197,13 +311,135 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
 
       final session = await _importService.importFile(path);
       if (!mounted) return;
-      _sessionLoadGeneration += 1;
+      final generation = ++_notationGeneration;
       _player?.loadScore(session, songId: widget.score.title, filePath: path);
-      setState(() => _displaySession = session);
+      _player?.setSpeed(
+        context.read<AppSettingsController>().defaultPlaybackSpeed,
+      );
+      if (session.sourceType == ScoreSourceType.midiOnly) {
+        await _prepareMidiNotation(
+          session,
+          generation: generation,
+          fingerprint:
+              session.sourceFingerprint ??
+              _fallbackFingerprint(session.songData),
+        );
+      } else if (_isCurrentGeneration(generation)) {
+        setState(() {
+          _displaySession = session;
+          _catalog = null;
+          _selection = null;
+          _notationError = null;
+          _isGeneratingNotation = false;
+          _notationWarningsDismissed = false;
+        });
+      }
     } catch (error) {
-      if (mounted) _showAlert('导入失败', '无法导入 MusicXML：$error');
+      if (mounted) _showAlert('导入失败', '无法导入乐谱文件：$error');
     } finally {
       _isImporting = false;
+    }
+  }
+
+  void _retryNotation() {
+    final playerSession = _player?.scoreSession;
+    if (playerSession == null ||
+        playerSession.sourceType != ScoreSourceType.midiOnly) {
+      return;
+    }
+    final generation = ++_notationGeneration;
+    unawaited(
+      _prepareMidiNotation(
+        playerSession,
+        generation: generation,
+        fingerprint:
+            playerSession.sourceFingerprint ??
+            widget.score.sourceFingerprint ??
+            _fallbackFingerprint(playerSession.songData),
+      ),
+    );
+  }
+
+  Future<void> _openPartPicker() async {
+    final catalog = _catalog;
+    final selection = _selection;
+    final session = _displaySession;
+    if (catalog == null || selection == null || session == null) return;
+    final result = await showScorePartPicker(
+      context,
+      catalog: catalog,
+      selectedPartIds: selection.partIds,
+      origin: selection.origin,
+      warnings: session.notationWarnings,
+    );
+    if (!mounted || result == null) return;
+    await _applyPartSelection(result);
+  }
+
+  Future<void> _applyPartSelection(ScorePartPickerResult result) async {
+    final catalog = _catalog;
+    final previousSelection = _selection;
+    final currentSession = _displaySession;
+    if (catalog == null ||
+        previousSelection == null ||
+        currentSession == null) {
+      return;
+    }
+    final settings = context.read<AppSettingsController>();
+    final generation = ++_notationGeneration;
+    setState(() => _isGeneratingNotation = true);
+    try {
+      final rebuilt = await _notationBuilder.rebuild(
+        currentSession.songData,
+        catalog: catalog,
+        selectedPartIds: result.partIds,
+      );
+      if (!_isCurrentGeneration(generation)) return;
+      if (!identical(rebuilt.songData, currentSession.songData) ||
+          !rebuilt.hasInteractiveScore ||
+          !(_player?.updateScorePresentation(rebuilt) ?? false)) {
+        throw StateError('生成的谱面无法与当前 MIDI 对齐');
+      }
+
+      final nextOrigin = switch (result.action) {
+        ScorePartPickerAction.setSongDefault => MidiSelectionOrigin.songDefault,
+        ScorePartPickerAction.setGlobalDefault =>
+          MidiSelectionOrigin.globalDefault,
+        ScorePartPickerAction.apply => previousSelection.origin,
+      };
+      setState(() {
+        _displaySession = rebuilt;
+        _selection = MidiScoreSelection(
+          partIds: result.partIds,
+          origin: nextOrigin,
+        );
+        _isGeneratingNotation = false;
+        _notationWarningsDismissed = false;
+      });
+
+      switch (result.action) {
+        case ScorePartPickerAction.apply:
+          break;
+        case ScorePartPickerAction.setSongDefault:
+          settings.setScorePartSelectionForSong(
+            catalog.fingerprint,
+            result.partIds,
+          );
+          _showTransientMessage('已设为本曲默认声部');
+          break;
+        case ScorePartPickerAction.setGlobalDefault:
+          final selectedKinds = {
+            for (final part in catalog.parts)
+              if (result.partIds.contains(part.id)) part.kind,
+          };
+          settings.setDefaultScorePartKinds(selectedKinds);
+          _showTransientMessage('已设为全局默认声部');
+          break;
+      }
+    } catch (error) {
+      if (!_isCurrentGeneration(generation)) return;
+      setState(() => _isGeneratingNotation = false);
+      _showAlert('无法更新五线谱', _describeNotationError(error));
     }
   }
 
@@ -275,6 +511,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   Widget build(BuildContext context) {
     final score = widget.score;
     final player = context.watch<MidiPlayerController>();
+    final notationWarnings = _displaySession?.notationWarnings ?? const {};
     return CupertinoPageScaffold(
       backgroundColor: const Color(0xFFF8F0DC),
       navigationBar: CupertinoNavigationBar(
@@ -282,23 +519,30 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
         backgroundColor: const Color(0xFFF8F0DC),
         previousPageTitle: '乐库',
         middle: Text(score.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        trailing: _ScorePageActions(onOpenSettings: _openSettings),
+        trailing: _ScorePageActions(
+          showParts: _catalog != null,
+          onOpenParts: _openPartPicker,
+          onOpenSettings: _openSettings,
+        ),
       ),
       child: SafeArea(
         bottom: false,
         child: Column(
           children: [
             if (_hasComplexRepetition) const _ComplexRepeatBanner(),
+            if (notationWarnings.isNotEmpty && !_notationWarningsDismissed)
+              _NotationWarningBanner(
+                warnings: notationWarnings,
+                onDismiss: () {
+                  setState(() => _notationWarningsDismissed = true);
+                },
+              ),
+            if (_displaySession != null && _isGeneratingNotation)
+              const _NotationRebuildProgress(),
             Expanded(
               child: KeyedSubtree(
                 key: const Key('interactive-score-view'),
-                child: InteractiveScoreView(
-                  musicXml: _displaySession?.musicXml,
-                  onMessage: _handleRendererMessage,
-                  onPortReady: _attachRendererPort,
-                  onImportMusicXml: _importMusicXmlForCurrentScore,
-                  surfaceFactory: widget.surfaceFactory,
-                ),
+                child: _buildScoreBody(),
               ),
             ),
             ScoreTransportBar(
@@ -309,6 +553,28 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildScoreBody() {
+    if (_displaySession == null && _isGeneratingNotation) {
+      return _NotationGeneratingState(
+        onImportScore: _importScoreForCurrentPage,
+      );
+    }
+    if (_displaySession == null && _notationError != null) {
+      return _NotationErrorState(
+        message: _notationError!,
+        onRetry: _retryNotation,
+        onImportScore: _importScoreForCurrentPage,
+      );
+    }
+    return InteractiveScoreView(
+      musicXml: _displaySession?.musicXml,
+      onMessage: _handleRendererMessage,
+      onPortReady: _attachRendererPort,
+      onImportScore: _importScoreForCurrentPage,
+      surfaceFactory: widget.surfaceFactory,
     );
   }
 }
@@ -328,21 +594,44 @@ ScoreSession _emptyMidiSession(String title) => ScoreSession.midiOnly(
 );
 
 class _ScorePageActions extends StatelessWidget {
+  final bool showParts;
+  final VoidCallback onOpenParts;
   final VoidCallback onOpenSettings;
 
-  const _ScorePageActions({required this.onOpenSettings});
+  const _ScorePageActions({
+    required this.showParts,
+    required this.onOpenParts,
+    required this.onOpenSettings,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      minimumSize: const Size(0, 0),
-      onPressed: onOpenSettings,
-      child: const Icon(
-        CupertinoIcons.gear_alt_fill,
-        size: 18,
-        color: Color(0xFF5F4A35),
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (showParts)
+          CupertinoButton(
+            key: const Key('score-parts'),
+            padding: const EdgeInsets.symmetric(horizontal: 7),
+            minimumSize: const Size(32, 32),
+            onPressed: onOpenParts,
+            child: const Icon(
+              CupertinoIcons.person_2,
+              size: 19,
+              color: Color(0xFF5F4A35),
+            ),
+          ),
+        CupertinoButton(
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(32, 32),
+          onPressed: onOpenSettings,
+          child: const Icon(
+            CupertinoIcons.gear_alt_fill,
+            size: 18,
+            color: Color(0xFF5F4A35),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -368,6 +657,181 @@ class _ComplexRepeatBanner extends StatelessWidget {
               child: Text(
                 '此乐谱包含复杂反复，当前按谱面顺序播放。',
                 style: TextStyle(fontSize: 12, color: Color(0xFF5F4A35)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NotationGeneratingState extends StatelessWidget {
+  final VoidCallback onImportScore;
+
+  const _NotationGeneratingState({required this.onImportScore});
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xFFF8F0DC),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CupertinoActivityIndicator(color: Color(0xFFA2773F)),
+            const SizedBox(height: 12),
+            const Text(
+              '正在生成五线谱',
+              style: TextStyle(color: Color(0xFF5F4A35), fontSize: 14),
+            ),
+            const SizedBox(height: 14),
+            CupertinoButton(
+              onPressed: onImportScore,
+              child: const Text('导入文件'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NotationErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  final VoidCallback onImportScore;
+
+  const _NotationErrorState({
+    required this.message,
+    required this.onRetry,
+    required this.onImportScore,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xFFF8F0DC),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                CupertinoIcons.exclamationmark_triangle,
+                size: 32,
+                color: Color(0xFFA2773F),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                '无法生成五线谱',
+                style: TextStyle(
+                  color: Color(0xFF2A2118),
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFF7E6C55), fontSize: 13),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CupertinoButton(
+                    color: const Color(0xFF5F4A35),
+                    onPressed: onRetry,
+                    child: const Text('重试'),
+                  ),
+                  const SizedBox(width: 12),
+                  CupertinoButton(
+                    onPressed: onImportScore,
+                    child: const Text('导入文件'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NotationRebuildProgress extends StatelessWidget {
+  const _NotationRebuildProgress();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      key: Key('notation-rebuild-progress'),
+      height: 24,
+      child: ColoredBox(
+        color: Color(0xFFE9DDC6),
+        child: Center(
+          child: CupertinoActivityIndicator(
+            radius: 7,
+            color: Color(0xFFA2773F),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NotationWarningBanner extends StatelessWidget {
+  final Set<MidiNotationWarning> warnings;
+  final VoidCallback onDismiss;
+
+  const _NotationWarningBanner({
+    required this.warnings,
+    required this.onDismiss,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = <String>[
+      if (warnings.contains(MidiNotationWarning.rhythmQuantized)) '节奏已近似量化',
+      if (warnings.contains(MidiNotationWarning.unknownInstrument))
+        '未知乐器按独立声部显示',
+      if (warnings.contains(MidiNotationWarning.irregularTimeSignature))
+        '拍号变化已截断小节',
+      if (warnings.contains(MidiNotationWarning.densePassage)) '谱面较密集',
+    ];
+    return ColoredBox(
+      key: const Key('notation-warning-banner'),
+      color: const Color(0xFFE9DDC6),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 16, top: 7, bottom: 7),
+        child: Row(
+          children: [
+            const Icon(
+              CupertinoIcons.exclamationmark_triangle,
+              size: 15,
+              color: Color(0xFF715B41),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                labels.join(' / '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF5F4A35)),
+              ),
+            ),
+            CupertinoButton(
+              key: const Key('dismiss-notation-warnings'),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              minimumSize: const Size(40, 32),
+              onPressed: onDismiss,
+              child: const Icon(
+                CupertinoIcons.xmark,
+                size: 14,
+                color: Color(0xFF715B41),
               ),
             ),
           ],

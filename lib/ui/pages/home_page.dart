@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
@@ -9,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../core/import/pdf_omr_client.dart';
 import '../../core/import/score_import_service.dart';
 import '../../core/midi/midi_player.dart';
+import '../../core/notation/midi_notation_service.dart';
 import '../theme/luxury_theme.dart';
 import '../widgets/interactive_score_view.dart';
 import 'score_practice_page.dart';
@@ -190,12 +190,14 @@ class HomePage extends StatefulWidget {
   final ScoreImportService? importService;
   final ScoreFilePicker? filePicker;
   final ScoreSurfaceFactory? practiceSurfaceFactory;
+  final MidiNotationBuilder? practiceNotationBuilder;
 
   const HomePage({
     super.key,
     this.importService,
     this.filePicker,
     this.practiceSurfaceFactory,
+    this.practiceNotationBuilder,
   });
 
   @override
@@ -229,9 +231,13 @@ class _HomePageState extends State<HomePage> {
       await Navigator.of(context).push(
         CupertinoPageRoute<void>(
           builder: (_) => ScorePracticePage(
-            score: PracticeScoreMetadata.imported(session.songData.fileName),
+            score: PracticeScoreMetadata.imported(
+              session.songData.fileName,
+              sourceFingerprint: session.sourceFingerprint,
+            ),
             initialSession: session,
             surfaceFactory: widget.practiceSurfaceFactory,
+            notationBuilder: widget.practiceNotationBuilder,
           ),
         ),
       );
@@ -281,7 +287,10 @@ class _HomePageState extends State<HomePage> {
     unawaited(
       Navigator.of(context).push(
         CupertinoPageRoute<void>(
-          builder: (_) => ScorePracticePage(score: score.toPracticeMetadata()),
+          builder: (_) => ScorePracticePage(
+            score: score.toPracticeMetadata(),
+            notationBuilder: widget.practiceNotationBuilder,
+          ),
         ),
       ),
     );
@@ -762,12 +771,13 @@ class _SheetPreview extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _SheetPreviewPainter(
-                  accent: score.accent,
-                  seed: score.seed,
-                ),
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              child: ColoredBox(
+                color: score.accent.withValues(alpha: 0.22),
+                child: const SizedBox(width: 8),
               ),
             ),
             Positioned(
@@ -805,7 +815,7 @@ class _SheetPreview extends StatelessWidget {
                     vertical: 5,
                   ),
                   child: Text(
-                    score.assetPath == null ? '仅预览' : '仅伴奏',
+                    score.assetPath == null ? '仅预览' : '可生成五线谱',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
@@ -819,82 +829,6 @@ class _SheetPreview extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _SheetPreviewPainter extends CustomPainter {
-  final Color accent;
-  final int seed;
-
-  const _SheetPreviewPainter({required this.accent, required this.seed});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final margin = math.max(16.0, size.width * 0.12);
-    final staffPaint = Paint()
-      ..color = const Color(0xFF4C3820).withValues(alpha: 0.58)
-      ..strokeWidth = 1;
-    final notePaint = Paint()..color = const Color(0xFF2D2117);
-    final accentPaint = Paint()..color = accent.withValues(alpha: 0.16);
-    final systemCount = math.max(2, (size.height / 76).floor());
-    final systemGap = (size.height - 44) / systemCount;
-
-    canvas.drawRect(
-      Rect.fromLTWH(size.width - 6, 0, 6, size.height),
-      accentPaint,
-    );
-
-    for (var system = 0; system < systemCount; system += 1) {
-      final top = 24.0 + system * systemGap;
-      final staffWidth = size.width - margin * 2;
-
-      for (var line = 0; line < 5; line += 1) {
-        final y = top + line * 6;
-        canvas.drawLine(
-          Offset(margin, y),
-          Offset(size.width - margin, y),
-          staffPaint,
-        );
-      }
-
-      for (var bar = 1; bar < 4; bar += 1) {
-        final x = margin + staffWidth * bar / 4;
-        canvas.drawLine(Offset(x, top), Offset(x, top + 24), staffPaint);
-      }
-
-      for (var note = 0; note < 6; note += 1) {
-        final x = margin + 12 + (note * staffWidth / 6);
-        final line = (note + seed + system) % 5;
-        final y = top + line * 6 + (note.isEven ? 0 : 3);
-        canvas.drawOval(
-          Rect.fromCenter(center: Offset(x, y), width: 7, height: 5),
-          notePaint,
-        );
-        final stemTop = y - 17;
-        canvas.drawLine(
-          Offset(x + 3.2, y),
-          Offset(x + 3.2, stemTop),
-          notePaint,
-        );
-      }
-    }
-
-    final titlePaint = Paint()
-      ..color = accent.withValues(alpha: 0.18)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(margin, 12, size.width - margin * 2, 18),
-        const Radius.circular(5),
-      ),
-      titlePaint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _SheetPreviewPainter oldDelegate) {
-    return oldDelegate.accent != accent || oldDelegate.seed != seed;
   }
 }
 
@@ -1143,6 +1077,7 @@ class _ScoreCardData {
       accent: accent,
       seed: seed,
       assetPath: assetPath,
+      sourceFingerprint: assetPath == null ? null : 'asset:$assetPath',
     );
   }
 }

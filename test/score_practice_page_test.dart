@@ -8,8 +8,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/import/score_import_service.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
+import 'package:midi_music/core/notation/midi_notation_service.dart';
+import 'package:midi_music/core/notation/midi_score_selection.dart';
 import 'package:midi_music/core/score/score_renderer_protocol.dart';
 import 'package:midi_music/core/settings/app_settings.dart';
+import 'package:midi_music/models/midi_score_part.dart';
+import 'package:midi_music/models/midi_track.dart';
 import 'package:midi_music/models/score_session.dart';
 import 'package:midi_music/ui/pages/score_practice_page.dart';
 import 'package:midi_music/ui/widgets/interactive_score_view.dart';
@@ -30,12 +34,16 @@ void main() {
     expect(find.text('真实 MIDI 数据'), findsNothing);
   });
 
-  testWidgets('仅 MIDI 曲目显示仅伴奏但保留播放控制', (tester) async {
+  testWidgets('仅 MIDI 曲目显示生成态且保留播放控制', (tester) async {
     final player = readyPlayer()..loadScore(midiOnlySession());
-    await tester.pumpWidget(_page(player, _ScoreSurfaceHarness()));
+    final builder = _ControlledNotationBuilder();
+    await tester.pumpWidget(
+      _page(player, _ScoreSurfaceHarness(), notationBuilder: builder),
+    );
+    await tester.pump();
 
-    expect(find.text('仅伴奏'), findsOneWidget);
-    expect(find.text('导入对应 MusicXML 以显示可交互乐谱'), findsOneWidget);
+    expect(find.text('正在生成五线谱'), findsOneWidget);
+    expect(find.text('仅伴奏'), findsNothing);
     expect(find.byKey(const Key('score-play-pause')), findsOneWidget);
   });
 
@@ -104,12 +112,17 @@ void main() {
   });
 
   testWidgets('没有初始会话时首帧不展示全局旧谱', (tester) async {
-    final player = readyPlayer()..loadScore(interactiveSession());
+    final oldSession = interactiveSession();
+    final player = readyPlayer()
+      ..loadScore(oldSession)
+      ..seekTo(0.75);
     final surface = _ScoreSurfaceHarness();
     await tester.pumpWidget(_page(player, surface, initialSession: null));
 
     expect(surface.createCount, 0);
-    expect(find.text('仅伴奏'), findsOneWidget);
+    expect(find.text('暂无可显示乐谱'), findsOneWidget);
+    expect(player.songData, isNot(same(oldSession.songData)));
+    expect(player.currentTime, 0);
   });
 
   testWidgets('初始会话在首帧创建对应谱面 surface', (tester) async {
@@ -121,7 +134,7 @@ void main() {
 
     expect(surface.createCount, 1);
     expect(surface.port.loadedXml, [session.musicXml]);
-    expect(find.text('仅伴奏'), findsNothing);
+    expect(find.text('暂无可显示乐谱'), findsNothing);
   });
 
   testWidgets('initialSession 只在页面首帧加载一次', (tester) async {
@@ -134,6 +147,373 @@ void main() {
     await tester.pump();
 
     expect(player.currentTime, 0.75);
+  });
+
+  testWidgets('内置 MIDI 先显示生成态然后直接显示交互五线谱', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+
+    await tester.pumpWidget(
+      _page(
+        player,
+        surface,
+        notationBuilder: builder,
+        sourceFingerprint: 'asset:fixture.mid',
+      ),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+
+    expect(find.text('正在生成五线谱'), findsOneWidget);
+    expect(find.text('仅伴奏'), findsNothing);
+    expect(builder.prepareRequests.single.fingerprint, 'asset:fixture.mid');
+
+    builder.prepareRequests.single.complete(
+      _preparation(midiSession.songData, xmlMarker: 'staves-2'),
+    );
+    await tester.pump();
+
+    expect(surface.port.loadedXml.single, contains('staves-2'));
+    expect(player.scoreSession?.sourceType, ScoreSourceType.midiNotation);
+    expect(player.scoreSession?.songData, same(midiSession.songData));
+  });
+
+  testWidgets('切换声部保持播放状态并在 renderer ready 后同步高亮', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    final settings = AppSettingsController(storage: _MemorySettingsStorage());
+    await tester.pumpWidget(
+      _page(player, surface, notationBuilder: builder, settings: settings),
+    );
+    await _completeInitialNotation(tester, builder, midiSession.songData);
+    surface.emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+
+    player
+      ..seekTo(0.25)
+      ..setSpeed(1.25)
+      ..setLoopRange(start: 0.1, end: 0.8)
+      ..setLoopEnabled(enabled: true)
+      ..play();
+    final originalSong = player.songData;
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('小提琴'));
+    await tester.tap(find.text('应用'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.isNotEmpty);
+    await tester.pump();
+
+    expect(surface.port.loadedXml.single, contains('initial'));
+    expect(find.byKey(const Key('notation-rebuild-progress')), findsOneWidget);
+    final timeBeforePresentationSwap = player.currentTime;
+    builder.rebuildRequests.single.complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'piano-and-strings',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await tester.pump();
+
+    expect(player.songData, same(originalSong));
+    expect(player.currentTime, closeTo(timeBeforePresentationSwap, 0.01));
+    expect(player.playbackSpeed, 1.25);
+    expect(player.loopStartTime, 0.1);
+    expect(player.loopEndTime, 0.8);
+    expect(player.isLoopEnabled, isTrue);
+    expect(player.isPlaying, isTrue);
+    expect(surface.port.loadedXml.last, contains('piano-and-strings'));
+
+    surface.emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+    expect(surface.port.highlighted.last, player.currentMeasureOrdinal);
+    player.stop();
+  });
+
+  testWidgets('较早转换结果不会覆盖较新的选择', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    await tester.pumpWidget(_page(player, surface, notationBuilder: builder));
+    await _completeInitialNotation(tester, builder, midiSession.songData);
+    surface.emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+
+    await _requestViolinRebuild(tester);
+    await _requestViolinRebuild(tester);
+    expect(builder.rebuildRequests, hasLength(2));
+
+    builder.rebuildRequests[1].complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'newer-b',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await tester.pump();
+    builder.rebuildRequests[0].complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'stale-a',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await tester.pump();
+
+    expect(surface.port.loadedXml.last, contains('newer-b'));
+    expect(surface.port.loadedXml.last, isNot(contains('stale-a')));
+  });
+
+  testWidgets('转换失败保留上一次谱面与选择', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    final settings = AppSettingsController(storage: _MemorySettingsStorage());
+    await tester.pumpWidget(
+      _page(player, surface, notationBuilder: builder, settings: settings),
+    );
+    await _completeInitialNotation(tester, builder, midiSession.songData);
+    surface.emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('小提琴'));
+    await tester.tap(find.text('设为本曲默认'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.isNotEmpty);
+    builder.rebuildRequests.single.completeError(
+      StateError('converter failed'),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('无法更新五线谱'), findsOneWidget);
+    expect(surface.port.loadedXml.last, contains('initial'));
+    expect(settings.scorePartSelectionForSong('fixture-fingerprint'), isNull);
+    await tester.tap(find.text('好的'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(find.byKey(const Key('score-part-violin'))).label,
+      endsWith('未选择'),
+    );
+  });
+
+  testWidgets('本曲与全局默认只在 rebuild 成功后持久化', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    final settings = AppSettingsController(storage: _MemorySettingsStorage());
+    await tester.pumpWidget(
+      _page(player, surface, notationBuilder: builder, settings: settings),
+    );
+    await _completeInitialNotation(tester, builder, midiSession.songData);
+    surface.emit(const ScoreRendererMessage.ready());
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('小提琴'));
+    await tester.tap(find.text('设为本曲默认'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.isNotEmpty);
+    expect(settings.scorePartSelectionForSong('fixture-fingerprint'), isNull);
+
+    builder.rebuildRequests.single.complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'song-default',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await tester.pump();
+    expect(settings.scorePartSelectionForSong('fixture-fingerprint'), {
+      'piano',
+      'violin',
+    });
+
+    await tester.tap(find.byKey(const Key('score-parts')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('设为全局默认'));
+    await _pumpUntil(tester, () => builder.rebuildRequests.length == 2);
+    expect(settings.defaultScorePartKinds, {MidiPartKind.piano});
+
+    builder.rebuildRequests[1].complete(
+      _notationSession(
+        midiSession.songData,
+        xmlMarker: 'global-default',
+        selectedPartIds: {'piano', 'violin'},
+      ),
+    );
+    await tester.pump();
+    expect(settings.defaultScorePartKinds, {
+      MidiPartKind.piano,
+      MidiPartKind.strings,
+    });
+  });
+
+  testWidgets('首次生成失败进入可重试错误态且不泄漏旧曲', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(interactiveSession());
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    await tester.pumpWidget(
+      _page(
+        player,
+        surface,
+        initialSession: midiSession,
+        notationBuilder: builder,
+      ),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+    builder.prepareRequests.single.completeError(StateError('音符超限'));
+    await tester.pump();
+
+    expect(find.text('无法生成五线谱'), findsOneWidget);
+    expect(find.textContaining('音符超限'), findsOneWidget);
+    expect(find.text('重试'), findsOneWidget);
+    expect(find.text('导入文件'), findsOneWidget);
+    expect(find.text('仅伴奏'), findsNothing);
+    expect(surface.createCount, 0);
+    expect(player.songData, same(midiSession.songData));
+    expect(find.byKey(const Key('score-play-pause')), findsOneWidget);
+
+    await tester.tap(find.text('重试'));
+    await _pumpUntil(tester, () => builder.prepareRequests.length == 2);
+    expect(builder.prepareRequests[1].song, same(midiSession.songData));
+  });
+
+  testWidgets('等待冷启动设置加载后才解析已保存默认', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final builder = _ControlledNotationBuilder();
+    final storage = _DelayedSettingsStorage();
+    final settings = AppSettingsController(storage: storage);
+    await tester.pumpWidget(
+      _page(
+        player,
+        _ScoreSurfaceHarness(),
+        notationBuilder: builder,
+        sourceFingerprint: 'asset:fixture.mid',
+        settings: settings,
+      ),
+    );
+    await tester.pump();
+
+    expect(builder.prepareRequests, isEmpty);
+    storage.readCompleter.complete({
+      'schemaVersion': 3,
+      'defaultScorePartKinds': ['strings'],
+      'songScorePartSelections': {
+        'asset:fixture.mid': ['violin'],
+      },
+    });
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+
+    expect(builder.prepareRequests, hasLength(1));
+    expect(builder.prepareRequests.single.globalDefaultKinds, {
+      MidiPartKind.strings,
+    });
+    expect(builder.prepareRequests.single.songDefaultPartIds, {'violin'});
+  });
+
+  testWidgets('首次错误态的导入文件可选择 MIDI 并恢复生成谱', (tester) async {
+    final initialMidi = midiOnlySession();
+    final importedSong = interactiveSession().songData;
+    final importedMidi = ScoreSession.midiOnly(
+      importedSong,
+      sourceFingerprint: 'midi:sha256:imported',
+    );
+    final player = readyPlayer()..loadScore(initialMidi);
+    final surface = _ScoreSurfaceHarness();
+    final builder = _ControlledNotationBuilder();
+    final picker = _FakeFilePicker(
+      () => SynchronousFuture(
+        FilePickerResult([
+          PlatformFile(name: 'new.mid', size: 1, path: '/tmp/new.mid'),
+        ]),
+      ),
+    );
+    FilePicker.platform = picker;
+    await tester.pumpWidget(
+      _page(
+        player,
+        surface,
+        initialSession: initialMidi,
+        notationBuilder: builder,
+        importService: _FakeScoreImportService(importedMidi),
+      ),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+    builder.prepareRequests.single.completeError(StateError('first failed'));
+    await tester.pump();
+
+    await tester.tap(find.text('导入文件'));
+    await _pumpUntil(tester, () => builder.prepareRequests.length == 2);
+    expect(picker.allowedExtensions, ['mid', 'midi', 'musicxml', 'xml', 'pdf']);
+    expect(builder.prepareRequests[1].fingerprint, 'midi:sha256:imported');
+    expect(player.songData, same(importedSong));
+
+    builder.prepareRequests[1].complete(
+      _preparation(importedSong, xmlMarker: 'imported-midi'),
+    );
+    await tester.pump();
+    expect(surface.port.loadedXml.last, contains('imported-midi'));
+    expect(find.text('无法生成五线谱'), findsNothing);
+  });
+
+  testWidgets('MusicXML 和 PDF 会话不显示声部按钮', (tester) async {
+    final musicXml = interactiveSession();
+    final pdf = ScoreSession(
+      songData: musicXml.songData,
+      musicXml: musicXml.musicXml,
+      sourceType: ScoreSourceType.pdfOmr,
+      measures: musicXml.measures,
+      mappingStatus: musicXml.mappingStatus,
+    );
+    for (final session in [musicXml, pdf]) {
+      final player = readyPlayer()..loadScore(session);
+      await tester.pumpWidget(
+        _page(player, _ScoreSurfaceHarness(), initialSession: session),
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('score-parts')), findsNothing);
+    }
+  });
+
+  testWidgets('记谱 warning 显示可关闭简短 banner 且面板保留详情', (tester) async {
+    final midiSession = midiOnlySession();
+    final player = readyPlayer()..loadScore(midiSession);
+    final builder = _ControlledNotationBuilder();
+    await tester.pumpWidget(
+      _page(player, _ScoreSurfaceHarness(), notationBuilder: builder),
+    );
+    await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+    builder.prepareRequests.single.complete(
+      _preparation(
+        midiSession.songData,
+        xmlMarker: 'warnings',
+        warnings: MidiNotationWarning.values.toSet(),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.textContaining('节奏已近似量化 / 未知乐器按独立声部显示 / 拍号变化已截断小节 / 谱面较密集'),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('dismiss-notation-warnings')));
+    await tester.pump();
+    expect(find.byKey(const Key('notation-warning-banner')), findsNothing);
   });
 
   testWidgets('复杂反复显示顺序播放提示', (tester) async {
@@ -187,9 +567,11 @@ void main() {
       () => Future<FilePickerResult?>.error(StateError('picker failed')),
     );
     final player = readyPlayer()..loadScore(midiOnlySession());
-    await tester.pumpWidget(_page(player, _ScoreSurfaceHarness()));
+    await tester.pumpWidget(
+      _page(player, _ScoreSurfaceHarness(), initialSession: null),
+    );
 
-    await tester.tap(find.text('导入 MusicXML'));
+    await tester.tap(find.text('导入文件'));
     await tester.pumpAndSettle();
 
     expect(find.text('导入失败'), findsOneWidget);
@@ -201,10 +583,12 @@ void main() {
     final picker = _FakeFilePicker(() => pending.future);
     FilePicker.platform = picker;
     final player = readyPlayer()..loadScore(midiOnlySession());
-    await tester.pumpWidget(_page(player, _ScoreSurfaceHarness()));
+    await tester.pumpWidget(
+      _page(player, _ScoreSurfaceHarness(), initialSession: null),
+    );
 
-    await tester.tap(find.text('导入 MusicXML'));
-    await tester.tap(find.text('导入 MusicXML'));
+    await tester.tap(find.text('导入文件'));
+    await tester.tap(find.text('导入文件'));
     expect(picker.pickCount, 1);
 
     pending.complete(null);
@@ -262,7 +646,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.text('导入 MusicXML'));
+    await tester.tap(find.text('导入文件'));
     await tester.pump();
     await tester.runAsync(() async {
       for (var attempt = 0; attempt < 100; attempt += 1) {
@@ -273,7 +657,7 @@ void main() {
     await tester.pump();
     expect(picker.pickCount, 1);
     expect(find.text('导入失败'), findsNothing);
-    expect(find.text('仅伴奏'), findsNothing);
+    expect(find.text('暂无可显示乐谱'), findsNothing);
     expect(surface.createCount, greaterThan(0));
 
     assetGate.complete();
@@ -285,7 +669,7 @@ void main() {
     expect(player.scoreSession?.musicXml, isNotNull);
     expect(player.scoreSession?.sourceType, ScoreSourceType.musicXml);
     expect(surface.createCount, 1);
-    expect(find.text('仅伴奏'), findsNothing);
+    expect(find.text('暂无可显示乐谱'), findsNothing);
   });
 
   testWidgets('核心播放按钮提供动态中文语义', (tester) async {
@@ -322,13 +706,18 @@ Widget _page(
   _ScoreSurfaceHarness surface, {
   Object? initialSession = _usePlayerSession,
   String? assetPath,
+  String? sourceFingerprint,
   ScoreImportService? importService,
+  MidiNotationBuilder? notationBuilder,
+  AppSettingsController? settings,
 }) {
   return MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: player),
-      ChangeNotifierProvider(
-        create: (_) => AppSettingsController(storage: _MemorySettingsStorage()),
+      ChangeNotifierProvider.value(
+        value:
+            settings ??
+            AppSettingsController(storage: _MemorySettingsStorage()),
       ),
     ],
     child: CupertinoApp(
@@ -343,12 +732,14 @@ Widget _page(
           accent: const Color(0xFFA2773F),
           seed: 1,
           assetPath: assetPath,
+          sourceFingerprint: sourceFingerprint,
         ),
         initialSession: identical(initialSession, _usePlayerSession)
             ? player.scoreSession
             : initialSession as ScoreSession?,
         surfaceFactory: surface.create,
         importService: importService,
+        notationBuilder: notationBuilder,
       ),
     ),
   );
@@ -384,6 +775,7 @@ class _MemorySettingsStorage implements AppSettingsStorage {
 class _FakeFilePicker extends FilePicker {
   final Future<FilePickerResult?> Function() result;
   int pickCount = 0;
+  List<String>? allowedExtensions;
 
   _FakeFilePicker(this.result);
 
@@ -403,6 +795,7 @@ class _FakeFilePicker extends FilePicker {
     bool readSequential = false,
   }) {
     pickCount += 1;
+    this.allowedExtensions = allowedExtensions;
     return result();
   }
 }
@@ -415,4 +808,189 @@ class _FakeScoreImportService extends ScoreImportService {
   @override
   Future<ScoreSession> importFile(String filePath) =>
       SynchronousFuture<ScoreSession>(session);
+}
+
+Future<void> _pumpUntil(WidgetTester tester, bool Function() predicate) async {
+  for (var attempt = 0; attempt < 30; attempt += 1) {
+    if (predicate()) return;
+    await tester.pump();
+  }
+  fail('异步条件未在预期时间内满足');
+}
+
+Future<void> _completeInitialNotation(
+  WidgetTester tester,
+  _ControlledNotationBuilder builder,
+  MidiSongData song,
+) async {
+  await _pumpUntil(tester, () => builder.prepareRequests.isNotEmpty);
+  builder.prepareRequests.single.complete(
+    _preparation(song, xmlMarker: 'initial'),
+  );
+  await tester.pump();
+}
+
+Future<void> _requestViolinRebuild(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('score-parts')));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
+  await tester.ensureVisible(find.text('小提琴'));
+  await tester.tap(find.text('小提琴'));
+  await tester.ensureVisible(find.text('应用'));
+  await tester.tap(find.text('应用'));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
+}
+
+MidiNotationPreparation _preparation(
+  MidiSongData song, {
+  required String xmlMarker,
+  Set<MidiNotationWarning> warnings = const {},
+}) {
+  final catalog = _notationCatalog();
+  return MidiNotationPreparation(
+    catalog: catalog,
+    selection: MidiScoreSelection(
+      partIds: const {'piano'},
+      origin: MidiSelectionOrigin.automaticPiano,
+    ),
+    session: _notationSession(
+      song,
+      xmlMarker: xmlMarker,
+      selectedPartIds: const {'piano'},
+      warnings: warnings,
+    ),
+  );
+}
+
+ScoreSession _notationSession(
+  MidiSongData song, {
+  required String xmlMarker,
+  required Set<String> selectedPartIds,
+  Set<MidiNotationWarning> warnings = const {},
+}) {
+  final base = interactiveSession();
+  return ScoreSession(
+    songData: song,
+    musicXml: '<score-partwise id="$xmlMarker"/>',
+    sourceType: ScoreSourceType.midiNotation,
+    measures: base.measures,
+    mappingStatus: ScoreMappingStatus.complete,
+    sourceFingerprint: 'fixture-fingerprint',
+    selectedPartIds: selectedPartIds,
+    notationWarnings: warnings,
+  );
+}
+
+MidiScoreCatalog _notationCatalog() => MidiScoreCatalog(
+  fingerprint: 'fixture-fingerprint',
+  parts: [
+    MidiScorePart(
+      id: 'piano',
+      label: '钢琴',
+      kind: MidiPartKind.piano,
+      sources: const [],
+      noteCount: 128,
+      staffMode: MidiStaffMode.grandStaff,
+    ),
+    MidiScorePart(
+      id: 'violin',
+      label: '小提琴',
+      kind: MidiPartKind.strings,
+      sources: const [],
+      noteCount: 96,
+      staffMode: MidiStaffMode.singleStaff,
+    ),
+  ],
+  recommendedPartIds: const {'piano'},
+  recommendedOrigin: MidiSelectionOrigin.automaticPiano,
+);
+
+class _PrepareRequest {
+  final MidiSongData song;
+  final String fingerprint;
+  final Set<MidiPartKind> globalDefaultKinds;
+  final Set<String>? songDefaultPartIds;
+  final Completer<MidiNotationPreparation> _completer = Completer();
+
+  _PrepareRequest({
+    required this.song,
+    required this.fingerprint,
+    required this.globalDefaultKinds,
+    required this.songDefaultPartIds,
+  });
+
+  Future<MidiNotationPreparation> get future => _completer.future;
+
+  void complete(MidiNotationPreparation value) => _completer.complete(value);
+
+  void completeError(Object error) => _completer.completeError(error);
+}
+
+class _RebuildRequest {
+  final MidiSongData song;
+  final MidiScoreCatalog catalog;
+  final Set<String> selectedPartIds;
+  final Completer<ScoreSession> _completer = Completer();
+
+  _RebuildRequest({
+    required this.song,
+    required this.catalog,
+    required this.selectedPartIds,
+  });
+
+  Future<ScoreSession> get future => _completer.future;
+
+  void complete(ScoreSession value) => _completer.complete(value);
+
+  void completeError(Object error) => _completer.completeError(error);
+}
+
+class _ControlledNotationBuilder implements MidiNotationBuilder {
+  final List<_PrepareRequest> prepareRequests = [];
+  final List<_RebuildRequest> rebuildRequests = [];
+
+  @override
+  Future<MidiNotationPreparation> prepare(
+    MidiSongData song, {
+    required String fingerprint,
+    required Set<MidiPartKind> globalDefaultKinds,
+    Set<String>? songDefaultPartIds,
+  }) {
+    final request = _PrepareRequest(
+      song: song,
+      fingerprint: fingerprint,
+      globalDefaultKinds: Set<MidiPartKind>.of(globalDefaultKinds),
+      songDefaultPartIds: songDefaultPartIds == null
+          ? null
+          : Set<String>.of(songDefaultPartIds),
+    );
+    prepareRequests.add(request);
+    return request.future;
+  }
+
+  @override
+  Future<ScoreSession> rebuild(
+    MidiSongData song, {
+    required MidiScoreCatalog catalog,
+    required Set<String> selectedPartIds,
+  }) {
+    final request = _RebuildRequest(
+      song: song,
+      catalog: catalog,
+      selectedPartIds: Set<String>.of(selectedPartIds),
+    );
+    rebuildRequests.add(request);
+    return request.future;
+  }
+}
+
+class _DelayedSettingsStorage implements AppSettingsStorage {
+  final Completer<Map<String, Object?>> readCompleter = Completer();
+
+  @override
+  Future<Map<String, Object?>> read() => readCompleter.future;
+
+  @override
+  Future<void> write(Map<String, Object?> values) async {}
 }

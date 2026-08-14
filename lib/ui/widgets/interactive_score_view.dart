@@ -21,7 +21,7 @@ class InteractiveScoreView extends StatefulWidget {
   final String? musicXml;
   final ValueChanged<ScoreRendererMessage> onMessage;
   final ValueChanged<ScoreRendererPort>? onPortReady;
-  final VoidCallback? onImportMusicXml;
+  final VoidCallback? onImportScore;
   final ScoreSurfaceFactory? surfaceFactory;
 
   const InteractiveScoreView({
@@ -29,7 +29,7 @@ class InteractiveScoreView extends StatefulWidget {
     required this.musicXml,
     required this.onMessage,
     this.onPortReady,
-    this.onImportMusicXml,
+    this.onImportScore,
     this.surfaceFactory,
   });
 
@@ -205,7 +205,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
           if (_errorMessage case final message?)
             _ScoreErrorOverlay(
               message: message,
-              onImportMusicXml: widget.onImportMusicXml,
+              onImportScore: widget.onImportScore,
             ),
         ],
       ),
@@ -228,7 +228,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
               ),
               const SizedBox(height: 14),
               const Text(
-                '仅伴奏',
+                '暂无可显示乐谱',
                 style: TextStyle(
                   color: Color(0xFF2A2118),
                   fontSize: 20,
@@ -237,16 +237,16 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
               ),
               const SizedBox(height: 8),
               const Text(
-                '导入对应 MusicXML 以显示可交互乐谱',
+                '导入 MIDI 或 MusicXML',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFF7E6C55), fontSize: 14),
               ),
-              if (widget.onImportMusicXml != null) ...[
+              if (widget.onImportScore != null) ...[
                 const SizedBox(height: 18),
                 CupertinoButton(
                   color: const Color(0xFF5F4A35),
-                  onPressed: widget.onImportMusicXml,
-                  child: const Text('导入 MusicXML'),
+                  onPressed: widget.onImportScore,
+                  child: const Text('导入文件'),
                 ),
               ],
             ],
@@ -283,11 +283,11 @@ class _ScoreLoadingOverlay extends StatelessWidget {
 
 class _ScoreErrorOverlay extends StatelessWidget {
   final String message;
-  final VoidCallback? onImportMusicXml;
+  final VoidCallback? onImportScore;
 
   const _ScoreErrorOverlay({
     required this.message,
-    required this.onImportMusicXml,
+    required this.onImportScore,
   });
 
   @override
@@ -311,11 +311,11 @@ class _ScoreErrorOverlay extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Color(0xFF5F4A35), fontSize: 14),
               ),
-              if (onImportMusicXml != null) ...[
+              if (onImportScore != null) ...[
                 const SizedBox(height: 18),
                 CupertinoButton(
                   color: const Color(0xFF5F4A35),
-                  onPressed: onImportMusicXml,
+                  onPressed: onImportScore,
                   child: const Text('重新导入'),
                 ),
               ],

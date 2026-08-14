@@ -51,7 +51,7 @@ void main() {
       endsWith('未选择'),
     );
     expect(find.textContaining('部分节奏已对齐到可显示的记谱网格'), findsOneWidget);
-    expect(find.textContaining('部分乐器无法识别'), findsNothing);
+    expect(find.textContaining('部分轨道名或乐器无法识别'), findsNothing);
 
     warnings
       ..clear()
@@ -78,6 +78,7 @@ void main() {
     );
     await _openPicker(tester);
 
+    expect(find.text('选择显示声部'), findsOneWidget);
     await tester.tap(find.text('小提琴'));
     await tester.tap(find.text('应用'));
     await tester.pumpAndSettle();
@@ -191,8 +192,8 @@ void main() {
     expect(find.text('其他 · 0 个音符 · 单谱表'), findsOneWidget);
     expect(find.text('显示提示'), findsOneWidget);
     expect(find.textContaining('部分节奏已对齐到可显示的记谱网格'), findsOneWidget);
-    expect(find.textContaining('部分乐器无法识别'), findsOneWidget);
-    expect(find.textContaining('乐曲中途包含拍号变化'), findsOneWidget);
+    expect(find.textContaining('部分轨道名或乐器无法识别'), findsOneWidget);
+    expect(find.textContaining('拍号变化不在标准小节边界'), findsOneWidget);
     expect(find.textContaining('部分段落声部过密'), findsOneWidget);
   });
 

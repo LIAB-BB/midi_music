@@ -75,17 +75,18 @@ void main() {
     );
 
     await tester.tap(find.byKey(const Key('score-card-2')));
-    await tester.pumpAndSettle();
+    await _openPracticeRoute(tester);
 
     expect(find.text('月光奏鸣曲 第一乐章'), findsWidgets);
-    expect(find.text('仅伴奏'), findsOneWidget);
+    expect(find.text('仅伴奏'), findsNothing);
+    expect(find.text('正在生成五线谱'), findsOneWidget);
     expect(find.byKey(const Key('interactive-score-view')), findsOneWidget);
     expect(find.byKey(const Key('midi-piano-roll')), findsNothing);
     expect(find.byKey(const Key('pdf-score-viewer')), findsNothing);
     expect(find.byKey(const Key('score-transport-bar')), findsOneWidget);
   });
 
-  testWidgets('K.478 is presented as accompaniment only', (
+  testWidgets('K.478 is presented as generated interactive notation', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(
@@ -102,9 +103,10 @@ void main() {
     );
 
     await tester.tap(find.byKey(const Key('score-card-13')));
-    await tester.pumpAndSettle();
+    await _openPracticeRoute(tester);
 
-    expect(find.text('仅伴奏'), findsOneWidget);
+    expect(find.text('仅伴奏'), findsNothing);
+    expect(find.text('正在生成五线谱'), findsOneWidget);
     expect(find.textContaining('PDF'), findsNothing);
     expect(find.byKey(const Key('interactive-score-view')), findsOneWidget);
     expect(find.byKey(const Key('pdf-score-viewer')), findsNothing);
@@ -133,6 +135,11 @@ void main() {
     expect(find.text('排练偏好'), findsOneWidget);
     expect(find.text('电子琴输入'), findsOneWidget);
   });
+}
+
+Future<void> _openPracticeRoute(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
 }
 
 class _MemorySettingsStorage implements AppSettingsStorage {
