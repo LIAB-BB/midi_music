@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import '../../models/midi_score_part.dart';
@@ -33,10 +34,21 @@ class MidiNotationResult {
 }
 
 class MidiToMusicXmlConverter {
+  static const int _middleCMidiNote = 60;
+  static const int _grandStaffChordSplitSpanSemitones = 12;
+  static const int _defaultMaxMusicXmlBytes = 16 * 1024 * 1024;
   static const int _maxMeasures = 10000;
   static const int _maxGeneratedFragments = 1000000;
   static const int _maxNotationElements = 2000000;
   static const int _maxDynamicStates = 200000;
+
+  final int maxMusicXmlBytes;
+
+  MidiToMusicXmlConverter({this.maxMusicXmlBytes = _defaultMaxMusicXmlBytes}) {
+    if (maxMusicXmlBytes <= 0) {
+      throw ArgumentError.value(maxMusicXmlBytes, 'maxMusicXmlBytes', '必须大于 0');
+    }
+  }
 
   MidiNotationResult convertSync(
     MidiSongData song, {
@@ -114,7 +126,7 @@ class MidiToMusicXmlConverter {
         )
         .toList(growable: false);
     final warnings = <MidiNotationWarning>{
-      if (song.timeSignatureChanges.any((change) => change.tick > 0))
+      if (_hasTruncatedMeasureAtTimeSignatureChange(song, sourceMeasures))
         MidiNotationWarning.irregularTimeSignature,
       if (selectedParts.any((part) => part.kind == MidiPartKind.other))
         MidiNotationWarning.unknownInstrument,
@@ -164,6 +176,7 @@ class MidiToMusicXmlConverter {
         '  <work><work-title>${_escapeXml(song.fileName)}</work-title></work>',
       )
       ..writeln('  <part-list>');
+    _checkGeneratedMusicXmlCharacterLimit(buffer);
     for (var index = 0; index < parts.length; index++) {
       final id = 'P${index + 1}';
       final name = _escapeXml(parts[index].label);
@@ -175,8 +188,10 @@ class MidiToMusicXmlConverter {
           '<instrument-name>$name</instrument-name></score-instrument>',
         )
         ..writeln('    </score-part>');
+      _checkGeneratedMusicXmlCharacterLimit(buffer);
     }
     buffer.writeln('  </part-list>');
+    _checkGeneratedMusicXmlCharacterLimit(buffer);
     for (var index = 0; index < parts.length; index++) {
       _writePart(
         buffer,
@@ -188,9 +203,15 @@ class MidiToMusicXmlConverter {
         warnings,
         budget,
       );
+      _checkGeneratedMusicXmlCharacterLimit(buffer);
     }
     buffer.writeln('</score-partwise>');
-    return buffer.toString();
+    _checkGeneratedMusicXmlCharacterLimit(buffer);
+    final xml = buffer.toString();
+    if (utf8.encode(xml).length > maxMusicXmlBytes) {
+      throw StateError('MusicXML 输出超过 $maxMusicXmlBytes 字节的移动端安全上限');
+    }
+    return xml;
   }
 
   void _writePart(
@@ -249,8 +270,15 @@ class MidiToMusicXmlConverter {
         validBarTieIds,
       );
       buffer.writeln('    </measure>');
+      _checkGeneratedMusicXmlCharacterLimit(buffer);
     }
     buffer.writeln('  </part>');
+  }
+
+  void _checkGeneratedMusicXmlCharacterLimit(StringBuffer buffer) {
+    if (buffer.length > maxMusicXmlBytes) {
+      throw StateError('MusicXML 输出超过 $maxMusicXmlBytes 字节的移动端安全上限');
+    }
   }
 
   List<MidiNote> _selectedNotes(MidiSongData song, MidiScorePart part) {
@@ -429,25 +457,58 @@ class MidiToMusicXmlConverter {
                         .join(',');
               compatibleGroups.putIfAbsent(key, () => []).add(segment);
             }
-            return compatibleGroups.values.map((compatibleSegments) {
+            return compatibleGroups.values.expand((compatibleSegments) {
               final duration = compatibleSegments
                   .map((segment) => segment.duration)
                   .reduce(math.max);
+              final pitches = compatibleSegments
+                  .map((segment) => segment.noteNumber)
+                  .toList(growable: false);
+              final lowestPitch = pitches.reduce(math.min);
+              final highestPitch = pitches.reduce(math.max);
+              final shouldSplitGrandStaffChord =
+                  part.staffMode == MidiStaffMode.grandStaff &&
+                  lowestPitch < _middleCMidiNote &&
+                  highestPitch >= _middleCMidiNote &&
+                  highestPitch - lowestPitch >=
+                      _grandStaffChordSplitSpanSemitones;
+              if (shouldSplitGrandStaffChord) {
+                final upperNotes = compatibleSegments
+                    .where((segment) => segment.noteNumber >= _middleCMidiNote)
+                    .toList(growable: false);
+                final lowerNotes = compatibleSegments
+                    .where((segment) => segment.noteNumber < _middleCMidiNote)
+                    .toList(growable: false);
+                return [
+                  _ChordEvent(
+                    start: entry.key,
+                    duration: duration,
+                    notes: upperNotes,
+                    staff: 1,
+                  ),
+                  _ChordEvent(
+                    start: entry.key,
+                    duration: duration,
+                    notes: lowerNotes,
+                    staff: 2,
+                  ),
+                ];
+              }
               final averagePitch =
-                  compatibleSegments
-                      .map((segment) => segment.noteNumber)
-                      .reduce((left, right) => left + right) ~/
+                  pitches.reduce((left, right) => left + right) ~/
                   compatibleSegments.length;
-              return _ChordEvent(
-                start: entry.key,
-                duration: duration,
-                notes: compatibleSegments,
-                staff:
-                    part.staffMode == MidiStaffMode.grandStaff &&
-                        averagePitch < 60
-                    ? 2
-                    : 1,
-              );
+              return [
+                _ChordEvent(
+                  start: entry.key,
+                  duration: duration,
+                  notes: compatibleSegments,
+                  staff:
+                      part.staffMode == MidiStaffMode.grandStaff &&
+                          averagePitch < _middleCMidiNote
+                      ? 2
+                      : 1,
+                ),
+              ];
             });
           }).toList();
           events.sort((a, b) {
@@ -613,6 +674,7 @@ class MidiToMusicXmlConverter {
       }
     }
     buffer.writeln('      </attributes>');
+    _checkGeneratedMusicXmlCharacterLimit(buffer);
   }
 
   void _writeVoices(
@@ -732,6 +794,7 @@ class MidiToMusicXmlConverter {
       ..writeln('        <voice>$voice</voice>')
       ..writeln('        <staff>$staff</staff>')
       ..writeln('      </note>');
+    _checkGeneratedMusicXmlCharacterLimit(buffer);
   }
 
   void _writeNote(
@@ -794,6 +857,7 @@ class MidiToMusicXmlConverter {
       buffer.writeln('        </notations>');
     }
     buffer.writeln('      </note>');
+    _checkGeneratedMusicXmlCharacterLimit(buffer);
   }
 
   void _writeTempoDirections(
@@ -815,8 +879,32 @@ class MidiToMusicXmlConverter {
       buffer
         ..writeln('        <sound tempo="${_number(byTick[tick]!)}"/>')
         ..writeln('      </direction>');
+      _checkGeneratedMusicXmlCharacterLimit(buffer);
     }
   }
+}
+
+bool _hasTruncatedMeasureAtTimeSignatureChange(
+  MidiSongData song,
+  List<MeasureInfo> measures,
+) {
+  final measuresByEndTick = {
+    for (final measure in measures) measure.endTick: measure,
+  };
+  for (final change in song.timeSignatureChanges) {
+    if (change.tick <= 0) continue;
+    final precedingMeasure = measuresByEndTick[change.tick];
+    if (precedingMeasure == null) continue;
+    final naturalLength =
+        (song.ticksPerBeat *
+                precedingMeasure.numerator *
+                4 /
+                precedingMeasure.denominator)
+            .round()
+            .clamp(1, 1 << 30);
+    if (precedingMeasure.lengthTick < naturalLength) return true;
+  }
+  return false;
 }
 
 class _NoteSegment {

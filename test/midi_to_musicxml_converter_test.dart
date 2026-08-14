@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/import/musicxml_parser.dart';
 import 'package:midi_music/core/midi/measure_map.dart';
@@ -261,7 +263,7 @@ void main() {
     expect(() => result.selectedPartIds.add('x'), throwsUnsupportedError);
   });
 
-  test('拍号变化、低音、打击乐和未知乐器均保留可解析边界', () {
+  test('自然小节边界的拍号变化不警告且各声部边界可解析', () {
     final bass = _track(0, '低音提琴', 0, [_note(43, 0, 0, 960)]);
     final drums = _track(1, 'Drums', 9, [_note(36, 9, 1920, 2160)]);
     final mystery = _track(2, '???', 2, [_note(72, 2, 2400, 2720)]);
@@ -300,12 +302,10 @@ void main() {
     expect(result.musicXml, contains('<sign>percussion</sign>'));
     expect(result.musicXml, contains('<unpitched>'));
     expect(result.musicXml, contains('<beats>3</beats>'));
+    expect(result.warnings, contains(MidiNotationWarning.unknownInstrument));
     expect(
       result.warnings,
-      containsAll({
-        MidiNotationWarning.irregularTimeSignature,
-        MidiNotationWarning.unknownInstrument,
-      }),
+      isNot(contains(MidiNotationWarning.irregularTimeSignature)),
     );
     expect(_measureCountsByPart(result.musicXml).toSet(), {
       result.measures.length,
@@ -518,6 +518,47 @@ void main() {
     expect(result.musicXml, isNot(contains('<backup>')));
   });
 
+  test('钢琴同 onset 和弦明显跨越中央 C 时按音高拆分至双谱表', () {
+    final track = _track(0, 'Piano', 0, [
+      _note(54, 0, 0, 2400),
+      _note(66, 0, 0, 2400),
+    ]);
+    final fixture = _singlePartFixture(
+      track: track,
+      kind: MidiPartKind.piano,
+      totalTicks: 3840,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+
+    final firstMeasureNotes = _pitchedNotesByMeasure(result.musicXml).first;
+    expect(
+      _notesAtPitch(firstMeasureNotes, step: 'F', octave: 3).single,
+      allOf(
+        contains('<duration>1920</duration>'),
+        contains('<tie type="start"/>'),
+        contains('<staff>2</staff>'),
+      ),
+    );
+    expect(
+      _notesAtPitch(firstMeasureNotes, step: 'F', octave: 4).single,
+      allOf(
+        contains('<duration>1920</duration>'),
+        contains('<tie type="start"/>'),
+        contains('<staff>1</staff>'),
+      ),
+    );
+    expect(
+      MusicXmlParser().parseDocumentString(result.musicXml).mappingStatus,
+      ScoreMappingStatus.complete,
+    );
+  });
+
   test('小节尾不足最短时值的普通音符不会让转换崩溃', () {
     final fixture = _singlePartFixture(
       track: _track(0, 'Tail', 0, [_note(71, 0, 1900, 1910)]),
@@ -695,6 +736,60 @@ void main() {
           (error) => error.message,
           'message',
           contains('小节超过'),
+        ),
+      ),
+    );
+  });
+
+  test('构建期间超过可注入的 MusicXML 移动端安全上限时快速拒绝', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, 'Small', 0, [_note(60, 0, 0, 480)]),
+      kind: MidiPartKind.strings,
+      totalTicks: 1920,
+    );
+
+    expect(
+      () => MidiToMusicXmlConverter(maxMusicXmlBytes: 128).convertSync(
+        fixture.song,
+        catalog: fixture.catalog,
+        selectedPartIds: fixture.catalog.recommendedPartIds,
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('MusicXML 输出超过 128 字节'),
+        ),
+      ),
+    );
+  });
+
+  test('最终 MusicXML 以 UTF-8 字节数校验移动端安全上限', () {
+    final fixture = _singlePartFixture(
+      track: _track(0, '中文钢琴', 0, [_note(60, 0, 0, 480)]),
+      kind: MidiPartKind.piano,
+      totalTicks: 1920,
+    );
+    final baseline = MidiToMusicXmlConverter().convertSync(
+      fixture.song,
+      catalog: fixture.catalog,
+      selectedPartIds: fixture.catalog.recommendedPartIds,
+    );
+    final characterLength = baseline.musicXml.length;
+    expect(utf8.encode(baseline.musicXml).length, greaterThan(characterLength));
+
+    expect(
+      () => MidiToMusicXmlConverter(maxMusicXmlBytes: characterLength)
+          .convertSync(
+            fixture.song,
+            catalog: fixture.catalog,
+            selectedPartIds: fixture.catalog.recommendedPartIds,
+          ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('MusicXML 输出超过 $characterLength 字节'),
         ),
       ),
     );
