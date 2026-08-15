@@ -10,6 +10,7 @@
   let primaryPointerId = null;
   let activeOrdinal = null;
   let resizeTimer = null;
+  let zoomTimer = null;
   let currentZoom = 0.7;
   let zoomRequestGeneration = 0;
   const activePointers = new Set();
@@ -35,6 +36,7 @@
 
   const resetRenderSurface = () => {
     clearTimeout(resizeTimer);
+    clearTimeout(zoomTimer);
     osmd = null;
     activeOrdinal = null;
     score.replaceChildren();
@@ -247,10 +249,20 @@
       currentZoom = Math.min(1.4, Math.max(0.5, zoom));
       const renderer = osmd;
       if (!renderer) return;
-      renderer.Zoom = currentZoom;
-      renderer.renderAndScrollBack();
-      rebuildLayer(renderer, true, generation);
-      if (activeOrdinal !== null) applyHighlight(activeOrdinal, true);
+      clearTimeout(zoomTimer);
+      const zoomGeneration = generation;
+      zoomTimer = setTimeout(() => {
+        zoomTimer = null;
+        if (
+          request !== zoomRequestGeneration ||
+          renderer !== osmd ||
+          zoomGeneration !== generation
+        ) return;
+        renderer.Zoom = currentZoom;
+        renderer.renderAndScrollBack();
+        rebuildLayer(renderer, true, zoomGeneration);
+        if (activeOrdinal !== null) applyHighlight(activeOrdinal, true);
+      }, 80);
     },
   });
 

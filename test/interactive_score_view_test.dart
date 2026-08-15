@@ -75,7 +75,12 @@ void main() {
       contains('setZoom(value, requestGeneration = zoomRequestGeneration + 1)'),
     );
     expect(script, contains('let zoomRequestGeneration = 0'));
+    expect(script, contains('let zoomTimer = null'));
     expect(script, contains('if (request < zoomRequestGeneration) return'));
+    expect(script, contains('clearTimeout(zoomTimer)'));
+    expect(script, contains('zoomTimer = setTimeout(() => {'));
+    expect(script, contains('request !== zoomRequestGeneration'));
+    expect(script, contains('}, 80);'));
     expect(script, contains('renderer.renderAndScrollBack()'));
     expect(script, contains('rebuildLayer(renderer, true'));
     expect(script, contains('applyHighlight(activeOrdinal, true)'));

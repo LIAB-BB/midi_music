@@ -171,7 +171,7 @@ flutter test
 - `pages/home_page.dart` — 首页。通过可注入的 `ScoreFilePicker` 与 `ScoreImportService` 选择并导入 MIDI/MusicXML/PDF；所有格式统一进入 `ScorePracticePage`，首页不预加载播放器会话
 - `pages/score_practice_page.dart` — 统一谱面练习页。以单一 `InteractiveScoreView`、悬浮 `ScoreZoomControls` 和固定 `ScoreTransportBar` 组成主界面；MIDI 等待设置加载后自动生成默认谱并支持无损多选总谱，MusicXML/PDF 保持直接路径；异步载入前用 `clearScore()` 隔离旧曲，失败态可重试且不泄漏上一曲
 - `pages/player_page.dart` — 保留的旧高级演奏台。初始化 USB MIDI、展示连接状态并管理 `MidiFollowModeSession`；用户 seek 后同步跟随会话重对齐，但首页导入不再导航至此页
-- `widgets/interactive_score_view.dart` — 离线 MusicXML 谱面表面，负责加载/错误/暂无谱面状态，并通过受控 renderer port 与本地 OSMD 桥接；缩放使用 OSMD 原生 Zoom 重排，renderer ready、载入和缩放请求各自按代际收敛
+- `widgets/interactive_score_view.dart` — 离线 MusicXML 谱面表面，负责加载/错误/暂无谱面状态，并通过受控 renderer port 与本地 OSMD 桥接；缩放使用 OSMD 原生 Zoom 重排，renderer ready、载入和缩放请求各自按代际收敛，连续缩放在桥接层以 80ms 空闲窗口合并为最后一次全量排版
 - `widgets/score_zoom_controls.dart` — 固定栏上方的紧凑缩放控件；默认 70%，按 10% 在 50%–140% 间调整并提供中文语义与 44pt 点击区
 - `widgets/score_transport_bar.dart` — 练习页固定控制栏，提供前后小节、播放/暂停、速度和 AB 循环
 - `widgets/score_part_picker.dart` — `showScorePartPicker()` Cupertino 多选声部面板；入口快照选择与警告集合，返回应用、本曲默认或全局默认的不可变声部结果

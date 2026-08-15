@@ -188,6 +188,7 @@ void main() {
     final renderCase = _renderCases()['dotted-triplet-tie']!;
     var layoutFinished = Completer<ScoreRendererMessage>();
     var gestureFinished = Completer<ScoreRendererMessage>();
+    var completeLayoutCount = 0;
     final controller = WebViewController();
     await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.addJavaScriptChannel(
@@ -197,7 +198,10 @@ void main() {
         switch (message.type) {
           case ScoreRendererMessageType.layout:
             if (message.layoutComplete && !layoutFinished.isCompleted) {
+              completeLayoutCount += 1;
               layoutFinished.complete(message);
+            } else if (message.layoutComplete) {
+              completeLayoutCount += 1;
             }
           case ScoreRendererMessageType.gestureEnd:
             if (!gestureFinished.isCompleted) {
@@ -304,6 +308,23 @@ void main() {
       zoomedTarget.contains(zoomedGesture.tapX!, zoomedGesture.tapY!),
       isTrue,
       reason: '50% 缩放后 gestureEnd 仍须命中第二小节的新 layout rect',
+    );
+
+    final layoutsBeforeBurst = completeLayoutCount;
+    layoutFinished = Completer<ScoreRendererMessage>();
+    await controller.runJavaScript('''
+      window.scoreBridge.setZoom(0.6, 3);
+      window.scoreBridge.setZoom(0.7, 4);
+      window.scoreBridge.setZoom(0.5, 5);
+    ''');
+    await tester.runAsync(() async {
+      await layoutFinished.future.timeout(const Duration(seconds: 5));
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    });
+    expect(
+      completeLayoutCount - layoutsBeforeBurst,
+      1,
+      reason: '连续点击缩放必须合并为最后一次 OSMD 全量重排，避免排版队列造成明显延迟',
     );
 
     await tester.pumpWidget(const SizedBox.shrink());
