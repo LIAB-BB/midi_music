@@ -301,8 +301,12 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
           _errorMessage = null;
         });
         if (!_portAnnounced && _surface != null) {
+          final port = _surface!.port;
+          if (port is _WebViewScoreRendererPort && port.markRendererReady()) {
+            _requestZoom(widget.zoom, surfaceToken: surfaceToken, port: port);
+          }
           _portAnnounced = true;
-          widget.onPortReady?.call(_surface!.port);
+          widget.onPortReady?.call(port);
         }
       case ScoreRendererMessageType.error:
         setState(() {
@@ -464,6 +468,7 @@ class _WebViewScoreRendererPort
   int _zoomGeneration = 0;
   double _zoom = 0.7;
   bool _hasLoadedMusicXml = false;
+  int _lastSentZoomGeneration = -1;
 
   _WebViewScoreRendererPort(this.controller, {MusicXmlEncoder? encoder})
     : _encoder = encoder ?? _encodeMusicXmlInBackground;
@@ -480,6 +485,7 @@ class _WebViewScoreRendererPort
     try {
       final encoded = await _encoder(musicXml);
       if (generation != _loadGeneration) return;
+      _lastSentZoomGeneration = _zoomGeneration;
       await controller.runJavaScript(
         'window.scoreBridge.setZoom($_zoom, $_zoomGeneration);'
         'window.scoreBridge.loadMusicXmlBase64(${jsonEncode(encoded)})',
@@ -492,6 +498,11 @@ class _WebViewScoreRendererPort
     }
   }
 
+  bool markRendererReady() {
+    _hasLoadedMusicXml = true;
+    return _lastSentZoomGeneration != _zoomGeneration;
+  }
+
   @override
   Future<void> setZoom(double zoom) async {
     if (!zoom.isFinite || zoom < 0.5 || zoom > 1.4) {
@@ -500,6 +511,7 @@ class _WebViewScoreRendererPort
     _zoom = zoom;
     final generation = ++_zoomGeneration;
     if (!_hasLoadedMusicXml) return;
+    _lastSentZoomGeneration = generation;
     try {
       await controller.runJavaScript(
         'window.scoreBridge.setZoom($zoom, $generation)',

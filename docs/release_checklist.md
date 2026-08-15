@@ -17,7 +17,7 @@ LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 flutter build ios --debug --no-codesign
 flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 ```
 
-当前基线为 Flutter 3.44.1 / Dart 3.12.1，`flutter test` 共 301 项；真机 OSMD integration fixture 独立运行，不计入 301 项。
+当前基线为 Flutter 3.44.1 / Dart 3.12.1，`flutter test` 共 309 项；真机 OSMD integration fixture 独立运行，不计入 309 项。
 
 ### 1.1 受测架构约束
 
@@ -27,6 +27,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - `lib/core/notation/` 由 analyzer、selection resolver、converter 和 isolate service 组成；OSMD、桥接页与许可证完全本地打包，运行时不得加载远程脚本。
 - `MidiPlayerController.clearScore()` 仅用于等待异步资源时原子卸载旧曲，清空旧位置与 AB，保留 SoundFont 和全局速度，避免上一曲泄漏。
 - MusicXML 保持原文直接显示；PDF 经 OMR 得到 MusicXML 后走同一直接路径，不经过 MIDI 自动记谱。
+- 谱面默认使用 OSMD 原生 70% 缩放，底部按钮按 10% 在 50%–140% 间重排；不得用 CSS transform 伪缩放，缩放后的 layout、点击命中与高亮必须使用同一坐标。
 
 ## 2. 验收前准备
 
@@ -36,7 +37,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - [ ] 已运行 `flutter pub get`
 - [ ] 已运行 `dart format lib test integration_test`，确认没有未预期格式改动
 - [ ] 已运行 `flutter analyze`
-- [ ] 已运行 `flutter test`，确认 301 项通过
+- [ ] 已运行 `flutter test`，确认 309 项通过
 - [ ] 已运行 `git diff --check`
 - [ ] 已完成 UTF-8 环境的 iOS Debug no-codesign 构建
 - [ ] 构建后已检查 `ios/Podfile.lock`，没有未解释的依赖漂移
@@ -108,6 +109,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - [ ] 默认只显示钢琴高低音双谱表，音符与曲目内容一致
 - [ ] 页面不出现“仅伴奏”、seed 假谱、PDF 黑框、MIDI 卷帘或 MIDI 数据卡
 - [ ] 五线谱占据主视口，顶部标题/声部入口和固定底栏均可见
+- [ ] 首次进入默认显示 70%，固定播放栏上方可见紧凑的 `− / 70% / +` 控件
 - [ ] 页面底部显示固定控制栏
 
 通过标准：K.478 默认直接显示钢琴双谱表，谱面来自真实 MIDI，且主视图没有旧展示形态。
@@ -155,13 +157,16 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - [ ] 播放中点击后继续播放，暂停中点击后保持暂停
 - [ ] 连续播放跨小节时高亮只移动一次且必要时自动滚动
 - [ ] 手动滚动后不会立刻被自动跟随拉回；再次播放操作后恢复跟随
+- [ ] 用底部 `− / +` 从 70% 分别调到 50% 和 140%，每次按 10% 变化，边界按钮正确禁用
+- [ ] 50% 时一屏可阅读约 4–5 个钢琴双谱表系统，且谱面、缩放控件和固定播放栏互不遮挡
+- [ ] 在 50%、70% 和 140% 分别点击非首小节，高亮与播放位置都命中该小节；缩放前后的当前高亮保持
 - [ ] 双指缩放和纵向滚动不误触小节跳转
 - [ ] 竖屏与横屏都无溢出、裁切或顶部/固定底栏遮挡
 - [ ] 系统文字调到 1.8x 后，生成态、错误态和声部面板均可滚动且无溢出
 - [ ] 后台切回后谱面与播放位置一致
 - [ ] 复杂反复谱显示按谱面顺序播放提示
 
-通过标准：本地 OSMD fixture 通过，首中末小节命中准确，竖横屏和 1.8x 字号下顶栏/固定底栏不遮挡谱面。
+通过标准：本地 OSMD fixture 通过，50%–140% 重排及首中末小节命中准确，默认 70% 密度接近参考图，竖横屏和 1.8x 字号下顶栏/缩放控件/固定底栏不遮挡谱面。
 
 ### S6. 三种导入、失败重试与上一曲隔离
 

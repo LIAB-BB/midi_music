@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:midi_music/core/score/score_playback_coordinator.dart';
 import 'package:midi_music/core/score/score_renderer_protocol.dart';
 import 'package:midi_music/ui/widgets/interactive_score_view.dart';
 // The app-facing package intentionally hides the platform delegates required by
@@ -403,6 +404,52 @@ void main() {
     await tester.pump();
     expect(readyPorts, hasLength(1));
     expect(platform.controller.scripts, hasLength(2));
+  });
+
+  testWidgets('桥接 ready 早于初始脚本完成时后续缩放仍会发送', (tester) async {
+    final platform = _TestWebViewPlatform();
+    WebViewPlatform.instance = platform;
+    final attemptedScripts = <String>[];
+    final scriptCompleters = <Completer<void>>[];
+    late ScoreRendererPort rendererPort;
+
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: InteractiveScoreView(
+          musicXml: '<score-partwise/>',
+          onMessage: (_) {},
+          musicXmlEncoder: (_) => SynchronousFuture<String>('encoded'),
+          onPortReady: (port) => rendererPort = port,
+        ),
+      ),
+    );
+    platform.controller.javaScriptHandler = (script) {
+      attemptedScripts.add(script);
+      final completer = Completer<void>();
+      scriptCompleters.add(completer);
+      return completer.future;
+    };
+
+    platform.navigationDelegate.onPageFinished!(
+      'file:///flutter_assets/assets/score_renderer/index.html',
+    );
+    await tester.pump();
+    expect(attemptedScripts, hasLength(1));
+    expect(attemptedScripts.single, contains('loadMusicXmlBase64'));
+
+    platform.controller.emitBridgeMessage('{"type":"ready"}');
+    await tester.pump();
+    final zoomFuture = rendererPort.setZoom(0.5);
+    await tester.pump();
+
+    expect(attemptedScripts, hasLength(2));
+    expect(attemptedScripts.last, contains('setZoom(0.5'));
+
+    scriptCompleters[1].complete();
+    await zoomFuture;
+    scriptCompleters[0].complete();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('后台编码使用 last-request-wins 不让旧大谱覆盖新谱', (tester) async {

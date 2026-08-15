@@ -6,6 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:midi_music/core/notation/midi_to_musicxml_converter.dart';
+import 'package:midi_music/core/score/score_playback_coordinator.dart';
 import 'package:midi_music/core/score/score_renderer_protocol.dart';
 import 'package:midi_music/models/midi_score_part.dart';
 import 'package:midi_music/models/midi_track.dart';
@@ -36,7 +37,8 @@ void main() {
       var receivedLayout = false;
       var renderedOrdinals = <int>[];
       var renderedRects = <ScoreMeasureRect>[];
-      Completer<void>? resizeFinished;
+      Completer<void>? nextLayoutFinished;
+      late ScoreRendererPort rendererPort;
 
       void handleMessage(ScoreRendererMessage message) {
         switch (message.type) {
@@ -53,23 +55,23 @@ void main() {
                 '${entry.key} 小节布局序号不匹配: '
                 '$renderedOrdinals != $expectedOrdinals',
               );
-              if (resizeFinished case final resize? when !resize.isCompleted) {
-                resize.completeError(error);
+              if (nextLayoutFinished case final next? when !next.isCompleted) {
+                next.completeError(error);
               } else if (!finished.isCompleted) {
                 finished.completeError(error);
               }
               return;
             }
             receivedLayout = true;
-            if (resizeFinished case final resize? when !resize.isCompleted) {
-              resize.complete();
+            if (nextLayoutFinished case final next? when !next.isCompleted) {
+              next.complete();
             }
           case ScoreRendererMessageType.error:
             final error = StateError(
               '${entry.key} OSMD 错误: ${message.errorMessage}',
             );
-            if (resizeFinished case final resize? when !resize.isCompleted) {
-              resize.completeError(error);
+            if (nextLayoutFinished case final next? when !next.isCompleted) {
+              next.completeError(error);
             } else if (!finished.isCompleted) {
               finished.completeError(error);
             }
@@ -85,7 +87,9 @@ void main() {
         final score = InteractiveScoreView(
           key: ValueKey<String>(entry.key),
           musicXml: result.musicXml,
+          zoom: 0.7,
           onMessage: handleMessage,
+          onPortReady: (port) => rendererPort = port,
         );
         return CupertinoApp(
           home: width == null
@@ -118,19 +122,41 @@ void main() {
           .reduce((left, right) => left > right ? left : right);
       expect(
         furthestRight,
-        greaterThan(scoreWidth * 0.75),
-        reason: '${entry.key} 小节 rect 必须使用 WebView 文档 CSS 坐标',
+        greaterThan(scoreWidth * 0.65),
+        reason: '${entry.key} 70% 缩放的小节 rect 必须使用 WebView 文档 CSS 坐标',
       );
 
       if (entry.key == 'dotted-triplet-tie') {
+        final initialBottom = renderedRects
+            .map((rect) => rect.top + rect.height)
+            .reduce((top, bottom) => top > bottom ? top : bottom);
+        nextLayoutFinished = Completer<void>();
+        await rendererPort.setZoom(0.5);
+        await tester.runAsync(
+          () => nextLayoutFinished!.future.timeout(
+            const Duration(seconds: 15),
+            onTimeout: () =>
+                throw TimeoutException('OSMD 缩放后 15 秒内未收到 complete layout'),
+          ),
+        );
+        final zoomedBottom = renderedRects
+            .map((rect) => rect.top + rect.height)
+            .reduce((top, bottom) => top > bottom ? top : bottom);
+        expect(renderedOrdinals, expectedOrdinals);
+        expect(
+          zoomedBottom,
+          lessThan(initialBottom * 0.9),
+          reason: '50% 必须比 70% 产生更紧凑的纵向谱面',
+        );
+
         final surface = find.byKey(const Key('interactive-score-webview'));
-        resizeFinished = Completer<void>();
+        nextLayoutFinished = Completer<void>();
         final resizedWidth = scoreWidth * 0.72;
         await tester.pumpWidget(buildScore(width: resizedWidth));
         await tester.pump();
         await tester.runAsync(() async {
           await Future<void>.delayed(const Duration(milliseconds: 300));
-          await resizeFinished!.future.timeout(
+          await nextLayoutFinished!.future.timeout(
             const Duration(seconds: 15),
             onTimeout: () => throw TimeoutException(
               'WebView resize 后 15 秒内未收到 complete layout',
@@ -160,8 +186,8 @@ void main() {
 
   testWidgets('真实 WKWebView 的非首小节点击与 layout 使用同一文档坐标', (tester) async {
     final renderCase = _renderCases()['dotted-triplet-tie']!;
-    final layoutFinished = Completer<ScoreRendererMessage>();
-    final gestureFinished = Completer<ScoreRendererMessage>();
+    var layoutFinished = Completer<ScoreRendererMessage>();
+    var gestureFinished = Completer<ScoreRendererMessage>();
     final controller = WebViewController();
     await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
     await controller.addJavaScriptChannel(
@@ -197,6 +223,7 @@ void main() {
           final encoded = base64Encode(utf8.encode(renderCase.result.musicXml));
           unawaited(
             controller.runJavaScript(
+              'window.scoreBridge.setZoom(0.7, 1);'
               'window.scoreBridge.loadMusicXmlBase64(${jsonEncode(encoded)})',
             ),
           );
@@ -246,6 +273,38 @@ void main() {
     );
     expect(gesture.gesturePointerCount, 1);
     expect(gesture.gestureTravel, 0);
+
+    layoutFinished = Completer<ScoreRendererMessage>();
+    gestureFinished = Completer<ScoreRendererMessage>();
+    await controller.runJavaScript('window.scoreBridge.setZoom(0.5, 2)');
+    final zoomedLayout = (await tester.runAsync(
+      () => layoutFinished.future.timeout(const Duration(seconds: 15)),
+    ))!;
+    final zoomedTarget = zoomedLayout.measureRects[1];
+    await controller.runJavaScript('''
+      (() => {
+        const target = document.querySelector('[data-ordinal="2"]');
+        if (!target) throw new Error('缩放后找不到第二小节 overlay');
+        const rect = target.getBoundingClientRect();
+        const options = {
+          bubbles: true,
+          pointerId: 2,
+          isPrimary: true,
+          clientX: rect.left + rect.width / 2,
+          clientY: rect.top + rect.height / 2,
+        };
+        document.dispatchEvent(new PointerEvent('pointerdown', options));
+        document.dispatchEvent(new PointerEvent('pointerup', options));
+      })();
+    ''');
+    final zoomedGesture = (await tester.runAsync(
+      () => gestureFinished.future.timeout(const Duration(seconds: 5)),
+    ))!;
+    expect(
+      zoomedTarget.contains(zoomedGesture.tapX!, zoomedGesture.tapY!),
+      isTrue,
+      reason: '50% 缩放后 gestureEnd 仍须命中第二小节的新 layout rect',
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

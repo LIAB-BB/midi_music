@@ -4,7 +4,7 @@
 
 ## ✨ 核心功能
 
-- **真实 MIDI 五线谱** — 内置和导入 MIDI 都从原始音符离线生成可点击的 MusicXML，不使用 seed 假谱；默认显示钢琴高低音双谱表，也可多选弦乐等声部组成总谱
+- **真实 MIDI 五线谱** — 内置和导入 MIDI 都从原始音符离线生成可点击的 MusicXML，不使用 seed 假谱；默认显示钢琴高低音双谱表，也可多选弦乐等声部组成总谱；谱面默认以 70% 紧凑排版，底部 `− / +` 可在 50%–140% 间逐级缩放
 - **统一导入管线** — MIDI 自动记谱；MusicXML 保持原文直接进入交互谱面；PDF 经 OMR 转成 MusicXML 后走同一直接路径
 - **无损声部切换** — 原 `MidiSongData` 始终是唯一播放真值，换显示谱不重新加载歌曲，当前时间、速度、AB 循环和播放/暂停状态保持不变
 - **可持久化声部默认** — 选择优先级为本曲默认 > 全局声部类别 > 自动钢琴 > 非打击乐合奏 > 打击乐回退
@@ -105,9 +105,9 @@ docs/
 
 当前验证基线：Flutter 3.44.1 / Dart 3.12.1。
 
-当前 `flutter test` 共 301 项；真机 OSMD fixture 另由
+当前 `flutter test` 共 309 项；真机 OSMD fixture 另由
 `integration_test/midi_notation_render_test.dart` 验证 dotted/triplet/tie、
-multi-voice、grand-staff 和 percussion 布局。
+multi-voice、grand-staff、percussion、缩放重排及缩放后小节点击。
 
 ### 安装与运行
 
@@ -139,6 +139,8 @@ flutter test
 ### 准备资源文件
 
 App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录。App 支持从设备文件系统选择 MIDI、MusicXML 和 PDF：MIDI 从真实音符自动生成显示谱，MusicXML 直接进入离线交互谱面，PDF 先经 OMR 服务生成 MusicXML。自动谱只负责显示，声音始终来自原始 MIDI 时间线。
+
+练习页的谱面默认按 70% 显示，便于一屏阅读更多系统；固定播放栏上方的 `− / 百分比 / +` 可按 10% 调整，范围为 50%–140%。缩放只重新排版显示谱，不会改变播放位置、速度、AB 循环或声部选择。
 
 PDF 识谱服务通过 Dart define 配置：
 
