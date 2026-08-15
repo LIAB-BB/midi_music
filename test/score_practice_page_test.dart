@@ -18,6 +18,7 @@ import 'package:midi_music/models/midi_track.dart';
 import 'package:midi_music/models/score_session.dart';
 import 'package:midi_music/ui/pages/score_practice_page.dart';
 import 'package:midi_music/ui/widgets/interactive_score_view.dart';
+import 'package:midi_music/ui/widgets/score_zoom_controls.dart';
 import 'package:provider/provider.dart';
 
 import 'helpers/score_renderer_test_fakes.dart';
@@ -33,6 +34,64 @@ void main() {
     expect(find.byKey(const Key('pdf-score-viewer')), findsNothing);
     expect(find.byKey(const Key('midi-piano-roll')), findsNothing);
     expect(find.text('真实 MIDI 数据'), findsNothing);
+  });
+
+  testWidgets('MusicXML 页面默认 70% 且底部按钮按 10% 缩放', (tester) async {
+    final player = readyPlayer()..loadScore(interactiveSession());
+    final surface = _ScoreSurfaceHarness();
+    await tester.pumpWidget(_page(player, surface));
+    await tester.pump();
+
+    expect(find.byType(ScoreZoomControls), findsOneWidget);
+    expect(find.text('70%'), findsOneWidget);
+    expect(surface.port.zoomLevels, [0.7]);
+    expect(
+      tester.getBottomRight(find.byType(ScoreZoomControls)).dy,
+      lessThan(
+        tester.getTopLeft(find.byKey(const Key('score-transport-bar'))).dy,
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('score-zoom-out')));
+    await tester.pump();
+    expect(find.text('60%'), findsOneWidget);
+    expect(surface.port.zoomLevels, [0.7, 0.6]);
+
+    await tester.tap(find.byKey(const Key('score-zoom-in')));
+    await tester.pump();
+    expect(find.text('70%'), findsOneWidget);
+    expect(surface.port.zoomLevels, [0.7, 0.6, 0.7]);
+  });
+
+  testWidgets('离开后新建练习页恢复默认 70%', (tester) async {
+    final player = readyPlayer()..loadScore(interactiveSession());
+    final firstSurface = _ScoreSurfaceHarness();
+    await tester.pumpWidget(_page(player, firstSurface));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('score-zoom-out')));
+    await tester.pump();
+    expect(find.text('60%'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    final secondSurface = _ScoreSurfaceHarness();
+    await tester.pumpWidget(_page(player, secondSurface));
+    await tester.pump();
+
+    expect(find.text('70%'), findsOneWidget);
+    expect(secondSurface.port.zoomLevels, [0.7]);
+  });
+
+  testWidgets('没有可显示 MusicXML 时不显示缩放控件', (tester) async {
+    final player = readyPlayer()..loadScore(midiOnlySession());
+    await tester.pumpWidget(
+      _page(
+        player,
+        _ScoreSurfaceHarness(),
+        notationBuilder: _ControlledNotationBuilder(),
+      ),
+    );
+
+    expect(find.byType(ScoreZoomControls), findsNothing);
   });
 
   testWidgets('浅色练习页顶栏标题使用深色文本', (tester) async {
@@ -432,6 +491,9 @@ void main() {
       _page(player, surface, notationBuilder: builder, settings: settings),
     );
     await _completeInitialNotation(tester, builder, midiSession.songData);
+    await tester.tap(find.byKey(const Key('score-zoom-out')));
+    await tester.pump();
+    expect(surface.port.zoomLevels.last, 0.6);
     surface.emit(const ScoreRendererMessage.ready());
     await tester.pump();
 
@@ -470,6 +532,8 @@ void main() {
     expect(player.isLoopEnabled, isTrue);
     expect(player.isPlaying, isTrue);
     expect(surface.port.loadedXml.last, contains('piano-and-strings'));
+    expect(find.text('60%'), findsOneWidget);
+    expect(surface.port.zoomLevels.last, 0.6);
 
     surface.emit(const ScoreRendererMessage.ready());
     await tester.pump();

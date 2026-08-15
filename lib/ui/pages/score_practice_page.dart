@@ -20,6 +20,7 @@ import '../../models/score_session.dart';
 import '../widgets/interactive_score_view.dart';
 import '../widgets/score_part_picker.dart';
 import '../widgets/score_transport_bar.dart';
+import '../widgets/score_zoom_controls.dart';
 import 'settings_page.dart';
 
 enum _NotationRetryKind { asset, importPath, prepare }
@@ -110,6 +111,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   String? _notationError;
   int _notationGeneration = 0;
   int? _activeRetryGeneration;
+  double _scoreZoom = ScoreZoomControls.defaultZoom;
   _NotationRetryKind? _retryKind;
   String? _retryAssetPath;
   String? _retryImportPath;
@@ -119,6 +121,16 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   bool get _hasComplexRepetition =>
       _displaySession?.warnings.contains(ScoreWarning.complexRepetition) ??
       false;
+
+  void _changeScoreZoom(double delta) {
+    final clamped = (_scoreZoom + delta).clamp(
+      ScoreZoomControls.minZoom,
+      ScoreZoomControls.maxZoom,
+    );
+    final next = double.parse(clamped.toStringAsFixed(1));
+    if (next == _scoreZoom) return;
+    setState(() => _scoreZoom = next);
+  }
 
   @override
   void initState() {
@@ -756,9 +768,26 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
             if (_displaySession != null && _isGeneratingNotation)
               const _NotationRebuildProgress(),
             Expanded(
-              child: KeyedSubtree(
-                key: const Key('interactive-score-view'),
-                child: _buildScoreBody(),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  KeyedSubtree(
+                    key: const Key('interactive-score-view'),
+                    child: _buildScoreBody(),
+                  ),
+                  if (_displaySession?.musicXml != null)
+                    Positioned(
+                      right: 12,
+                      bottom: 12,
+                      child: ScoreZoomControls(
+                        zoom: _scoreZoom,
+                        onZoomOut: () =>
+                            _changeScoreZoom(-ScoreZoomControls.step),
+                        onZoomIn: () =>
+                            _changeScoreZoom(ScoreZoomControls.step),
+                      ),
+                    ),
+                ],
               ),
             ),
             ScoreTransportBar(
@@ -787,6 +816,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
     }
     return InteractiveScoreView(
       musicXml: _displaySession?.musicXml,
+      zoom: _scoreZoom,
       onMessage: _handleRendererMessage,
       onPortReady: _attachRendererPort,
       onImportScore: _importScoreForCurrentPage,
