@@ -1,25 +1,28 @@
 # PDF OMR 服务接口约定
 
+> 状态：**开发协议与服务骨架，非当前封闭试用功能，非生产部署方案。**
+>
+> 未设置 `OMR_SERVICE_BASE_URL` 时，App 会拒绝 PDF 导入；仓库内服务没有用户鉴权、限流、TLS 终止、数据隔离或正式删除策略，不能直接暴露到公网或写入 TestFlight 配置。PDF OMR 重新进入产品范围前，必须满足 [`product/release_scope.md`](product/release_scope.md) 的受控服务门槛与 [`product/strategy.md`](product/strategy.md) 的恢复条件。
+
 目标链路：
 
 ```text
 PDF 钢琴谱 -> 服务端 OMR -> MusicXML -> App 转 MidiSongData -> 播放/跟随
 ```
 
-第一版仅承诺支持清晰扫描或电子版钢琴五线谱。钢琴二重奏按多个
+如果未来开启受控的 OMR 实验，其候选输入范围仅限清晰扫描或电子版钢琴五线谱。钢琴二重奏按多个
 MusicXML part 转为多轨道；手写谱、吉他谱、管弦乐总谱和严重歪斜/低清
 扫描件不纳入 MVP。
 
 ## App 配置
 
-构建或运行时通过 Dart define 配置服务端地址：
+仅在受控开发环境中，构建或运行时通过 Dart define 配置服务端地址：
 
 ```bash
 flutter run --dart-define=OMR_SERVICE_BASE_URL=https://your-api.example.com
 ```
 
-未配置 `OMR_SERVICE_BASE_URL` 时，App 仍可导入 MIDI/MusicXML；选择 PDF 会
-明确提示需要配置 PDF 识谱服务。
+未配置 `OMR_SERVICE_BASE_URL` 时，App 仍可导入 MIDI/MusicXML；选择 PDF 会明确提示需要配置 PDF 识谱服务。此行为不是向试用用户承诺 PDF 功能。
 
 ## 服务端接口
 
@@ -107,8 +110,9 @@ audiveris -batch -transcribe -export -output /work/out /work/input.pdf
 - 每个任务放在独立临时目录，避免并发任务互相覆盖。
 - 限制 PDF 页数、文件大小和任务超时时间。
 - 识谱产物统一转为 MusicXML，App 端不直接处理 PDF。
-- 保存原始 PDF、导出的 MusicXML、日志和失败原因，方便调试。
+- 默认最小化保存原始 PDF、导出的 MusicXML 和日志；明确访问控制、保留期限、删除机制和故障排查权限。
 - 对用户展示“自动识谱可能需要人工校对”，避免承诺 100% 准确。
+- 在向非开发者开放前，补齐认证、授权、限流、文件类型/大小/页数校验、恶意文件处理、TLS、监控和滥用响应。
 
 ## MVP 谱种边界
 

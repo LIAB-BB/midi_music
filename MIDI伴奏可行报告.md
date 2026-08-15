@@ -2,6 +2,10 @@
 
 # MIDI伴奏可行报告
 
+> **历史研究材料，非当前产品规划或发布承诺。** 本文含有未经当前代码、用户研究、竞品试用、成本测算或权利链核验的设想。尤其不能据此断言“单纯 MIDI 无版权问题”、目标市场规模、竞品空白、算法效果、跨平台成本或发布日期。
+>
+> 当前可执行范围见 [`docs/product/release_scope.md`](docs/product/release_scope.md)，能力证据见 [`docs/product/capability_matrix.md`](docs/product/capability_matrix.md)，资产分发须以 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md) 的逐项记录为准。
+
 ## 项目概述
 
 希望面向专业演奏者与音乐爱好者，核心功能是
@@ -264,4 +268,3 @@
 这是一个典型的**“技术密集型 + 内容驱动型”**项目。10万元的资金非常紧张，必须全部用在刀刃上：**不要花钱做营销，不要花钱买昂贵的服务器，钱要花在购买高质量的 SoundFont 商业授权（如果免费的不够好）和聘请兼职制作高质量 MIDI 数据上。** 技术上，Flutter + C++ + FluidSynth + OLTW 是目前最稳健、成本最低的黄金组合。
 
 ------
-

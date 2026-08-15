@@ -1,5 +1,9 @@
 # OMR Service
 
+> 状态：仅供本地/受控开发的服务骨架，不属于当前 iOS USB MIDI 封闭试用范围，也不能直接公开部署。它没有用户鉴权、授权、TLS 终止、限流、持久化审计和正式的数据保留/删除策略。
+>
+> 产品边界见 [`../../docs/product/release_scope.md`](../../docs/product/release_scope.md)，接口和上线前补齐项见 [`../../docs/omr_service_contract.md`](../../docs/omr_service_contract.md)。
+
 这是 App 端 PDF 导入的最小服务端。它接收 PDF，后台调用 Audiveris，
 导出 MusicXML，然后按 App 约定返回结果。
 
