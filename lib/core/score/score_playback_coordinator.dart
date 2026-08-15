@@ -6,6 +6,8 @@ import 'score_renderer_protocol.dart';
 abstract class ScoreRendererPort {
   Future<void> loadMusicXml(String musicXml);
 
+  Future<void> setZoom(double zoom);
+
   Future<void> highlightMeasure(int ordinal, {required bool scrollIntoView});
 
   Future<void> clearHighlight();

@@ -10,6 +10,8 @@
   let primaryPointerId = null;
   let activeOrdinal = null;
   let resizeTimer = null;
+  let currentZoom = 0.7;
+  let zoomRequestGeneration = 0;
   const activePointers = new Set();
 
   const post = (type, payload = {}) => {
@@ -134,6 +136,7 @@
     await renderer.load(document);
     if (!isCurrent()) return;
     osmd = renderer;
+    renderer.Zoom = currentZoom;
     renderer.render();
     rebuildLayer(renderer, false, renderGeneration);
     if (!isCurrent()) return;
@@ -231,6 +234,23 @@
     clearHighlight() {
       activeOrdinal = null;
       layer.querySelectorAll('.active').forEach((element) => element.classList.remove('active'));
+    },
+    setZoom(value, requestGeneration = zoomRequestGeneration + 1) {
+      const zoom = Number(value);
+      if (!Number.isFinite(zoom)) throw new Error('乐谱缩放比例无效');
+      const request = Number(requestGeneration);
+      if (!Number.isSafeInteger(request) || request < 0) {
+        throw new Error('乐谱缩放请求无效');
+      }
+      if (request < zoomRequestGeneration) return;
+      zoomRequestGeneration = request;
+      currentZoom = Math.min(1.4, Math.max(0.5, zoom));
+      const renderer = osmd;
+      if (!renderer) return;
+      renderer.Zoom = currentZoom;
+      renderer.renderAndScrollBack();
+      rebuildLayer(renderer, true, generation);
+      if (activeOrdinal !== null) applyHighlight(activeOrdinal, true);
     },
   });
 

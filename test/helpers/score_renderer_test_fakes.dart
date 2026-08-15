@@ -4,6 +4,8 @@ import 'package:midi_music/core/score/score_playback_coordinator.dart';
 
 class RecordingRendererPort implements ScoreRendererPort {
   final List<String> loadedXml = [];
+  final List<double> zoomLevels = [];
+  final List<String> operations = [];
   final List<int> highlighted = [];
   final List<bool> scrollFlags = [];
   int clearCount = 0;
@@ -11,6 +13,14 @@ class RecordingRendererPort implements ScoreRendererPort {
   @override
   Future<void> loadMusicXml(String musicXml) {
     loadedXml.add(musicXml);
+    operations.add('load');
+    return Future<void>.value();
+  }
+
+  @override
+  Future<void> setZoom(double zoom) {
+    zoomLevels.add(zoom);
+    operations.add('zoom:$zoom');
     return Future<void>.value();
   }
 
@@ -30,6 +40,7 @@ class RecordingRendererPort implements ScoreRendererPort {
 
 class ControllableRendererPort implements ScoreRendererPort {
   final List<String> loadedXml = [];
+  final List<double> zoomLevels = [];
   final List<int> highlighted = [];
   final List<bool> scrollFlags = [];
   final List<Completer<void>> highlightCompleters = [];
@@ -39,6 +50,12 @@ class ControllableRendererPort implements ScoreRendererPort {
   @override
   Future<void> loadMusicXml(String musicXml) {
     loadedXml.add(musicXml);
+    return Future<void>.value();
+  }
+
+  @override
+  Future<void> setZoom(double zoom) {
+    zoomLevels.add(zoom);
     return Future<void>.value();
   }
 

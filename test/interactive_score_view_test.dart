@@ -62,6 +62,25 @@ void main() {
     expect(script, isNot(contains('drawTitle: true')));
   });
 
+  test('桥接使用 OSMD 原生 Zoom 重排并重建可点击小节', () async {
+    final script = await rootBundle.loadString(
+      'assets/score_renderer/score_bridge.js',
+    );
+
+    expect(script, contains('let currentZoom = 0.7'));
+    expect(script, contains('renderer.Zoom = currentZoom'));
+    expect(
+      script,
+      contains('setZoom(value, requestGeneration = zoomRequestGeneration + 1)'),
+    );
+    expect(script, contains('let zoomRequestGeneration = 0'));
+    expect(script, contains('if (request < zoomRequestGeneration) return'));
+    expect(script, contains('renderer.renderAndScrollBack()'));
+    expect(script, contains('rebuildLayer(renderer, true'));
+    expect(script, contains('applyHighlight(activeOrdinal, true)'));
+    expect(script, isNot(contains('style.transform')));
+  });
+
   test('桥接按 SVG viewBox 和实际 client rect 归一化小节联合边界', () async {
     final script = await rootBundle.loadString(
       'assets/score_renderer/score_bridge.js',
@@ -142,6 +161,39 @@ void main() {
 
     expect(find.text('正在排版乐谱'), findsNothing);
     expect(received, [const ScoreRendererMessage.ready()]);
+  });
+
+  testWidgets('初始缩放先于 MusicXML 且后续缩放不重载谱面', (tester) async {
+    final port = RecordingRendererPort();
+
+    Widget build(double zoom) => CupertinoApp(
+      home: InteractiveScoreView(
+        musicXml: '<score-partwise/>',
+        zoom: zoom,
+        onMessage: (_) {},
+        surfaceFactory: (_) => ScoreSurface(
+          port: port,
+          child: const SizedBox(key: Key('fake-score-surface')),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(build(0.7));
+    await tester.pump();
+
+    expect(port.zoomLevels, [0.7]);
+    expect(port.operations, ['zoom:0.7', 'load']);
+    expect(port.loadedXml, ['<score-partwise/>']);
+
+    await tester.pumpWidget(build(0.6));
+    await tester.pump();
+
+    expect(port.zoomLevels, [0.7, 0.6]);
+    expect(port.loadedXml, hasLength(1));
+
+    await tester.pumpWidget(build(0.6));
+    await tester.pump();
+    expect(port.zoomLevels, [0.7, 0.6]);
   });
 
   testWidgets('错误消息经统一验收后显示原因和重新导入', (tester) async {

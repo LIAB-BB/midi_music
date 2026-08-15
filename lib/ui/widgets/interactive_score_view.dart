@@ -21,6 +21,7 @@ typedef MusicXmlEncoder = Future<String> Function(String musicXml);
 
 class InteractiveScoreView extends StatefulWidget {
   final String? musicXml;
+  final double zoom;
   final ValueChanged<ScoreRendererMessage> onMessage;
   final ValueChanged<ScoreRendererPort>? onPortReady;
   final VoidCallback? onImportScore;
@@ -30,6 +31,7 @@ class InteractiveScoreView extends StatefulWidget {
   const InteractiveScoreView({
     super.key,
     required this.musicXml,
+    this.zoom = 0.7,
     required this.onMessage,
     this.onPortReady,
     this.onImportScore,
@@ -61,7 +63,17 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
   @override
   void didUpdateWidget(covariant InteractiveScoreView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.musicXml == widget.musicXml) return;
+    final zoomChanged = oldWidget.zoom != widget.zoom;
+    if (oldWidget.musicXml == widget.musicXml) {
+      if (zoomChanged && _surface != null && _pageReady) {
+        _requestZoom(
+          widget.zoom,
+          surfaceToken: _surfaceToken!,
+          port: _surface!.port,
+        );
+      }
+      return;
+    }
 
     final musicXml = widget.musicXml;
     if (musicXml == null) {
@@ -94,6 +106,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
         musicXml,
         surfaceToken: _surfaceToken!,
         port: _surface!.port,
+        applyZoomFirst: zoomChanged,
       );
     }
   }
@@ -115,6 +128,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
           musicXml,
           surfaceToken: surfaceToken,
           port: _surface!.port,
+          applyZoomFirst: true,
         );
       }
       return;
@@ -160,6 +174,7 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
                 musicXml,
                 surfaceToken: surfaceToken,
                 port: port,
+                applyZoomFirst: true,
               );
             }
           },
@@ -201,16 +216,29 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
     String musicXml, {
     required Object surfaceToken,
     required ScoreRendererPort port,
+    bool applyZoomFirst = false,
   }) {
-    unawaited(_loadMusicXml(musicXml, surfaceToken: surfaceToken, port: port));
+    unawaited(
+      _loadMusicXml(
+        musicXml,
+        surfaceToken: surfaceToken,
+        port: port,
+        applyZoomFirst: applyZoomFirst,
+      ),
+    );
   }
 
   Future<void> _loadMusicXml(
     String musicXml, {
     required Object surfaceToken,
     required ScoreRendererPort port,
+    required bool applyZoomFirst,
   }) async {
     try {
+      if (applyZoomFirst) {
+        await port.setZoom(widget.zoom);
+        if (!_isCurrentSurface(surfaceToken, sourcePort: port)) return;
+      }
       await port.loadMusicXml(musicXml);
     } catch (error) {
       if (!_isCurrentSurface(surfaceToken, sourcePort: port)) return;
@@ -222,6 +250,34 @@ class _InteractiveScoreViewState extends State<InteractiveScoreView> {
       setState(() {
         _isLoading = false;
         _errorMessage = detail.isEmpty ? '无法加载乐谱。' : '无法加载乐谱：$detail';
+      });
+    }
+  }
+
+  void _requestZoom(
+    double zoom, {
+    required Object surfaceToken,
+    required ScoreRendererPort port,
+  }) {
+    unawaited(_setZoom(zoom, surfaceToken: surfaceToken, port: port));
+  }
+
+  Future<void> _setZoom(
+    double zoom, {
+    required Object surfaceToken,
+    required ScoreRendererPort port,
+  }) async {
+    try {
+      await port.setZoom(zoom);
+    } catch (error) {
+      if (!_isCurrentSurface(surfaceToken, sourcePort: port)) return;
+      final detail = error
+          .toString()
+          .replaceFirst('Bad state: ', '')
+          .replaceFirst('Exception: ', '')
+          .trim();
+      setState(() {
+        _errorMessage = detail.isEmpty ? '无法缩放乐谱。' : '无法缩放乐谱：$detail';
       });
     }
   }
@@ -405,12 +461,18 @@ class _WebViewScoreRendererPort
   final WebViewController controller;
   final MusicXmlEncoder _encoder;
   int _loadGeneration = 0;
+  int _zoomGeneration = 0;
+  double _zoom = 0.7;
+  bool _hasLoadedMusicXml = false;
 
   _WebViewScoreRendererPort(this.controller, {MusicXmlEncoder? encoder})
     : _encoder = encoder ?? _encodeMusicXmlInBackground;
 
   @override
-  void invalidate() => _loadGeneration += 1;
+  void invalidate() {
+    _loadGeneration += 1;
+    _zoomGeneration += 1;
+  }
 
   @override
   Future<void> loadMusicXml(String musicXml) async {
@@ -419,11 +481,32 @@ class _WebViewScoreRendererPort
       final encoded = await _encoder(musicXml);
       if (generation != _loadGeneration) return;
       await controller.runJavaScript(
+        'window.scoreBridge.setZoom($_zoom, $_zoomGeneration);'
         'window.scoreBridge.loadMusicXmlBase64(${jsonEncode(encoded)})',
       );
       if (generation != _loadGeneration) return;
+      _hasLoadedMusicXml = true;
     } catch (error, stackTrace) {
       if (generation != _loadGeneration) return;
+      Error.throwWithStackTrace(error, stackTrace);
+    }
+  }
+
+  @override
+  Future<void> setZoom(double zoom) async {
+    if (!zoom.isFinite || zoom < 0.5 || zoom > 1.4) {
+      throw ArgumentError.value(zoom, 'zoom', '必须介于 0.5 和 1.4 之间');
+    }
+    _zoom = zoom;
+    final generation = ++_zoomGeneration;
+    if (!_hasLoadedMusicXml) return;
+    try {
+      await controller.runJavaScript(
+        'window.scoreBridge.setZoom($zoom, $generation)',
+      );
+      if (generation != _zoomGeneration) return;
+    } catch (error, stackTrace) {
+      if (generation != _zoomGeneration) return;
       Error.throwWithStackTrace(error, stackTrace);
     }
   }
