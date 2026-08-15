@@ -3,7 +3,8 @@
 目标链路：
 
 ```text
-PDF 钢琴谱 -> 服务端 OMR -> MusicXML -> App 转 MidiSongData -> 播放/跟随
+PDF 钢琴谱 -> 服务端 OMR -> MusicXML -> App 保留原文显示
+                                            -> 解析播放时间线与真实小节边界
 ```
 
 第一版仅承诺支持清晰扫描或电子版钢琴五线谱。钢琴二重奏按多个
@@ -20,6 +21,8 @@ flutter run --dart-define=OMR_SERVICE_BASE_URL=https://your-api.example.com
 
 未配置 `OMR_SERVICE_BASE_URL` 时，App 仍可导入 MIDI/MusicXML；选择 PDF 会
 明确提示需要配置 PDF 识谱服务。
+
+App 不会把 OMR MusicXML 再送入 MIDI 自动记谱转换器；同一份服务端原文直接交给离线 OSMD，同时由 `MusicXmlParser` 生成播放数据和书写顺序小节映射。
 
 ## 服务端接口
 

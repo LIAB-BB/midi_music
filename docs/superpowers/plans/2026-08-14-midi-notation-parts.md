@@ -1,6 +1,8 @@
 # MIDI 自动五线谱与声部选择 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **历史状态（2026-08-15）：** 本计划已实施。后续增量还包括 50%–140% OSMD 原生缩放、连续缩放请求合并，以及保留明确 `upper/right hand` 和 `lower/left hand` MIDI 轨道的上/下谱表归属。本文保留为执行记录，当前操作与验收以 `README.md`、`CLAUDE.md` 和 `docs/release_checklist.md` 为准。
+
+> **历史执行说明，禁止重新执行：** 当时曾要求用 subagent-driven-development 逐任务实施；这些步骤现只用于追溯设计与提交，不是待办清单。
 
 **Goal:** 将内置和用户导入的 MIDI 离线生成真实可交互五线谱，默认显示钢琴双谱表，并支持多选声部组成总谱以及全局/单曲默认。
 

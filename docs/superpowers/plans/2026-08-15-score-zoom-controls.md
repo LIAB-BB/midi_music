@@ -1,6 +1,8 @@
 # 交互五线谱缩放控制 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **历史状态（2026-08-15）：** 本计划已实施。当前默认 70%、范围 50%–140%、步长 10%；连续点击在 bridge 层使用 80ms 空闲窗口合并为最后一次 OSMD 全量重排，避免逐档排队延迟。
+
+> **历史执行说明，禁止重新执行：** 当时曾要求用 subagent-driven-development 或 executing-plans 逐任务实施；这些步骤现只用于追溯设计与提交，不是待办清单。
 
 **Goal:** 在交互五线谱练习页增加 50%–140% 的 OSMD 原生缩放，并在固定播放栏上沿提供可访问的减号、百分比和加号控件。
 

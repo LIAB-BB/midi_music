@@ -2,6 +2,18 @@
 
 # MIDI伴奏可行报告
 
+> 文档定位：本文保留早期市场与技术调研判断，其中 Flutter + C++ + OLTW、大容量 SoundFont 和 Android 低延迟是候选/长期路线，不代表 2026-08-15 的当前产品入口。当前可执行说明以 `README.md`、`PROJECT.md` 和 `docs/release_checklist.md` 为准。
+
+## 当前实现快照（2026-08-15）
+
+- iOS Flutter App 已使用 `flutter_midi_pro` + TimGM6mb SoundFont 完成 MIDI 播放；这是 MVP 基线，尚不等于本文设想的 200–500MB 商业管弦乐音色。
+- MIDI 在后台 isolate 解析，内置和导入 MIDI 可离线生成真实 MusicXML 练习谱，通过本地 OSMD 显示、缩放、高亮和点击小节。
+- 钢琴默认双谱表，明确 upper/lower 轨道保留左右手谱表归属；用户可多选其他声部组成总谱并保存默认。
+- USB MIDI 跟随、轨道静音与变速代码已保留在高级演奏台，但当前首页没有产品入口，不应对外宣称已完成当前版本的真机跟随交付。
+- 当前质量基线为 Flutter 3.44.1 / Dart 3.12.1，311 项 `flutter test` 和独立 iOS WKWebView/OSMD integration fixture。Android 及专业音频跟随算法仍需后续专项验证。
+
+> 引用说明：原始调研草稿保留了 `1`–`36` 等引用编号，但参考文献表未随文件保存，无法在本仓库追溯。以下外部技术、市场规模和价格判断只能作为线索；进入采购、融资或架构决策前必须重新查证一手来源。
+
 ## 项目概述
 
 希望面向专业演奏者与音乐爱好者，核心功能是
@@ -26,8 +38,8 @@
 
 ## 最关心的问题
 
-1. **版权**：不选择各大乐团的录音 一般单纯midi文件就无版权纠纷，谱子要么自制midi，要么扒imslp等开源库即可。
-2. **midi引擎**：考察了两个开源的：FluidSynth和Flutter，同时要考虑高品质midi库，比如买SoundFont 的商业授权。
+1. **版权**：作品进入公版不等于他人制作的 MIDI、现代排版 PDF 或录音自动无版权。应优先使用许可明确的公版/CC 来源（如 Mutopia 具体曲目页），或自制 MIDI 与排版，并逐曲保留来源和许可记录。
+2. **MIDI 与客户端技术**：音频合成引擎考察 FluidSynth，客户端框架采用 Flutter；高品质 SoundFont 仍需单独核验音质与商业授权。
 3. **技术**：块状加速器太过复杂，这个方案没什么现实意义。已删除。
 
 ------
@@ -45,7 +57,7 @@
 - **用户界面层 (Flutter):** 负责乐谱渲染、用户交互、设置管理。Flutter 的 Impeller 渲染引擎能够保证乐谱滚动的流畅性（60fps+），这对视奏体验至关重要。
 - **逻辑控制层 (Dart):** 处理业务逻辑，通过 `dart:ffi` (Foreign Function Interface) 与底层 C++ 引擎进行同步通信。FFI 的同步调用特性对于低延迟音频应用是决定性的，因为它避免了异步消息传递带来的抖动 2。
 - **音频引擎层 (C++):** 这是系统的核心，包含两个子模块：
-  - **监听模块：** 集成 **Oboe** 音频库 3。Oboe 是 Google 开发的 C++ 库，能够自动选择 Android 系统上延迟最低的音频 API（AAudio 或 OpenSL ES），并统一 iOS 的 CoreAudio 接口。这是解决 Android 设备音频延迟碎片化问题的关键。
+  - **监听模块：** Android 可集成 **Oboe** 音频库 3，由它选择 AAudio 或 OpenSL ES；iOS 则使用 CoreAudio / AVAudioEngine。两端应由项目自己的 C++/Dart 接口抽象统一，而不是由 Oboe 统一 iOS 接口。
   - **算法模块：** 运行乐谱跟随算法（OLTW/HMM）和音频合成器（FluidSynth）。
 
 #### 2.1.2 Web 与桌面端的可能性
@@ -264,4 +276,3 @@
 这是一个典型的**“技术密集型 + 内容驱动型”**项目。10万元的资金非常紧张，必须全部用在刀刃上：**不要花钱做营销，不要花钱买昂贵的服务器，钱要花在购买高质量的 SoundFont 商业授权（如果免费的不够好）和聘请兼职制作高质量 MIDI 数据上。** 技术上，Flutter + C++ + FluidSynth + OLTW 是目前最稳健、成本最低的黄金组合。
 
 ------
-

@@ -127,7 +127,7 @@ flutter test
 ### MIDI Notation (`lib/core/notation/`)
 - `midi_part_analyzer.dart` — 按有音符轨道和 channel 建稳定来源，结合通道 10、明确轨道名和 GM program 分类；合并钢琴来源为默认 grand staff，并限制 64 条轨道 / 500,000 个音符
 - `midi_score_selection.dart` — 默认优先级为有效本曲默认 > 匹配全局声部类别 > 自动钢琴 > 非打击乐合奏 > 打击乐回退，失效 ID 自动忽略且不会生成空谱
-- `midi_to_musicxml_converter.dart` — 从原 MIDI 音符生成只供显示的 MusicXML 和原 tick 对齐的小节边界，覆盖双谱表、和弦、休止、附点、三连音、最多四 voice、跨小节 tie 与打击乐；量化不进入播放时间线，最终 UTF-8 输出受 16 MiB 移动端安全上限约束
+- `midi_to_musicxml_converter.dart` — 从原 MIDI 音符生成只供显示的 MusicXML 和原 tick 对齐的小节边界，覆盖双谱表、明确 upper/lower 左右手来源保留、和弦、休止、附点、三连音、最多四 voice、跨小节 tie 与打击乐；量化不进入播放时间线，最终 UTF-8 输出受 16 MiB 移动端安全上限约束
 - `midi_notation_service.dart` — analyzer/resolver/converter 的可取消 isolate 编排边界；`prepare()` 生成初始目录、选择与会话，`rebuild()` 只更换选择后的显示谱；`MidiNotationBuilder.cancel()` 会真实终止当前 `Isolate.spawn` worker，`onError`/`onExit` 保证 Future 到达终态并关闭端口
 
 ### Interactive Score (`lib/core/score/`)
@@ -185,7 +185,7 @@ flutter test
 - `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，保留组件不作为练习页主视图；PDF 导入须先经 OMR 生成 MusicXML
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，Flutter 3.44.1 / Dart 3.12.1 基线当前全量 311 项)
+### Tests（截至 2026-08-15，Flutter 3.44.1 / Dart 3.12.1 验证记录全量 311 项；新增测试后刷新）
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
@@ -240,6 +240,7 @@ flutter test
 
 - **状态管理**: Provider + ChangeNotifier（`MidiPlayerController` 是唯一全局状态）
 - **多轨道共享 channel**: 通过 `trackIndex`（而非 channel）做静音/音量控制
+- **钢琴手别来源**: 合并钢琴 part 不等于丢弃轨道语义；记谱端优先保留 `upper/right hand/右手` 上谱表与 `lower/left hand/左手` 下谱表，无明确标记时才进入音高/跨度启发式分谱
 - **当前跟随管道**: USB MIDI Note On → `MidiFollowModeSession` → `FollowModeController` → `setSpeed()`
 - **线程安全**: UI 回调使用 `SchedulerBinding.addPostFrameCallback()` 包裹
 - **生命周期守卫**: 所有公开方法开头检查 `_isDisposed`，异步操作支持 `dispose()` 打断

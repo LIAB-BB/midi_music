@@ -1,17 +1,17 @@
 # 🎵 MIDI 伴奏 App
 
-一款面向 iOS 的 Flutter MIDI 伴奏应用。电子琴通过 USB MIDI 向 iPhone 发送按键，App 根据演奏速度调整其余声部的伴奏；电子琴本身负责钢琴发声。
+一款面向 iOS 的 Flutter MIDI 练习与伴奏应用。首页（乐库）同时提供内置曲目卡片与本地文件导入，当前主产品路径由此进入真实 MIDI 自动五线谱；用户可点击小节、选择声部、缩放谱面并播放原 MIDI。USB MIDI 变速跟随代码保留在高级演奏台，当前首页暂无产品入口。
 
 ## ✨ 核心功能
 
-- **真实 MIDI 五线谱** — 内置和导入 MIDI 都从原始音符离线生成可点击的 MusicXML，不使用 seed 假谱；默认显示钢琴高低音双谱表，也可多选弦乐等声部组成总谱；谱面默认以 70% 紧凑排版，底部 `− / +` 可在 50%–140% 间逐级缩放
+- **真实 MIDI 五线谱** — 内置和导入 MIDI 都从原始音符离线生成可点击的 MusicXML，不使用 seed 假谱；默认显示钢琴高低音双谱表，并保留 MIDI 中明确的 `upper/right hand` 与 `lower/left hand` 轨道归属，避免两只手的音被合并成不可演奏的大跨度和弦；也可多选弦乐等声部组成总谱；谱面默认以 70% 紧凑排版，底部 `− / +` 可在 50%–140% 间逐级缩放
 - **统一导入管线** — MIDI 自动记谱；MusicXML 保持原文直接进入交互谱面；PDF 经 OMR 转成 MusicXML 后走同一直接路径
 - **无损声部切换** — 原 `MidiSongData` 始终是唯一播放真值，换显示谱不重新加载歌曲，当前时间、速度、AB 循环和播放/暂停状态保持不变
 - **可持久化声部默认** — 选择优先级为本曲默认 > 全局声部类别 > 自动钢琴 > 非打击乐合奏 > 打击乐回退
 - **MIDI 文件播放** — 支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
 - **SoundFont 音色引擎** — 基于 FluidSynth (Android) / AVFoundation (iOS)，加载 SF2/SF3 音色库
 - **轨道控制** — 按轨道控制音量和静音；共享通道上的同音重叠及通道级控制事件目前存在限制
-- **USB MIDI 跟随** — 使用 iOS CoreMIDI 接收电子琴 Note On，实时调整伴奏速度；可选多个钢琴轨，并在跟随期间一起静音
+- **USB MIDI 跟随（保留高级能力）** — 使用 iOS CoreMIDI 接收电子琴 Note On，实时调整伴奏速度；可选多个钢琴轨，并在跟随期间一起静音。当前首页不导航到该页，只在提供高级演奏台产品/调试入口时验收
 - **iOS 风格 UI** — 全 Cupertino 组件，简约流畅
 
 ## 🏗️ 技术栈
@@ -87,7 +87,7 @@ integration_test/
 └── midi_notation_render_test.dart      # 真机本地 OSMD fixture
 assets/
 ├── midi/
-    ├── mozart_k478_piano_quartet.mid # USB MIDI demo（钢琴四重奏）
+    ├── mozart_k478_piano_quartet.mid # 内置自动记谱 demo（钢琴四重奏）
     └── Beethoven-Moonlight-Sonata.mid # 其他测试用 MIDI 文件
 ├── score_renderer/                    # 离线 OSMD 运行时
 └── scores/                            # 示例 PDF 与其 OMR 输入资源
@@ -105,7 +105,7 @@ docs/
 
 当前验证基线：Flutter 3.44.1 / Dart 3.12.1。
 
-当前 `flutter test` 共 311 项；真机 OSMD fixture 另由
+截至 2026-08-15 的验证记录中，`flutter test` 共 311 项；iOS WKWebView/OSMD fixture 另由
 `integration_test/midi_notation_render_test.dart` 验证 dotted/triplet/tie、
 multi-voice、grand-staff、percussion、缩放重排及缩放后小节点击。
 
@@ -135,6 +135,15 @@ flutter test
 自动化测试通过后，发布或交付试用版前还需要完成人工验收。当前核心发布必测为 SoundFont、MIDI 自动五线谱、声部默认与无损总谱切换，以及 MusicXML/PDF 直接路径。真实电子琴 USB、轨道静音和跟随属于高级演奏台专项：仅在本版本提供该产品入口或调试入口时验收，且不阻断当前首页可达的核心发布路径。
 
 详见 [`docs/release_checklist.md`](docs/release_checklist.md)。
+
+### 项目文档
+
+- [`PROJECT.md`](PROJECT.md)：当前产品目标、已实现范围和完成标准
+- [`CONTEXT.md`](CONTEXT.md)：轨道、声部、左右手谱表和显示会话领域词汇
+- [`docs/demo_assets.md`](docs/demo_assets.md)：K.478 素材来源、许可与当前用途
+- [`docs/omr_service_contract.md`](docs/omr_service_contract.md)：PDF OMR 服务协议
+- [`docs/release_checklist.md`](docs/release_checklist.md)：自动门禁和人工验收
+- [`战略规划.md`](战略规划.md) / [`MIDI伴奏可行报告.md`](MIDI伴奏可行报告.md)：长期路线与早期可行性研究，不代表当前产品入口
 
 ### 准备资源文件
 
@@ -189,6 +198,12 @@ flutter run --dart-define=OMR_SERVICE_BASE_URL=https://your-api.example.com
 该机制可以覆盖多数按轨道静音和音量调整场景，但底层合成器仍按
 `channel + note` 发声。多个轨道共享同一 channel/note 时，以及 Program
 Change、Control Change、Pitch Bend 等通道级状态发生冲突时，暂不保证轨道完全独立。
+
+### 钢琴左右手分谱
+
+- 声部分析合并多个钢琴来源时，记谱转换会继续携带原始轨道身份。
+- 名称明确包含 `upper`、`right hand`、“右手”的轨道优先进入高音谱表；`lower`、`left hand`、“左手”优先进入低音谱表。
+- 没有明确手别名称的单轨钢琴 MIDI 仍使用音高、和弦跨度与上下文分谱；这是可读的练习谱推断，不是出版级指法或手指自动标注。
 
 ### 播放引擎
 

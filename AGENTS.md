@@ -50,12 +50,13 @@ flutter test
 - `lib/core/midi/`：MIDI 解析、TempoMap、SoundFont 引擎、播放控制器。
 - `lib/core/notation/`：`MidiPartAnalyzer` 按轨道/channel 建声部目录，`MidiScoreSelectionResolver` 解析默认选择，`MidiToMusicXmlConverter` 生成显示用 MusicXML，`MidiNotationService` 负责 isolate 边界。
 - MIDI 会从真实音符自动生成可交互五线谱，不使用 seed 假谱；钢琴默认双谱表，可多选其他声部组成总谱。MusicXML 保持原文直接显示，PDF 经 OMR 后仍走 MusicXML 直接路径。
+- 钢琴来源合并时必须保留明确的 `upper/right hand/右手` 与 `lower/left hand/左手` 轨道语义；不得在进入 MusicXML 前丢掉来源后只按整体音高重分谱表。
 - 原 `MidiSongData` 是唯一播放真值。声部切换只调用 `updateScorePresentation()`，不重载歌曲，并保持 time、speed、AB 和 playing；默认优先级是本曲默认 > 全局声部类别 > 自动钢琴 > 非打击乐合奏 > 打击乐回退。
 - `MidiPlayerController.clearScore()` 只用于异步载入等待期间原子卸载旧曲：清空旧会话、位置和 AB，保留 SoundFont 与全局速度。
 - `assets/score_renderer/` 内的 OSMD、桥接页与许可证完全本地打包，运行时不得加载远程脚本；谱面默认 70%，只通过 OSMD 原生 Zoom 在 50%–140% 间重排，禁止 CSS transform 伪缩放。
 - `lib/core/follow/`：麦克风输入、onset 检测、跟随算法、跟随会话生命周期。
 - `lib/models/`：MIDI 曲目、轨道、音符、时间线事件和速度/拍号模型。
 - `lib/ui/`：Cupertino UI 页面和黑金主题组件。
-- `test/`：当前 Flutter 3.44.1 / Dart 3.12.1 基线共 311 项，包含声部分析、默认选择、MIDI→MusicXML、记谱服务、设置迁移、无损换谱、缩放和 App 回归；`integration_test/midi_notation_render_test.dart` 另做真实本地 OSMD 布局、50%/70% 缩放、CSS 坐标、resize 和点击验收。
+- `test/`：截至 2026-08-15 的 Flutter 3.44.1 / Dart 3.12.1 验证记录共 311 项，包含声部分析、默认选择、MIDI→MusicXML、记谱服务、设置迁移、无损换谱、缩放和 App 回归；新增测试后须刷新该数字。`integration_test/midi_notation_render_test.dart` 另做真实本地 OSMD 布局、50%/70% 缩放、CSS 坐标、resize 和点击验收。
 
 更多模块风险等级、接口细节和测试说明见 `CLAUDE.md`。

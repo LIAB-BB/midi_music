@@ -17,11 +17,12 @@ LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 flutter build ios --debug --no-codesign
 flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 ```
 
-当前基线为 Flutter 3.44.1 / Dart 3.12.1，`flutter test` 共 311 项；真机 OSMD integration fixture 独立运行，不计入 311 项。
+截至 2026-08-15 的验证记录为 Flutter 3.44.1 / Dart 3.12.1，`flutter test` 共 311 项；iOS OSMD integration fixture 独立运行，不计入 311 项。新增测试后应同步刷新本段与自动门禁记录。
 
 ### 1.1 受测架构约束
 
 - MIDI 必须从原始音符生成真实可交互五线谱，不得恢复 seed 假谱、PDF 黑框或钢琴卷帘作为练习页主视图；钢琴默认高低音双谱表，用户可多选声部组合总谱。
+- 明确标注为 `upper/right hand/右手` 和 `lower/left hand/左手` 的钢琴轨道必须保留上/下谱表归属；声部合并不得导致普通单手无法演奏的异常同时音跨度。
 - 原 `MidiSongData` 是唯一播放真值。换显示谱只走 `updateScorePresentation()`，不得重新加载歌曲；time、speed、AB loop 和 playing 必须保持。
 - 默认解析顺序固定为本曲默认 > 全局声部类别 > 自动钢琴 > 非打击乐合奏 > 打击乐回退。
 - `lib/core/notation/` 由 analyzer、selection resolver、converter 和 isolate service 组成；OSMD、桥接页与许可证完全本地打包，运行时不得加载远程脚本。
@@ -49,7 +50,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - [ ] 准备一份可离线导入的标准 MusicXML，包含首、中、末小节
 - [ ] 准备一份可经 OMR 服务转换的 PDF；若 OMR 服务不可用，明确记录为外部未验收项
 - [ ] 准备一份无效或异常 MIDI 文件，用于导入失败路径
-- [ ] `flutter devices` 已识别 iPhone 14 Pro，并记录 device id 与 iOS 版本
+- [ ] `flutter devices` 已识别一台受支持的实体 iPhone，并记录机型、device id 与 iOS 版本；当前参考设备为 iPhone 14 Pro，但不是唯一允许机型
 - [ ] 真机已运行 OSMD integration fixture，收到 `ready` 和非空 layout
 - [ ] 如需验证首次启动 SoundFont 下载，先清理应用数据或使用首次安装状态
 
@@ -88,7 +89,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 步骤：
 
 - [ ] 保持网络可用，启动 App 后观察 SoundFont 状态
-- [ ] 首页或播放器页应展示检查中 / 下载中 / 已就绪等状态
+- [ ] 从当前产品入口启动后，首页应展示检查中 / 下载中 / 已就绪等状态；不可用当前首页无法到达的 `PlayerPage` 代替本项
 - [ ] 下载完成后状态应变为音色已就绪
 - [ ] 导入 MIDI 后应能使用 SoundFont 正常播放
 - [ ] 断网或阻断下载后重新启动 App
@@ -107,12 +108,13 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 
 - [ ] 页面先显示有限时的“正在生成五线谱”，随后出现真实谱面
 - [ ] 默认只显示钢琴高低音双谱表，音符与曲目内容一致
+- [ ] 抽查原 MIDI 的 `upper`/`lower` 同时音：右手保持在高音谱表、左手保持在低音谱表，不出现由两手误合并造成的超十度单手和弦
 - [ ] 页面不出现“仅伴奏”、seed 假谱、PDF 黑框、MIDI 卷帘或 MIDI 数据卡
 - [ ] 五线谱占据主视口，顶部标题/声部入口和固定底栏均可见
 - [ ] 首次进入默认显示 70%，固定播放栏上方可见紧凑的 `− / 70% / +` 控件
 - [ ] 页面底部显示固定控制栏
 
-通过标准：K.478 默认直接显示钢琴双谱表，谱面来自真实 MIDI，且主视图没有旧展示形态。
+通过标准：K.478 默认直接显示钢琴双谱表，谱面来自真实 MIDI，upper/lower 左右手归属正确，且主视图没有旧展示形态。
 
 ### S3. 多选声部与默认持久化
 
@@ -152,7 +154,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 
 目的：确认生成谱和直接 MusicXML 都在本地 OSMD 中正确布局、命中和适配。
 
-- [ ] 已在 iPhone 14 Pro 运行 `midi_notation_render_test.dart`，dotted/triplet/tie、multi-voice、grand-staff、percussion 均收到 `ready` 与非空 layout
+- [ ] 已在受支持的实体 iPhone（参考机型 iPhone 14 Pro）运行 `midi_notation_render_test.dart`，dotted/triplet/tie、multi-voice、grand-staff、percussion 均收到 `ready` 与非空 layout
 - [ ] 在 K.478 点击首、中、末小节，播放器分别跳到对应原 MIDI 小节起点
 - [ ] 播放中点击后继续播放，暂停中点击后保持暂停
 - [ ] 连续播放跨小节时高亮只移动一次且必要时自动滚动
@@ -198,7 +200,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - [ ] 自动化质量门禁全绿
 - [ ] S1-S6 当前产品入口可达的核心场景全部通过
 - [ ] 若存在已知问题，已记录影响范围和规避方式
-- [ ] iPhone 14 Pro 上 OSMD integration fixture 通过
+- [ ] 记录机型的实体 iPhone 上 OSMD integration fixture 通过
 - [ ] 已保存钢琴双谱表和多声部总谱至少两张真机截图，并与参考图放在同一比较输入中完成视觉 QA
 - [ ] 若本版本提供高级演奏台入口，已完成相应 USB MIDI 专项验收；未提供入口时已将该专项列为非阻断已知范围
 

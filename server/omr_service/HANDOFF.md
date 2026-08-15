@@ -180,7 +180,7 @@ flutter run --dart-define=OMR_SERVICE_BASE_URL=https://omr.example.com
 - `GET /healthz` 返回 `{"ok": true}`。
 - 上传一份清晰钢琴 PDF 后，`POST /v1/omr/jobs` 返回 `jobId`。
 - 轮询任务最终返回 `status=succeeded` 和非空 MusicXML。
-- 返回的 MusicXML 能被 App 的 `MusicXmlParser` 转成 `MidiSongData`。
+- 返回的 MusicXML 能被 App 的 `MusicXmlParser` 转成包含原文、`MidiSongData` 和真实小节边界的 `ScoreSession`，并在离线 OSMD 中排版。
 - 失败 PDF 返回 `status=failed` 和用户可读 `message`，不能让任务无限 running。
 - 单个任务失败时不能影响后续任务。
 - 任务目录能自动清理。
@@ -205,8 +205,8 @@ App 负责：
 
 - 上传 PDF。
 - 轮询任务。
-- 把 MusicXML 转为播放数据。
-- 播放和跟随。
+- 保留 MusicXML 原文给离线 OSMD 显示，并从同一原文解析播放数据与小节边界。
+- 播放，以及在提供高级演奏台入口时执行跟随；当前首页练习页不暴露 USB MIDI 跟随入口。
 
 App 不负责：
 

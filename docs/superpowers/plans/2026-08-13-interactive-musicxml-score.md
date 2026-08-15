@@ -1,6 +1,8 @@
 # 可交互 MusicXML 谱面播放器 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **历史状态（2026-08-15）：** 本计划已实施，保留作为交互谱面架构的执行记录。其中“不得实现 MIDI 自动转谱”和“MIDI-only 仅伴奏”已被 `2026-08-14-midi-notation-parts.md` 取代；当前代码会从 MIDI 生成交互 MusicXML。本文的任务步骤、当时约束与示例不应当作当前操作手册。
+
+> **历史执行说明，禁止重新执行：** 当时曾要求用 subagent-driven-development 或 executing-plans 逐任务实施；这些步骤现只用于追溯设计与提交，不是待办清单。
 
 **Goal:** 将练习页重构为以 MusicXML 五线谱为唯一主视图的离线播放器，并实现小节点击跳转、播放高亮、前后小节、速度与 AB 循环。
 
@@ -12,9 +14,9 @@
 
 - iOS 最低版本继续保持 13.6。
 - OSMD 1.9.9 必须随 App 离线打包，运行时不得从 CDN 或其他网络地址加载脚本。
-- MusicXML 是唯一可交互谱面来源；PDF 只作为 OMR 输入；不得实现 MIDI 自动转谱。
+- ~~MusicXML 是唯一可交互谱面来源；PDF 只作为 OMR 输入；不得实现 MIDI 自动转谱。~~ **此条已失效：** 2026-08-14 起 MIDI 会离线生成显示用 MusicXML；MusicXML/PDF OMR 仍保留原文直达路径。
 - 点击小节只改变播放位置：播放中继续播放，暂停中保持暂停。
-- 仅 MIDI 曲目保留并标注“仅伴奏”，不得展示 PDF 或钢琴卷帘作为替代谱面。
+- ~~仅 MIDI 曲目保留并标注“仅伴奏”。~~ **此条已失效：** 有音符的 MIDI 必须生成真实五线谱；仍不得用 PDF 或钢琴卷帘冒充其自动谱。
 - 无法可靠映射的小节必须禁用点击，不得猜测近似时间。
 - 复杂反复第一版按 MusicXML 书写顺序播放并提示用户。
 - 只在当前小节变化时更新网页高亮，不按播放帧操作 SVG。

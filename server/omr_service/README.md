@@ -1,7 +1,6 @@
 # OMR Service
 
-这是 App 端 PDF 导入的最小服务端。它接收 PDF，后台调用 Audiveris，
-导出 MusicXML，然后按 App 约定返回结果。
+这是 App 端 PDF 导入的最小服务端。它接收 PDF，后台调用 Audiveris，导出 MusicXML，然后按 App 约定返回结果。App 保留返回的 MusicXML 原文用于离线 OSMD 显示，并独立解析播放时间线；不会将 OMR 结果再经过 MIDI 自动记谱。
 
 完整交接说明见 [`HANDOFF.md`](HANDOFF.md)。
 
@@ -56,3 +55,5 @@ docs/omr_service_contract.md
 
 优先处理清晰钢琴独奏谱和高质量钢琴二重奏。OMR 结果不保证 100% 准确，
 后续应增加谱面预览和人工校对。
+
+当前目录只是单机低并发骨架，没有鉴权、持久化任务库、多 worker 队列、HTTPS 反代或内置 Audiveris；不应在未补齐这些能力前直接公网生产部署。
