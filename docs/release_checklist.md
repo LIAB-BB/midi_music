@@ -17,7 +17,7 @@ LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 flutter build ios --debug --no-codesign
 flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 ```
 
-当前基线为 Flutter 3.44.1 / Dart 3.12.1，`flutter test` 共 309 项；真机 OSMD integration fixture 独立运行，不计入 309 项。
+当前基线为 Flutter 3.44.1 / Dart 3.12.1，`flutter test` 共 311 项；真机 OSMD integration fixture 独立运行，不计入 311 项。
 
 ### 1.1 受测架构约束
 
@@ -37,7 +37,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - [ ] 已运行 `flutter pub get`
 - [ ] 已运行 `dart format lib test integration_test`，确认没有未预期格式改动
 - [ ] 已运行 `flutter analyze`
-- [ ] 已运行 `flutter test`，确认 309 项通过
+- [ ] 已运行 `flutter test`，确认 311 项通过
 - [ ] 已运行 `git diff --check`
 - [ ] 已完成 UTF-8 环境的 iOS Debug no-codesign 构建
 - [ ] 构建后已检查 `ios/Podfile.lock`，没有未解释的依赖漂移

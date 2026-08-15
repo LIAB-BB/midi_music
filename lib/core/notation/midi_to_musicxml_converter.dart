@@ -155,7 +155,7 @@ class MidiToMusicXmlConverter {
   String _buildDocument(
     MidiSongData song,
     List<MidiScorePart> parts,
-    Map<String, List<MidiNote>> selectedNotesByPart,
+    Map<String, List<_SelectedNote>> selectedNotesByPart,
     List<MeasureInfo> measures,
     Set<MidiNotationWarning> warnings,
   ) {
@@ -218,7 +218,7 @@ class MidiToMusicXmlConverter {
     StringBuffer buffer,
     MidiSongData song,
     MidiScorePart part,
-    List<MidiNote> notes,
+    List<_SelectedNote> notes,
     String partId,
     List<MeasureInfo> measures,
     Set<MidiNotationWarning> warnings,
@@ -283,25 +283,33 @@ class MidiToMusicXmlConverter {
     }
   }
 
-  List<MidiNote> _selectedNotes(MidiSongData song, MidiScorePart part) {
-    final notes = <MidiNote>[];
+  List<_SelectedNote> _selectedNotes(MidiSongData song, MidiScorePart part) {
+    final notes = <_SelectedNote>[];
     final tracksByIndex = {for (final track in song.tracks) track.index: track};
     for (final source in part.sources) {
       final track = tracksByIndex[source.trackIndex];
       if (track == null) continue;
+      final preferredStaff = _preferredStaffForSource(part, track.name);
       notes.addAll(
-        track.notes.where((note) => source.channels.contains(note.channel)),
+        track.notes
+            .where((note) => source.channels.contains(note.channel))
+            .map(
+              (note) =>
+                  _SelectedNote(note: note, preferredStaff: preferredStaff),
+            ),
       );
     }
     notes.sort((a, b) {
-      final onset = a.startTick.compareTo(b.startTick);
-      return onset != 0 ? onset : a.noteNumber.compareTo(b.noteNumber);
+      final onset = a.note.startTick.compareTo(b.note.startTick);
+      return onset != 0
+          ? onset
+          : a.note.noteNumber.compareTo(b.note.noteNumber);
     });
     return notes;
   }
 
   List<List<_ChordEvent>> _bucketEventsByMeasure(
-    List<MidiNote> notes,
+    List<_SelectedNote> notes,
     List<MeasureInfo> measures,
     int ticksPerBeat,
     MidiScorePart part,
@@ -319,7 +327,8 @@ class MidiToMusicXmlConverter {
     final minimumDuration = candidates.first.ticks;
     var onsetMeasureIndex = 0;
     var nextBarTieId = 0;
-    for (final note in notes) {
+    for (final selectedNote in notes) {
+      final note = selectedNote.note;
       if (note.endTick <= note.startTick) continue;
       while (onsetMeasureIndex < measures.length &&
           measures[onsetMeasureIndex].endTick <= note.startTick) {
@@ -435,6 +444,7 @@ class MidiToMusicXmlConverter {
                 barTieStartId: fragmentIndex < fragments.length - 1
                     ? crossBarTieIds[fragmentIndex]
                     : null,
+                staff: selectedNote.preferredStaff,
               ),
             );
       }
@@ -474,9 +484,11 @@ class MidiToMusicXmlConverter {
             final chordNotes = shouldSplitGrandStaffChord
                 ? segments
                       .map(
-                        (segment) => segment.withStaff(
-                          segment.noteNumber >= _middleCMidiNote ? 1 : 2,
-                        ),
+                        (segment) => segment.staff != null
+                            ? segment
+                            : segment.withStaff(
+                                segment.noteNumber >= _middleCMidiNote ? 1 : 2,
+                              ),
                       )
                       .toList(growable: false)
                 : segments;
@@ -982,6 +994,25 @@ bool _hasTruncatedMeasureAtTimeSignatureChange(
     if (precedingMeasure.lengthTick < naturalLength) return true;
   }
   return false;
+}
+
+int? _preferredStaffForSource(MidiScorePart part, String trackName) {
+  if (part.staffMode != MidiStaffMode.grandStaff) return null;
+  final normalized = trackName.trim().toLowerCase();
+  if (const ['upper', 'right hand', '右手'].any(normalized.contains)) {
+    return 1;
+  }
+  if (const ['lower', 'left hand', '左手'].any(normalized.contains)) {
+    return 2;
+  }
+  return null;
+}
+
+class _SelectedNote {
+  final MidiNote note;
+  final int? preferredStaff;
+
+  const _SelectedNote({required this.note, required this.preferredStaff});
 }
 
 class _NoteSegment {

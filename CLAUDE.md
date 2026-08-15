@@ -185,7 +185,7 @@ flutter test
 - `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，保留组件不作为练习页主视图；PDF 导入须先经 OMR 生成 MusicXML
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，Flutter 3.44.1 / Dart 3.12.1 基线当前全量 309 项)
+### Tests (`test/`，Flutter 3.44.1 / Dart 3.12.1 基线当前全量 311 项)
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
@@ -200,12 +200,12 @@ flutter test
 - `score_renderer_protocol_test.dart` / `interactive_score_view_test.dart` / `score_renderer_assets_test.dart` — 本地 OSMD 桥接消息校验、谱面表面、原生缩放代际与 asset bundle 回归
 - `score_playback_coordinator_test.dart` / `score_measure_navigation_test.dart` — 小节命中、播放同步、自动跟随与小节导航回归
 - `midi_part_analyzer_test.dart` / `midi_score_selection_test.dart` — 轨道名、GM、打击乐、K.478 钢琴组合和本曲/全局/自动默认优先级
-- `midi_to_musicxml_converter_test.dart` / `midi_notation_service_test.dart` — 双谱表、总谱、量化、tie、三连音、多 voice、复杂度上限、isolate 会话与原播放真值
+- `midi_to_musicxml_converter_test.dart` / `midi_notation_service_test.dart` — 双谱表、upper/lower 左右手来源保留、K.478 可演奏和弦跨度、总谱、量化、tie、三连音、多 voice、复杂度上限、isolate 会话与原播放真值
 - `app_settings_test.dart` — 声部类别与曲目选择的 schema 迁移、非法值回退、稳定排序、容量限制、串行事务与失败纠正写
 - `score_practice_page_test.dart` / `score_zoom_controls_test.dart` / `home_score_navigation_test.dart` — 自动记谱、生成/错误/重试、无损换谱、缩放边界与布局、默认保存、竞态隔离和首页导入导航回归
 - `score_part_picker_test.dart` — 声部多选、默认动作、输入快照、中文语义及横屏大字号滚动回归
 - `widget_test.dart` — App smoke test
-- `integration_test/midi_notation_render_test.dart` — 不计入上述 309 项；在 iOS WebView 用生产 `InteractiveScoreView` 等待本地 OSMD `ready` 和非空 layout，覆盖 dotted/triplet/tie、multi-voice、grand-staff、percussion、50%/70% 原生缩放、CSS rect、resize 与缩放后非首小节 gesture 命中
+- `integration_test/midi_notation_render_test.dart` — 不计入上述 311 项；在 iOS WebView 用生产 `InteractiveScoreView` 等待本地 OSMD `ready` 和非空 layout，覆盖 dotted/triplet/tie、multi-voice、grand-staff、percussion、50%/70% 原生缩放、CSS rect、resize 与缩放后非首小节 gesture 命中
 
 测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
 

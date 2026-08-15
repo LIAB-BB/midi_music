@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/import/musicxml_parser.dart';
 import 'package:midi_music/core/midi/measure_map.dart';
+import 'package:midi_music/core/midi/midi_parser.dart';
 import 'package:midi_music/core/midi/tempo_map.dart';
+import 'package:midi_music/core/notation/midi_part_analyzer.dart';
 import 'package:midi_music/core/notation/midi_to_musicxml_converter.dart';
 import 'package:midi_music/models/midi_score_part.dart';
 import 'package:midi_music/models/midi_track.dart';
@@ -48,6 +51,88 @@ void main() {
       result.measures.map((measure) => (measure.startTick, measure.endTick)),
       expected.map((measure) => (measure.startTick, measure.endTick)),
     );
+  });
+
+  test('K.478 默认钢琴谱不把超过十度的同时音塞给同一只手', () {
+    final bytes = File(
+      'assets/midi/mozart_k478_piano_quartet.mid',
+    ).readAsBytesSync();
+    final song = MidiFileParser().parseBytes(
+      bytes,
+      fileName: 'mozart_k478_piano_quartet.mid',
+    );
+    final catalog = MidiPartAnalyzer().analyze(
+      song,
+      fingerprint: 'asset:assets/midi/mozart_k478_piano_quartet.mid',
+    );
+    final piano = catalog.parts.singleWhere(
+      (part) => part.kind == MidiPartKind.piano,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      song,
+      catalog: catalog,
+      selectedPartIds: {piano.id},
+    );
+
+    expect(
+      _wideSameStaffChords(result.musicXml, maxSemitones: 16),
+      isEmpty,
+      reason: '同一 staff 内同时音超过十度，不符合普通钢琴左右手分谱',
+    );
+  });
+
+  test('upper 和 lower 轨道同时音保留原左右手谱表', () {
+    final upper = _track(0, 'upper', 0, [
+      _note(72, 0, 0, 480),
+      _note(76, 0, 0, 480),
+      _note(81, 0, 0, 480),
+    ]);
+    final lower = _track(1, 'lower', 1, [_note(60, 1, 0, 480)]);
+    final song = _song(
+      fileName: 'explicit-hands.mid',
+      tracks: [upper, lower],
+      totalTicks: 1920,
+    );
+    final piano = MidiScorePart(
+      id: 'piano:0:0,1:1',
+      label: '钢琴',
+      kind: MidiPartKind.piano,
+      sources: [
+        MidiPartSource(trackIndex: 0, channels: {0}),
+        MidiPartSource(trackIndex: 1, channels: {1}),
+      ],
+      noteCount: 4,
+      staffMode: MidiStaffMode.grandStaff,
+    );
+    final catalog = MidiScoreCatalog(
+      fingerprint: 'explicit-hands',
+      parts: [piano],
+      recommendedPartIds: {piano.id},
+      recommendedOrigin: MidiSelectionOrigin.automaticPiano,
+    );
+
+    final result = MidiToMusicXmlConverter().convertSync(
+      song,
+      catalog: catalog,
+      selectedPartIds: {piano.id},
+    );
+    final firstMeasureNotes = _pitchedNotesByMeasure(result.musicXml).first;
+
+    expect(
+      _notesAtPitch(firstMeasureNotes, step: 'C', octave: 4).single,
+      contains('<staff>2</staff>'),
+    );
+    for (final pitch in [('C', 5), ('E', 5), ('A', 5)]) {
+      expect(
+        _notesAtPitch(
+          firstMeasureNotes,
+          step: pitch.$1,
+          octave: pitch.$2,
+        ).single,
+        contains('<staff>1</staff>'),
+      );
+    }
   });
 
   test('附点、三连音和超阈值误差使用候选时值并发出量化警告', () {
@@ -1257,6 +1342,83 @@ List<int> _measureCountsByPart(String xml) =>
           return RegExp(r'<measure\b').allMatches(body).length;
         })
         .toList(growable: false);
+
+List<String> _wideSameStaffChords(String xml, {required int maxSemitones}) {
+  final issues = <String>[];
+  final measures = RegExp(
+    r'<measure\b[^>]*number="([^"]+)"[^>]*>([\s\S]*?)</measure>',
+  ).allMatches(xml);
+  for (final measure in measures) {
+    final measureNumber = measure.group(1)!;
+    final notes = RegExp(
+      r'<note>([\s\S]*?)</note>',
+    ).allMatches(measure.group(2)!).map((match) => match.group(1)!).toList();
+    var chord = <String>[];
+
+    void inspectChord() {
+      final pitchesByStaff = <int, List<int>>{};
+      for (final note in chord) {
+        final pitch = _midiPitchFromMusicXmlNote(note);
+        final staffMatch = RegExp(r'<staff>(\d+)</staff>').firstMatch(note);
+        if (pitch == null || staffMatch == null) {
+          continue;
+        }
+        final staff = int.parse(staffMatch.group(1)!);
+        pitchesByStaff.putIfAbsent(staff, () => []).add(pitch);
+      }
+      for (final entry in pitchesByStaff.entries) {
+        if (entry.value.length < 2) {
+          continue;
+        }
+        final sorted = List<int>.of(entry.value)..sort();
+        final span = sorted.last - sorted.first;
+        if (span > maxSemitones) {
+          issues.add(
+            'measure=$measureNumber staff=${entry.key} '
+            'pitches=$sorted span=$span',
+          );
+        }
+      }
+    }
+
+    for (final note in notes) {
+      if (!note.contains('<chord/>')) {
+        inspectChord();
+        chord = <String>[note];
+      } else {
+        chord.add(note);
+      }
+    }
+    inspectChord();
+  }
+  return issues;
+}
+
+int? _midiPitchFromMusicXmlNote(String note) {
+  final step = RegExp(r'<step>([A-G])</step>').firstMatch(note)?.group(1);
+  final octaveText = RegExp(
+    r'<octave>(-?\d+)</octave>',
+  ).firstMatch(note)?.group(1);
+  if (step == null || octaveText == null) {
+    return null;
+  }
+  final alterText = RegExp(
+    r'<alter>(-?\d+)</alter>',
+  ).firstMatch(note)?.group(1);
+  final pitchClass = switch (step) {
+    'C' => 0,
+    'D' => 2,
+    'E' => 4,
+    'F' => 5,
+    'G' => 7,
+    'A' => 9,
+    'B' => 11,
+    _ => throw StateError('unexpected MusicXML pitch step: $step'),
+  };
+  return (int.parse(octaveText) + 1) * 12 +
+      pitchClass +
+      int.parse(alterText ?? '0');
+}
 
 _MeasureAudit _auditFirstMeasure(String xml) => _auditMeasures(xml).first;
 
