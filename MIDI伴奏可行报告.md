@@ -2,7 +2,7 @@
 
 # MIDI伴奏可行报告
 
-> 文档定位：本文保留早期市场与技术调研判断，其中 Flutter + C++ + OLTW、大容量 SoundFont 和 Android 低延迟是候选/长期路线，不代表 2026-08-15 的当前产品入口。当前可执行说明以 `README.md`、`PROJECT.md` 和 `docs/release_checklist.md` 为准。
+> 文档定位：本文保留早期市场与技术调研判断，其中 Flutter + C++ + OLTW、大容量 SoundFont 和 Android 低延迟是候选/长期路线，不代表当前产品入口。当前范围以 [`docs/product/release_scope.md`](docs/product/release_scope.md) 为准，能力证据与资产分发分别见 [`docs/product/capability_matrix.md`](docs/product/capability_matrix.md) 和 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md)。
 
 ## 当前实现快照（2026-08-15）
 

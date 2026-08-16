@@ -1,6 +1,8 @@
 # 上线前验收清单
 
-本文用于发布或交付 iOS 试用版前的轻量人工验收。自动化测试负责基础契约，本文重点覆盖当前首页可到达的 MIDI 自动五线谱、声部选择与默认、无损播放状态、MusicXML/PDF 直接路径、固定播放控制和设置。
+本文用于发布或交付 iOS 试用版前的轻量人工验收。自动化测试负责基础契约，本文重点覆盖当前首页可到达的 MIDI 自动五线谱、声部选择与默认、无损播放状态、MusicXML 直接路径、PDF OMR 的受控边界、固定播放控制和设置。
+
+当前产品范围以 [`product/release_scope.md`](product/release_scope.md) 为准；能力证据和资产准入分别见 [`product/capability_matrix.md`](product/capability_matrix.md) 与 [`evidence/asset_manifest.md`](evidence/asset_manifest.md)。
 
 ## 1. 文档定位
 
@@ -43,7 +45,16 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - [ ] 已完成 UTF-8 环境的 iOS Debug no-codesign 构建
 - [ ] 构建后已检查 `ios/Podfile.lock`，没有未解释的依赖漂移
 
-### 2.2 设备与测试素材
+### 2.2 资产、音色与试用说明
+
+- [ ] 本轮随包、下载或展示的 MIDI、PDF、页面图、SoundFont、OSMD、图标、字体和截图均已与 `docs/evidence/asset_manifest.md` 对照
+- [ ] 只有资产台账中状态为“已核验”的资源进入最终 Flutter asset manifest、IPA、截图和 TestFlight；仅隐藏首页卡片不算排除
+- [ ] 已从最终构建产物反查实际资产，没有依赖文档清单猜测 IPA 内容
+- [ ] SoundFont 的来源、许可证、固定版本、SHA-256、实际加载路径和失败体验均已记录
+- [ ] TestFlight 说明只描述当前交互五线谱范围，写明自动谱、设备和 PDF OMR 限制，并提供反馈入口
+- [ ] 已定义资产权利、音色不可用、崩溃或严重错谱出现时的暂停测试、回滚方式和负责人
+
+### 2.3 设备与测试素材
 
 - [ ] 准备一份可导入的有效 MIDI 文件
 - [ ] 准备内置 K.478，并准备另一首没有曲目默认的 MIDI
@@ -67,18 +78,35 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 
 ## 4. 场景总览
 
-建议按下表顺序执行。S1 准备音色，S2-S4 验证 MIDI 自动谱、声部默认和无损切换，S5 验证小节与布局，S6 覆盖三种导入路径和错误隔离。
+建议按下表顺序执行。S0 核验分发资产与范围，S1 准备音色，S2-S4 验证 MIDI 自动谱、声部默认和无损切换，S5 验证小节与布局，S6 覆盖三种导入路径和错误隔离。
 
 | 编号 | 模块 | 场景 | 必测设备 |
 |---|---|---|---|
+| S0 | 资产与范围 | 分发资产、SoundFont、TestFlight 文案和回滚 | 文档与构建产物 |
 | S1 | 资源准备 | 首次启动 SoundFont 下载 | 模拟器或真机 |
 | S2 | MIDI 自动谱 | K.478 默认钢琴双谱表 | 真机必测 |
 | S3 | 声部与默认 | 加入/移除弦乐，本曲与全局默认 | 真机必测 |
 | S4 | 无损换谱 | time、speed、AB、playing 保持 | 真机必测 |
 | S5 | 谱面交互与适配 | 首中末小节、OSMD、横竖屏与 1.8x | 真机必测 |
-| S6 | 导入与错误隔离 | MIDI/MusicXML/PDF、失败重试与上一曲隔离 | 模拟器或真机；OSMD 真机 |
+| S6 | 导入与错误隔离 | MIDI/MusicXML、PDF 配置边界、失败重试与上一曲隔离 | 模拟器或真机；OSMD 真机 |
 
 ## 5. 详细验收场景
+
+### S0. 资产、范围与反馈闭环
+
+目的：确认“代码可运行”没有被误当作“内容可分发”，并确保测试者看到的承诺与当前范围一致。
+
+步骤：
+
+- [ ] 对照 Flutter asset manifest、IPA、首页卡片、示例文件和 TestFlight 截图列出本轮全部资源
+- [ ] 每项均能对应资产台账中的来源、许可证、完整 SHA-256、渠道和审核结论
+- [ ] `禁止分发` 资源未进入构建产物、截图、CDN 或测试说明
+- [ ] SoundFont 下载或随包策略与实际代码路径一致，不存在“随包但未使用”或“下载但无固定版本/完整性校验”的模糊状态
+- [ ] 试用说明明确当前是交互五线谱练习路径，不宣传首页不可达的 USB 跟随、未受控的 PDF OMR、Android 全量质量或出版级自动谱
+- [ ] 反馈模板至少包含 App 版本、commit、iPhone/iOS、曲目、输入格式和复现步骤；默认不收集演奏音频
+- [ ] 已指定暂停测试与回滚负责人
+
+通过标准：本轮分发资产有可复核证据，产品说明与 `release_scope.md`/能力矩阵一致，严重问题有停止扩散路径。
 
 ### S1. 首次启动 SoundFont 下载
 
@@ -171,19 +199,20 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 
 通过标准：本地 OSMD fixture 通过，50%–140% 重排及首中末小节命中准确，默认 70% 密度接近参考图，竖横屏和 1.8x 字号下顶栏/缩放控件/固定底栏不遮挡谱面。
 
-### S6. 三种导入、失败重试与上一曲隔离
+### S6. 导入、PDF 配置边界、失败重试与上一曲隔离
 
-目的：确认 MIDI 自动谱没有改变 MusicXML/PDF 路径，异步失败也不会泄漏上一曲。
+目的：确认 MIDI 自动谱没有改变 MusicXML 直接路径，PDF 行为与当轮受控服务配置一致，异步失败也不会泄漏上一曲。
 
 - [ ] 从文件系统导入有效 MIDI，生成真实可交互五线谱并显示声部入口
 - [ ] 断网导入 MusicXML，原文直接离线排版且不显示 MIDI 声部入口
-- [ ] 导入 PDF，经 OMR 得到 MusicXML 后直接排版且不显示 MIDI 声部入口
+- [ ] 若当轮明确纳入受控 OMR 开发验收：导入 PDF 后获得 MusicXML、直接排版且不显示 MIDI 声部入口
+- [ ] 若当轮不纳入 OMR：未配置服务时选择 PDF 会显示明确配置提示，不崩溃、不上传，也不在 TestFlight 文案中承诺 PDF 可用
 - [ ] 导入无效 MIDI，显示可读解析错误而不崩溃
 - [ ] 首次记谱失败时显示“无法生成五线谱”、固定控制栏、“重试”和“导入文件”
 - [ ] 失败态不显示上一曲谱面；重试成功后只显示当前曲
 - [ ] 切换到慢加载或失败的新资源时，旧播放会话已原子卸载，SoundFont 与全局速度仍保留
 
-通过标准：MIDI/MusicXML/PDF 三条入口行为正确；失败可重试，上一曲的谱面、播放位置和 AB 不泄漏到当前曲。
+通过标准：MIDI/MusicXML 核心入口正确，PDF 行为与本轮范围和配置一致；失败可重试，上一曲的谱面、播放位置和 AB 不泄漏到当前曲。
 
 ## 6. 高级演奏台专项（不纳入本次发布阻断）
 
@@ -198,10 +227,11 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 ## 7. 发布判定
 
 - [ ] 自动化质量门禁全绿
-- [ ] S1-S6 当前产品入口可达的核心场景全部通过
+- [ ] S0-S6 全部通过；S0 资产/范围门槛不可由“仅供测试”豁免
 - [ ] 若存在已知问题，已记录影响范围和规避方式
 - [ ] 记录机型的实体 iPhone 上 OSMD integration fixture 通过
 - [ ] 已保存钢琴双谱表和多声部总谱至少两张真机截图，并与参考图放在同一比较输入中完成视觉 QA
+- [ ] 资产台账、SoundFont 记录、TestFlight 说明、反馈入口和回滚负责人已绑定本次 commit/build
 - [ ] 若本版本提供高级演奏台入口，已完成相应 USB MIDI 专项验收；未提供入口时已将该专项列为非阻断已知范围
 
 满足以上条件后，可以进入打包或小范围试用发布。

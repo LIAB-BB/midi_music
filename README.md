@@ -5,7 +5,7 @@
 ## ✨ 核心功能
 
 - **真实 MIDI 五线谱** — 内置和导入 MIDI 都从原始音符离线生成可点击的 MusicXML，不使用 seed 假谱；默认显示钢琴高低音双谱表，并保留 MIDI 中明确的 `upper/right hand` 与 `lower/left hand` 轨道归属，避免两只手的音被合并成不可演奏的大跨度和弦；也可多选弦乐等声部组成总谱；谱面默认以 70% 紧凑排版，底部 `− / +` 可在 50%–140% 间逐级缩放
-- **统一导入管线** — MIDI 自动记谱；MusicXML 保持原文直接进入交互谱面；PDF 经 OMR 转成 MusicXML 后走同一直接路径
+- **统一导入管线** — MIDI 自动记谱；MusicXML 保持原文直接进入交互谱面；PDF 代码路径需先配置受控 OMR 服务，当前不作为默认试用能力
 - **无损声部切换** — 原 `MidiSongData` 始终是唯一播放真值，换显示谱不重新加载歌曲，当前时间、速度、AB 循环和播放/暂停状态保持不变
 - **可持久化声部默认** — 选择优先级为本曲默认 > 全局声部类别 > 自动钢琴 > 非打击乐合奏 > 打击乐回退
 - **MIDI 文件播放** — 支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
@@ -132,7 +132,7 @@ flutter test
 
 ### 上线前验收
 
-自动化测试通过后，发布或交付试用版前还需要完成人工验收。当前核心发布必测为 SoundFont、MIDI 自动五线谱、声部默认与无损总谱切换，以及 MusicXML/PDF 直接路径。真实电子琴 USB、轨道静音和跟随属于高级演奏台专项：仅在本版本提供该产品入口或调试入口时验收，且不阻断当前首页可达的核心发布路径。
+自动化测试通过后，发布或交付试用版前还需要完成人工验收。当前核心发布必测为 SoundFont、MIDI 自动五线谱、声部默认与无损总谱切换，以及 MusicXML 直接路径；PDF 只验证“未配置时明确拒绝”，除非本轮另行纳入受控 OMR 开发验收。真实电子琴 USB、轨道静音和跟随属于高级演奏台专项：仅在本版本提供该产品入口或调试入口时验收，且不阻断当前首页可达的核心发布路径。
 
 详见 [`docs/release_checklist.md`](docs/release_checklist.md)。
 
@@ -140,6 +140,10 @@ flutter test
 
 - [`PROJECT.md`](PROJECT.md)：当前产品目标、已实现范围和完成标准
 - [`CONTEXT.md`](CONTEXT.md)：轨道、声部、左右手谱表和显示会话领域词汇
+- [`docs/product/release_scope.md`](docs/product/release_scope.md)：当前试用范围唯一事实源
+- [`docs/product/capability_matrix.md`](docs/product/capability_matrix.md)：实现、测试、设备和试用证据边界
+- [`docs/product/strategy.md`](docs/product/strategy.md)：近期验证顺序与 Go/No-Go 决策
+- [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md)：MIDI、PDF、SoundFont 和渲染资源准入台账
 - [`docs/demo_assets.md`](docs/demo_assets.md)：K.478 素材来源、许可与当前用途
 - [`docs/omr_service_contract.md`](docs/omr_service_contract.md)：PDF OMR 服务协议
 - [`docs/release_checklist.md`](docs/release_checklist.md)：自动门禁和人工验收
@@ -148,6 +152,8 @@ flutter test
 ### 准备资源文件
 
 App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录。App 支持从设备文件系统选择 MIDI、MusicXML 和 PDF：MIDI 从真实音符自动生成显示谱，MusicXML 直接进入离线交互谱面，PDF 先经 OMR 服务生成 MusicXML。自动谱只负责显示，声音始终来自原始 MIDI 时间线。
+
+当前“可以运行”不代表所有随包资源已经获准分发：K.478 证据仍需归档，其他内置 MIDI 和 TimGM6mb 随包文件在完成许可与交付核验前不得进入试用构建。具体状态见 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md)。
 
 练习页的谱面默认按 70% 显示，便于一屏阅读更多系统；固定播放栏上方的 `− / 百分比 / +` 可按 10% 调整，范围为 50%–140%。连续点击会自动合并到最终档位，避免重复排版造成等待；缩放只重新排版显示谱，不会改变播放位置、速度、AB 循环或声部选择。
 
@@ -215,4 +221,4 @@ Change、Control Change、Pitch Bend 等通道级状态发生冲突时，暂不�
 
 ## 📄 License
 
-MIT
+项目自有代码采用 MIT 许可。MIDI、PDF、SoundFont、OSMD、图标、字体及其他第三方/内容资产不自动适用该许可，须分别遵循 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md) 和随附许可证。

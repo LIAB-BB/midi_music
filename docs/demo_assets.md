@@ -1,5 +1,7 @@
 # Demo 乐谱素材
 
+> 本页记录来源与当前用途，不单独构成分发批准。试用构建以 [`evidence/asset_manifest.md`](evidence/asset_manifest.md) 的逐项状态、哈希和证据归档为准。
+
 ## Mozart — Piano Quartet in G minor, K.478
 
 - App 内文件：`assets/midi/mozart_k478_piano_quartet.mid`

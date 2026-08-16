@@ -1,5 +1,7 @@
 # OMR 服务端交接文档
 
+> 状态：开发交接材料，不是生产部署批准。对外开放前必须设计并验证认证/授权、限流、TLS、恶意文件防护、访问日志、数据保留和删除流程；当前产品边界见 [`../../docs/product/release_scope.md`](../../docs/product/release_scope.md)。
+
 ## 目标
 
 给 Flutter App 提供 PDF 钢琴谱识谱服务。

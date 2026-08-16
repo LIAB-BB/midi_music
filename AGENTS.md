@@ -45,6 +45,14 @@ flutter test
 - 新增模块、接口、架构约定时，同步更新 `CLAUDE.md`。
 - 最近提交使用中文时，继续使用中文 commit message，并在提交前向用户确认。
 
+## 文档事实源
+
+- `docs/product/release_scope.md` 是当前产品边界唯一事实源；不得用历史计划或不可达代码路径改写当前入口。
+- `docs/product/capability_matrix.md` 区分实现、自动化、设备证据和可试用状态；测试通过不能替代真机或分发门槛。
+- `docs/evidence/asset_manifest.md` 是随包、下载和宣传资产准入台账；没有记录默认禁止分发，仅隐藏 UI 不等于从 IPA 排除。
+- `docs/release_checklist.md` 是每次试用构建的执行门槛；新增产品能力时同时更新范围、能力矩阵、资产影响和验收场景。
+- `PROJECT.md` / `README.md` 记录工程入口与实现快照，`docs/superpowers/` 旧 plan/spec 和根目录长期报告只作历史材料，不得重新执行或作为当前发布承诺。
+
 ## 项目速览
 
 - `lib/core/midi/`：MIDI 解析、TempoMap、SoundFont 引擎、播放控制器。

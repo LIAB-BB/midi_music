@@ -46,6 +46,7 @@ flutter test
 2. **提交前必跑**：`flutter analyze && flutter test`，一个不能少。
 3. **单任务单主改**：一个任务只让一个 AI 改代码，另一个 AI 负责审阅 diff，避免交替改同一个核心文件。
 4. **文档同步**：任何一方加了新概念、新模块、新接口，必须更新 `AGENTS.md` / `CLAUDE.md` 中对应内容。不更新 = 不存在。
+5. **产品治理**：`docs/product/release_scope.md` 定义当前范围，`docs/product/capability_matrix.md` 记录证据等级，`docs/evidence/asset_manifest.md` 决定资源能否分发；历史 plan/spec 与长期报告不得覆盖这三份文档。
 
 ### 模块分工建议
 
@@ -154,7 +155,7 @@ flutter test
 - Dockerfile 仅包含 Python API 服务，部署时仍需安装或挂载 Audiveris 运行时
 
 ### Tempo Follow (`lib/core/follow/`)
-- `midi_follow_mode_session.dart` — **当前 demo 使用的跟随会话**。消费 USB MIDI Note On，驱动 `FollowModeController`；聚合选中的多条电子琴轨，启动时一起静音，退出时恢复用户原始静音状态
+- `midi_follow_mode_session.dart` — **保留高级演奏台使用的跟随会话，当前首页不可达**。消费 USB MIDI Note On，驱动 `FollowModeController`；聚合选中的多条电子琴轨，启动时一起静音，退出时恢复用户原始静音状态
 - `pitch_input.dart` — `PitchInput` 抽象接口（`pitchStream`、`start()`、`dispose()`）
 - `microphone_input.dart` — `MicrophoneInput` 实现 `PitchInput`。`flutter_audio_capture` → `pitch_detector_dart`（YIN 算法）→ 输出 `Stream<PitchData>`。流控（处理中跳过新帧）、RMS 音量计算
 - `onset_detector.dart` — 纯 Dart 的 onset 检测器。输入 `PitchData` 流，输出 `Stream<OnsetEvent>`。含 `PitchData` 和 `OnsetEvent` 数据模型。检测逻辑：音量/精度阈值 + 去抖（80ms）+ 静音帧计数
