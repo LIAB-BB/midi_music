@@ -4,6 +4,12 @@ import Foundation
 import MachO
 
 final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
+  private final class MidiByteStreamState {
+    let lock = NSLock()
+    var runningStatus: UInt8?
+    var pendingData = [UInt8]()
+  }
+
   private static let methodChannelName = "com.midimusic.midi_music/midi_input/methods"
   private static let eventChannelName = "com.midimusic.midi_music/midi_input/events"
 
@@ -12,8 +18,8 @@ final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private var connectedSources = Set<MIDIEndpointRef>()
   private var eventSink: FlutterEventSink?
   private var isListening = false
-  private var runningStatus: UInt8?
-  private var pendingData = [UInt8]()
+  private var parserStates = [MIDIEndpointRef: MidiByteStreamState]()
+  private let parserStateLock = NSLock()
 
   static func register(with registrar: FlutterPluginRegistrar) {
     let instance = CoreMidiInputPlugin()
@@ -69,7 +75,7 @@ final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
   private func createMidiClient() {
     let clientStatus = MIDIClientCreateWithBlock(
-      "MidiMusic USB Input" as CFString,
+      "MidiMusic MIDI Input" as CFString,
       &midiClient
     ) { [weak self] _ in
       DispatchQueue.main.async {
@@ -84,10 +90,10 @@ final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
     let portStatus = MIDIInputPortCreateWithBlock(
       midiClient,
-      "MidiMusic USB Input Port" as CFString,
+      "MidiMusic MIDI Input Port" as CFString,
       &inputPort
-    ) { [weak self] packetList, _ in
-      self?.handlePacketList(packetList)
+    ) { [weak self] packetList, sourceRefCon in
+      self?.handlePacketList(packetList, sourceRefCon: sourceRefCon)
     }
     if portStatus != noErr {
       NSLog("[CoreMIDI] 无法创建 MIDI input port: \(portStatus)")
@@ -107,8 +113,7 @@ final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     }
     connectedSources.removeAll()
     isListening = false
-    runningStatus = nil
-    pendingData.removeAll(keepingCapacity: true)
+    resetParserStates()
   }
 
   private func refreshSources() {
@@ -116,11 +121,13 @@ final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
       MIDIPortDisconnectSource(inputPort, source)
     }
     connectedSources.removeAll()
+    resetParserStates()
 
     for index in 0..<MIDIGetNumberOfSources() {
       let source = MIDIGetSource(index)
       guard source != 0 else { continue }
-      if MIDIPortConnectSource(inputPort, source, nil) == noErr {
+      let sourceRefCon = UnsafeMutableRawPointer(bitPattern: Int(source))
+      if MIDIPortConnectSource(inputPort, source, sourceRefCon) == noErr {
         connectedSources.insert(source)
       }
     }
@@ -156,10 +163,17 @@ final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     if status == noErr, let property {
       return property.takeRetainedValue() as String
     }
-    return "USB MIDI \(endpoint)"
+    return "MIDI \(endpoint)"
   }
 
-  private func handlePacketList(_ packetList: UnsafePointer<MIDIPacketList>) {
+  private func handlePacketList(
+    _ packetList: UnsafePointer<MIDIPacketList>,
+    sourceRefCon: UnsafeMutableRawPointer?
+  ) {
+    guard let source = sourceFromRefCon(sourceRefCon) else { return }
+    let parserState = parserState(for: source)
+    parserState.lock.lock()
+    defer { parserState.lock.unlock() }
     let dataOffset = MemoryLayout.offset(of: \MIDIPacket.data) ?? 0
     for packet in packetList.unsafeSequence() {
       let byteCount = Int(packet.pointee.length)
@@ -167,42 +181,68 @@ final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         .advanced(by: dataOffset)
         .assumingMemoryBound(to: UInt8.self)
       let bytes = UnsafeBufferPointer(start: dataPointer, count: byteCount)
-      parse(bytes, timestamp: packet.pointee.timeStamp)
+      parse(bytes, timestamp: packet.pointee.timeStamp, parserState: parserState)
     }
   }
 
   private func parse(
     _ bytes: UnsafeBufferPointer<UInt8>,
-    timestamp: MIDITimeStamp
+    timestamp: MIDITimeStamp,
+    parserState: MidiByteStreamState
   ) {
     for byte in bytes {
       if byte >= 0xF8 {
         continue
       }
       if byte >= 0xF0 {
-        runningStatus = nil
-        pendingData.removeAll(keepingCapacity: true)
+        parserState.runningStatus = nil
+        parserState.pendingData.removeAll(keepingCapacity: true)
         continue
       }
       if byte & 0x80 != 0 {
-        runningStatus = byte
-        pendingData.removeAll(keepingCapacity: true)
+        parserState.runningStatus = byte
+        parserState.pendingData.removeAll(keepingCapacity: true)
         continue
       }
-      guard let status = runningStatus else { continue }
-      pendingData.append(byte)
+      guard let status = parserState.runningStatus else { continue }
+      parserState.pendingData.append(byte)
       let command = status & 0xF0
       let expectedCount = command == 0xC0 || command == 0xD0 ? 1 : 2
-      guard pendingData.count >= expectedCount else { continue }
+      guard parserState.pendingData.count >= expectedCount else { continue }
 
       emitMidiMessage(
         status: status,
-        data1: pendingData[0],
-        data2: expectedCount == 2 ? pendingData[1] : 0,
+        data1: parserState.pendingData[0],
+        data2: expectedCount == 2 ? parserState.pendingData[1] : 0,
         timestamp: timestamp
       )
-      pendingData.removeAll(keepingCapacity: true)
+      parserState.pendingData.removeAll(keepingCapacity: true)
     }
+  }
+
+  private func sourceFromRefCon(
+    _ sourceRefCon: UnsafeMutableRawPointer?
+  ) -> MIDIEndpointRef? {
+    guard let sourceRefCon else { return nil }
+    return MIDIEndpointRef(UInt32(UInt(bitPattern: sourceRefCon)))
+  }
+
+  private func parserState(for source: MIDIEndpointRef) -> MidiByteStreamState {
+    parserStateLock.lock()
+    defer { parserStateLock.unlock() }
+
+    if let state = parserStates[source] {
+      return state
+    }
+    let state = MidiByteStreamState()
+    parserStates[source] = state
+    return state
+  }
+
+  private func resetParserStates() {
+    parserStateLock.lock()
+    parserStates.removeAll()
+    parserStateLock.unlock()
   }
 
   private func emitMidiMessage(

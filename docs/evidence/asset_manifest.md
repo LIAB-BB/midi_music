@@ -10,10 +10,12 @@
 
 | 资源 | 路径/用途 | 当前状态 | 已知来源与限制 | 进入试用版前的动作 |
 | --- | --- | --- | --- | --- |
-| Mozart K.478 MIDI | `assets/midi/mozart_k478_piano_quartet.mid` | 待核验 | `docs/demo_assets.md` 记录为 Mutopia 同源、公版/CC0。 | 保存来源页、下载日期和具体许可文本；核对 MIDI 与 PDF 版本一致。 |
-| Mozart K.478 PDF 与页面图 | `assets/scores/mozart_k478_piano_part*` | 待核验 | `docs/demo_assets.md` 记录为 Mutopia 同源分谱。 | 保留原始 PDF、来源 URL、许可与页面渲染来源。 |
+| Mozart K.478 MIDI | `assets/midi/mozart_k478_piano_quartet.mid` | 已核验 | 与 Mutopia `k478-score.mid` 的 SHA-256 一致；来源页标注 Public Domain。 | 随包前保持哈希不变；替换文件或扩展分发范围时重新核验。 |
+| Mozart K.478 钢琴分谱页面图 | `assets/scores/mozart_k478_piano_part/page-*.png` | 待核验 | 已记录 21 张本地页面图的逐页 SHA-256，且源 PDF 与 Mutopia 原始文件一致；但尚未保存页面图的渲染命令、工具版本与可复现来源记录。 | 先从已核验 PDF 重现页面渲染并记录命令/工具版本，再准入随包分发。 |
+| Mozart K.478 原始 PDF | `assets/scores/mozart_k478_piano_part.pdf` | 已核验，不随包 | 与 Mutopia `k478-piano-a4.pdf` 的 SHA-256 一致；仅用于追溯页面图来源。 | 不加入 Flutter manifest；如改为应用内 PDF 读取，再确认实际分发清单。 |
 | 其余内置 MIDI | `assets/midi/` 中其他文件 | 禁止分发 | 当前仓内无充分来源/商业授权证据。 | 逐首获得许可或替换为可复核来源后再恢复入口。 |
 | TimGM6mb SF2 | `assets/soundfonts/TimGM6mb.sf2` | 禁止分发 | 随包文件没有完整许可/版本/校验和记录，且默认运行路径未使用它。 | 决定随包或下载策略；记录来源、许可证、SHA-256、署名和完整性校验。 |
+| K.478 Violin / Cello SF2 | `packages/k478_practice/assets/soundfonts/k478_{violin,cello}.sf2` | 待核验 | MuseScore_General 0.2 的 bank 0 Program 40/42 子集；MIT 授权通知、输入与输出哈希、无界面转换链、preset 测试和 Apple sampler 离线渲染均已记录。官方 OSUOSL 归档存在同版本文件，但输入 SF3 的全量字节比对与 iPhone 真机发声尚未完成。 | 完成官方输入比对；在签名 Archive/IPA 中复核哈希与授权通知；iPhone 离线加载并分别听音后再改为“已核验”。 |
 | App 图标、字体、截图、宣传音频 | 待补充 | 待核验 | 未形成清单。 | 在 TestFlight 前逐项登记。 |
 
 ## 新资产记录模板
@@ -35,3 +37,5 @@
 2. “作品公版”不足以覆盖现代版次、MIDI 制作、录音、SoundFont 或图片。
 3. 不从第三方平台抓取、转换或下载其受保护音频/视频内容；App Store 对知识产权与第三方媒体有明确要求，见 [Apple App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)。
 4. 发生文件替换、重新编码、裁剪、拼接或改变分发渠道时，重新审核记录。
+
+K.478 的来源页、原始包与 SHA-256 比对记录见 [`k478_asset_evidence.md`](k478_asset_evidence.md)。

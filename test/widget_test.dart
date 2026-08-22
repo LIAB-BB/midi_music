@@ -7,129 +7,64 @@ import 'package:midi_music/core/midi/midi_player.dart';
 import 'package:midi_music/core/settings/app_settings.dart';
 
 void main() {
-  testWidgets('App smoke test — renders without crashing', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(
-            create: (_) =>
-                AppSettingsController(storage: _MemorySettingsStorage()),
-          ),
-          ChangeNotifierProvider(create: (_) => MidiPlayerController()),
-        ],
-        child: const MidiMusicApp(),
-      ),
-    );
+  testWidgets('首页只暴露 K.478 的 USB MIDI 试用入口', (WidgetTester tester) async {
+    await _pumpApp(tester);
 
-    expect(find.text('导入乐谱文件'), findsOneWidget);
-    expect(find.text('乐谱广场'), findsWidgets);
-    expect(find.byKey(const Key('score-masonry-grid')), findsOneWidget);
-  });
-
-  testWidgets('Home page shows score waterfall and filters categories', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(
-            create: (_) =>
-                AppSettingsController(storage: _MemorySettingsStorage()),
-          ),
-          ChangeNotifierProvider(create: (_) => MidiPlayerController()),
-        ],
-        child: const MidiMusicApp(),
-      ),
-    );
-
-    expect(find.byKey(const Key('score-card-2')), findsOneWidget);
-    expect(find.text('月光奏鸣曲 第一乐章'), findsOneWidget);
-    expect(find.text('深夜爵士小品'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('score-category-dropdown')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('score-category-爵士')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('深夜爵士小品'), findsOneWidget);
-    expect(find.text('黑键即兴'), findsOneWidget);
+    expect(find.text('K.478 排练'), findsWidgets);
+    expect(find.text('钢琴四重奏\nK.478'), findsOneWidget);
+    expect(find.byKey(const Key('start-k478-usb-practice')), findsOneWidget);
+    expect(find.byKey(const Key('view-k478-pdf-score')), findsOneWidget);
+    expect(find.text('导入乐谱文件'), findsNothing);
     expect(find.text('月光奏鸣曲 第一乐章'), findsNothing);
+    expect(find.textContaining('MusicXML'), findsOneWidget);
   });
 
-  testWidgets('Score card opens practice reader page', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(
-            create: (_) =>
-                AppSettingsController(storage: _MemorySettingsStorage()),
-          ),
-          ChangeNotifierProvider(create: (_) => MidiPlayerController()),
-        ],
-        child: const MidiMusicApp(),
-      ),
-    );
+  testWidgets('开始按钮载入内置 K.478 并进入演奏台', (WidgetTester tester) async {
+    await _pumpApp(tester);
 
-    await tester.tap(find.byKey(const Key('score-card-2')));
+    await tester.tap(find.byKey(const Key('start-k478-usb-practice')));
     await tester.pumpAndSettle();
 
-    expect(find.text('月光奏鸣曲 第一乐章'), findsWidgets);
-    expect(find.text('真实 MIDI 钢琴卷帘'), findsOneWidget);
+    expect(find.text('mozart k478 piano quartet'), findsWidgets);
     expect(find.byKey(const Key('midi-piano-roll')), findsOneWidget);
-    expect(find.text('示意谱面 · 非实际 MIDI 记谱'), findsNothing);
-    expect(find.text('已载入'), findsOneWidget);
   });
 
-  testWidgets('K.478 uses the reviewed public-domain PDF piano part', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(
-            create: (_) =>
-                AppSettingsController(storage: _MemorySettingsStorage()),
-          ),
-          ChangeNotifierProvider(create: (_) => MidiPlayerController()),
-        ],
-        child: const MidiMusicApp(),
-      ),
-    );
+  testWidgets('分谱入口打开 K.478 离线页面阅读器', (WidgetTester tester) async {
+    await _pumpApp(tester);
 
-    await tester.tap(find.byKey(const Key('score-card-13')));
+    await tester.tap(find.byKey(const Key('view-k478-pdf-score')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('pdf-score-viewer')), findsOneWidget);
-    expect(find.text('公版 PDF 钢琴分谱'), findsOneWidget);
+    expect(find.text('K.478 钢琴分谱'), findsOneWidget);
     expect(find.text('1 / 21'), findsOneWidget);
   });
 
-  testWidgets('Settings page can be opened from home', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(
-            create: (_) =>
-                AppSettingsController(storage: _MemorySettingsStorage()),
-          ),
-          ChangeNotifierProvider(create: (_) => MidiPlayerController()),
-        ],
-        child: const MidiMusicApp(),
-      ),
-    );
+  testWidgets('设置页说明不采集麦克风', (WidgetTester tester) async {
+    await _pumpApp(tester);
 
     await tester.tap(find.byIcon(CupertinoIcons.gear_alt_fill));
     await tester.pumpAndSettle();
 
     expect(find.text('排练偏好'), findsOneWidget);
     expect(find.text('电子琴输入'), findsOneWidget);
+    expect(find.textContaining('不采集麦克风音频'), findsOneWidget);
   });
+}
+
+Future<void> _pumpApp(WidgetTester tester) {
+  return tester.pumpWidget(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) =>
+              AppSettingsController(storage: _MemorySettingsStorage()),
+        ),
+        ChangeNotifierProvider(create: (_) => MidiPlayerController()),
+      ],
+      child: const MidiMusicApp(),
+    ),
+  );
 }
 
 class _MemorySettingsStorage implements AppSettingsStorage {

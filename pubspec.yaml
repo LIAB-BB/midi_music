@@ -1,5 +1,5 @@
 name: midi_music
-description: "MIDI伴奏播放器 - 高品质SoundFont音色，支持变速跟随模式"
+description: "iOS USB MIDI K.478 跟随练习候选版"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -64,9 +64,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/soundfonts/
-    - assets/midi/
-    - assets/scores/
+    - assets/midi/mozart_k478_piano_quartet.mid
     - assets/scores/mozart_k478_piano_part/
 
   # An image asset can refer to one or more resolution-specific "variants", see

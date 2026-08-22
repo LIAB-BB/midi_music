@@ -10,8 +10,8 @@
 
 - **iOS USB MIDI 输入** — 使用 CoreMIDI 接收 class-compliant USB MIDI 电子琴的 Note On。
 - **分轨 MIDI 跟随** — 用户选择钢琴右、左手等演奏轨；App 在跟随期间静音这些轨，并调整其余伴奏轨的速度。
-- **基础 MIDI 播放** — 支持 MIDI Format 0/1 的导入、播放、暂停、停止、seek、轨道音量和静音。
-- **K.478 候选演示曲目** — 莫扎特 K.478 钢琴四重奏的离线钢琴分谱阅读与 MIDI 钢琴卷帘位置反馈；分发前仍须完成逐项资产核验。
+- **K.478 首版入口** — 首页直接载入莫扎特 K.478 钢琴四重奏并进入 USB MIDI 演奏台；不暴露通用导入或曲库入口。
+- **K.478 候选演示曲目** — 离线钢琴分谱阅读与 MIDI 钢琴卷帘位置反馈；MIDI 与源 PDF 已和 Mutopia 原始包完成哈希比对。页面图已记录逐页哈希，但仍需补齐可复现渲染证据后才可分发，见 [`docs/evidence/k478_asset_evidence.md`](docs/evidence/k478_asset_evidence.md)。
 - **iPhone 真机验收** — USB 热插拔、跟随和长休止恢复必须在真实 iPhone 与电子琴上验证；模拟器只适合界面检查。
 
 ## 当前不承诺
@@ -19,9 +19,9 @@
 - 麦克风识别、任意乐器跟随、错音/跳段/复调鲁棒跟随，或“AI 交响乐团”。
 - Android、蓝牙 MIDI、云曲库、教师功能、订阅、stem 混音或预渲染管弦乐音频。
 - 通用 PDF 识谱、手写谱识别、MusicXML 五线谱渲染、自动翻页或乐谱与播放进度同步。
-- 除完成授权核验的 K.478 候选资产外的内置曲库内容。
+- 除 K.478 候选资产外的内置曲库内容；K.478 页面图在补齐可复现渲染证据前也不进入分发包。
 
-PDF OMR、麦克风输入和 MusicXML 解析代码可能出现在仓库中，但这不代表它们已可用于本次试用或可以对外宣传。
+PDF OMR、麦克风输入和 MusicXML 解析代码仍保留在仓库中，供未来独立开发；它们不在当前首页、导航或 TestFlight 承诺中。
 
 ## 🏗️ 技术栈
 
@@ -65,7 +65,8 @@ lib/
 │   └── midi_track.dart                # MIDI 轨道模型
 └── ui/
     ├── pages/
-    │   ├── home_page.dart             # 首页（文件选择）
+    │   ├── home_page.dart             # K.478 首版首页
+    │   ├── home_page_legacy.dart      # 保留的旧曲库/导入页面（未接入首版）
     │   └── player_page.dart           # 播放器页面
     └── theme/
         └── luxury_theme.dart          # 黑金主题组件
@@ -128,9 +129,14 @@ flutter test
 
 ### 资源与音色库的当前状态
 
-当前默认运行路径会下载并缓存 TimGM6mb.sf2；它**尚不构成离线可用或可发布的保证**。随包 SF2 的来源、许可证和实际加载路径也尚未闭环。进入 TestFlight 前，必须按当前范围文档选择并验证一种音色库交付策略（随包离线，或固定版本且可校验的下载）。
+仓库根开发 host 的默认运行路径仍会下载并缓存 TimGM6mb.sf2；它**不构成
+离线可用或可发布的保证**，也不进入本轮候选。独立候选
+`apps/testflight_ios` 改为随包加载 `packages/k478_practice` 中的 Violin 40
+与 Cello 42 单预设 SF2，已记录许可证、哈希、结构测试及 Apple sampler
+离线渲染证据；在官方输入比对、签名 IPA 检查和 iPhone 真机听音完成前，
+仍不能宣布音色库发布门槛已闭环。
 
-K.478 以外的内置 MIDI 不应被当作试用曲库或对外展示内容，除非先在资产台账中完成授权核验。更重要的是，标为“禁止分发”的资源必须从最终 Flutter asset manifest 和 IPA 中排除；仅隐藏首页入口不能消除分发风险。详细记录见 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md)。
+K.478 以外的内置 MIDI 不应被当作试用曲库或对外展示内容，除非先在资产台账中完成授权核验。标为“禁止分发”的资源必须从最终 Flutter asset manifest 和 IPA 中排除；仅隐藏首页入口不能消除分发风险。详细记录见 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md)。
 
 ### 仅供开发的 PDF OMR 接口
 

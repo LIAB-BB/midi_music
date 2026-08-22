@@ -60,7 +60,7 @@ class IosMidiInput implements MidiInput {
     _eventSubscription = _bridge.events().listen(
       _handleEvent,
       onError: (Object error, StackTrace stackTrace) {
-        _updateState(MidiInputState(errorMessage: 'USB MIDI 连接中断：$error'));
+        _updateState(MidiInputState(errorMessage: 'CoreMIDI 连接中断：$error'));
         _messageController.addError(error, stackTrace);
       },
     );
