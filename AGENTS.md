@@ -37,6 +37,29 @@ flutter analyze
 flutter test
 ```
 
+## K.478 候选路径（优先发布实现）
+
+- `apps/testflight_ios/`：iPhone-only、iOS 13.0+ 的独立候选 host；其
+  `pubspec.lock` 必须提交并使用 `flutter pub get --enforce-lockfile`。
+- `packages/k478_practice/`：K.478 UI、播放器与跟随逻辑；package lockfile
+  不提交，不能使用 `--enforce-lockfile`。
+- `packages/core_midi_input/`：CoreMIDI 输入 package；package lockfile 不提交。
+- 根目录仍是 Legacy host（最低 iOS 13.6），其分析、测试和构建结果不能替代
+  候选 host 的结果。不要为了候选清理或删除 legacy 功能。
+
+候选验证矩阵：
+
+```bash
+cd packages/core_midi_input && flutter pub get && flutter analyze && flutter test
+cd ../k478_practice && flutter pub get && flutter analyze && flutter test
+cd ../../apps/testflight_ios && flutter pub get --enforce-lockfile && flutter analyze && flutter test
+cd ../.. && tool/verify_k478_score_pages.sh
+# 构建后才运行：tool/verify_testflight_ios_bundle.sh <Runner.app>
+```
+
+候选二进制仍须由真实 iPhone、签名 Archive/IPA 与 Privacy Report 复核；脚本和
+CI 不得将它们写成已完成。`CLAUDE.md` 若有用户未提交改动，除非得到明确授权不得编辑。
+
 ## 协作流程
 
 - 接手前先运行 `git status --short --branch`，确认工作区里哪些改动属于当前任务。

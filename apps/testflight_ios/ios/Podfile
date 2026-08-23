@@ -1,4 +1,5 @@
-source 'https://mirrors.tuna.tsinghua.edu.cn/git/CocoaPods/Specs.git'
+# 中国大陆默认镜像；CI 或受限网络可用环境变量改为 CocoaPods 官方 CDN。
+source ENV.fetch('COCOAPODS_SPECS_SOURCE', 'https://mirrors.tuna.tsinghua.edu.cn/git/CocoaPods/Specs.git')
 platform :ios, '13.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.

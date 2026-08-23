@@ -1,6 +1,6 @@
 # K.478 试用资源核验记录
 
-> 核验日期：2026-08-20。此记录已逐字节核验 K.478 MIDI 与源 PDF；钢琴分谱页面图目前只完成本地完整性记录，尚缺可复现渲染证据。弦乐 SoundFont 已完成许可留档、成品哈希、结构和 Apple sampler 离线渲染验证，但输入 SF3 与 MuseScore 官方归档的字节级比对仍待完成。它不是对其他仓库资产的授权结论。
+> 核验日期：2026-08-23。此记录已逐字节核验 K.478 MIDI 与源 PDF；钢琴分谱页面图已完成可复现渲染核验。弦乐 SoundFont 已完成许可留档、成品哈希、结构和 Apple sampler 离线渲染验证，但输入 SF3 与 MuseScore 官方归档的字节级比对仍待完成。它不是对其他仓库资产的授权结论。
 
 ## 来源与许可标注
 
@@ -24,7 +24,13 @@
 shasum -a 256 -c docs/evidence/k478_page_sha256.txt
 ```
 
-这份清单只能证明页面图之后未变化，不能替代渲染来源证据：当前没有保存从已核验 PDF 生成 PNG 的命令、渲染器及版本、参数和逐页输出记录。将页面图放入试用包前，必须补齐并复验这条链路。
+页面图来源已在 2026-08-23 复现核验：Poppler `pdftoppm 26.05.0`，命令为 `pdftoppm -r 180 -png SOURCE OUTPUT_PREFIX`。21 页均为 1488×2105 RGB；临时输出与 `page-01.png` 至 `page-21.png` 逐字节 `cmp` 一致，且已目视检查第 1、21 页无裁切或乱码。可复现脚本为：
+
+```bash
+tool/verify_k478_score_pages.sh
+```
+
+该结论只覆盖 PNG 的技术来源链，不改变 SoundFont、图标、签名 IPA 或其他资源的待核验状态。
 
 ## 弦乐 SoundFont
 
@@ -49,6 +55,7 @@ shasum -a 256 -c docs/evidence/k478_page_sha256.txt
 ## 分发边界
 
 - 仓库根目录仍是保留旧功能的开发 host，不作为本轮发布边界。独立候选 host 位于 `apps/testflight_ios`，其功能包只声明 K.478 MIDI、21 张钢琴分谱页面图、上述两个 SF2 与第三方授权通知；原始 PDF、其他 MIDI 和旧 TimGM6mb 不进入候选资产清单。
-- 2026-08-20 在清理该 host 生成缓存后重新构建并检查 `apps/testflight_ios` 的无签名 iOS Release（`0.1.0+1`，`com.liab.k478Testflight`）：AOT App 包含当前双 SoundFont 路由、队列清理与 USB 状态展示符号；两个 SF2 和第三方通知均进入 App 资产目录且 SHA-256 与源码文件一致；21 张页面图全部进入包内。注册插件/Pods 只有 `core_midi_input` 与 `flutter_midi_pro`，另含依赖图需要的传递性 `objective_c.framework`；两个插件的 `PrivacyInfo.xcprivacy` 均随各自 framework 进入 App，Release Info.plist 不含麦克风、本地网络或 Bonjour 用途声明。尚未生成签名 Archive/IPA，因此仍需在最终归档后再次检查 AssetManifest、Privacy Report 与 IPA 内容。
+- **历史产物，当前已失效**：2026-08-20 曾检查 `apps/testflight_ios` 的无签名 iOS Release（`0.1.0+1`，`com.liab.k478Testflight`），当时记录了 AOT、两个 SF2、第三方通知、21 张页面图、两个插件及其 privacy manifest。该 Runner.app 发生当前源代码变更前生成；用现行审计脚本检查会因 `UIDeviceFamily = 1,2` 失败，不能作为 iPhone-only 或当前源码的证据。必须从当前 lockfile 和源码重新构建后再运行 `tool/verify_testflight_ios_bundle.sh`，签名 Archive/IPA 仍需复核 AssetManifest、Privacy Report 与 IPA 内容。
+- **当前工作区无签名构建**：2026-08-23 在 `apps/testflight_ios` 使用 Flutter 3.44.1、默认清华 CocoaPods Specs 镜像执行 `flutter build ios --release --no-codesign` 成功，生成的 `Runner.app` 为 21.4 MB。`tool/verify_testflight_ios_bundle.sh build/ios/iphoneos/Runner.app` 已通过：实际 `UIDeviceFamily` 仅为 `[1]`，并以精确白名单核验预期 framework、两个插件的 `PrivacyInfo`、K.478 MIDI、21 张 PNG、两个 SF2 和第三方通知均与源码一致；候选自定义资产子树中任何额外文件都会失败，且无原始 PDF、TimGM 或其他 MIDI。此记录未绑定已提交 commit；产物未签名、不是 Archive/IPA，也没有 Privacy Report，不能替代 iPhone 真机、SF2 听音或签名分发核验。官方 CocoaPods CDN 在本机因证书链失败，故本次使用默认镜像；这不表示 CI 已运行或已通过。
 - TestFlight 文案需保留来源页链接或等效的归档记录；若替换、重新编码或新增任何资源，必须重新核验本表与 `asset_manifest.md`。
 - 这不是法律意见。若分发范围扩展到公开 App Store、付费内容或市场物料，应再次核对目标市场与 App Store 的权利要求。

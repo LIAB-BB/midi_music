@@ -40,6 +40,9 @@ class IosMidiInput implements MidiInput {
   MidiInputState _state = const MidiInputState();
   bool _started = false;
   bool _disposed = false;
+  bool _platformStartRequested = false;
+  Future<void>? _startFuture;
+  Future<void>? _disposeFuture;
 
   IosMidiInput({MidiInputPlatformBridge? bridge})
     : _bridge = bridge ?? const CoreMidiPlatformBridge();
@@ -54,10 +57,27 @@ class IosMidiInput implements MidiInput {
   MidiInputState get state => _state;
 
   @override
-  Future<void> start() async {
-    if (_disposed) throw StateError('MIDI 输入已经释放');
-    if (_started) return;
+  Future<void> start() {
+    if (_disposed) {
+      return Future<void>.error(StateError('MIDI 输入已经释放'));
+    }
+    if (_started) return Future<void>.value();
+    final starting = _startFuture;
+    if (starting != null) return starting;
 
+    final future = _startInternal();
+    _startFuture = future;
+    unawaited(
+      future.then<void>(
+        (_) => _clearStartFuture(future),
+        onError: (Object error, StackTrace stackTrace) =>
+            _clearStartFuture(future),
+      ),
+    );
+    return future;
+  }
+
+  Future<void> _startInternal() async {
     _eventSubscription = _bridge.events().listen(
       _handleEvent,
       onError: (Object error, StackTrace stackTrace) {
@@ -67,17 +87,26 @@ class IosMidiInput implements MidiInput {
     );
 
     try {
+      _platformStartRequested = true;
       final result = await _bridge.start();
+      if (_disposed) return;
       _started = true;
       _applyDevicePayload(result);
     } catch (_) {
-      await _eventSubscription?.cancel();
-      _eventSubscription = null;
+      if (!_disposed) {
+        await _eventSubscription?.cancel();
+        _eventSubscription = null;
+      }
       rethrow;
     }
   }
 
+  void _clearStartFuture(Future<void> future) {
+    if (identical(_startFuture, future)) _startFuture = null;
+  }
+
   void _handleEvent(Object? event) {
+    if (_disposed) return;
     if (event is! Map) return;
     final type = event['type'];
     if (type == 'devices') {
@@ -107,6 +136,7 @@ class IosMidiInput implements MidiInput {
   }
 
   void _applyDevicePayload(Object? payload) {
+    if (_disposed) return;
     if (payload is! List) return;
     final devices = <MidiInputDevice>[];
     for (final item in payload) {
@@ -121,6 +151,7 @@ class IosMidiInput implements MidiInput {
   }
 
   void _updateState(MidiInputState nextState) {
+    if (_disposed) return;
     _state = nextState;
     if (!_stateController.isClosed) {
       _stateController.add(nextState);
@@ -128,17 +159,32 @@ class IosMidiInput implements MidiInput {
   }
 
   @override
-  Future<void> dispose() async {
-    if (_disposed) return;
+  Future<void> dispose() {
+    final disposing = _disposeFuture;
+    if (disposing != null) return disposing;
+    if (_disposed) return Future<void>.value();
     _disposed = true;
+    _started = false;
+    _state = const MidiInputState();
+    final future = _disposeInternal();
+    _disposeFuture = future;
+    return future;
+  }
+
+  Future<void> _disposeInternal() async {
+    final starting = _startFuture;
+    if (starting != null) {
+      await starting.catchError((Object _) {});
+    }
     await _eventSubscription?.cancel();
     _eventSubscription = null;
-    if (_started) {
+    if (_platformStartRequested) {
       try {
         await _bridge.stop();
       } catch (_) {
         // 页面退出时平台通道可能已销毁，不影响 Dart 资源释放。
       }
+      _platformStartRequested = false;
     }
     await _messageController.close();
     await _stateController.close();

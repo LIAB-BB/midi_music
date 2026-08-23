@@ -72,6 +72,16 @@ class _FakeBackend extends MidiProBackend {
   }
 
   @override
+  Future<void> controlChange({
+    required int sfId,
+    required int channel,
+    required int controller,
+    required int value,
+  }) async {
+    calls.add('cc:$sfId:$channel:$controller:$value');
+  }
+
+  @override
   Future<void> stopAllNotes({required int sfId}) async {
     stopAllIds.add(sfId);
   }

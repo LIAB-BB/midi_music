@@ -1,6 +1,6 @@
-# 当前试用版范围（iOS USB MIDI）
+# 当前试用版范围（iOS CoreMIDI，USB 验收）
 
-> 状态：当前权威范围。更新日期：2026-08-20。
+> 状态：当前权威范围。更新日期：2026-08-23。
 >
 > 这是一个**封闭试用候选方案**，不是公开商用版本承诺，也尚未满足 TestFlight 分发门槛。任何未列出的功能均不应在 App、截图、TestFlight 说明或销售材料中暗示为可用。
 
@@ -20,14 +20,14 @@
 
 | 范围 | 候选验收范围（通过发布门槛后才能对外描述） |
 | --- | --- |
-| 平台 | iOS；真实 iPhone 是 USB MIDI 验收设备。模拟器仅用于界面检查。 |
+| 平台 | iOS 13.0+、iPhone-only；真实 iPhone 是 USB MIDI 验收设备。模拟器仅用于界面检查。根 Legacy host 的最低 iOS 版本为 13.6，不能与候选混写。 |
 | 输入 | CoreMIDI Note On；本轮只以直接连接 iPhone 的 class-compliant USB MIDI 电子琴作为验收设备，不承诺虚拟、网络或蓝牙端点。不会采集麦克风。 |
 | 跟随 | 固定钢琴轨 4、5 的音符匹配、速度调整与长休止等待。首版不提供通用选轨。 |
-| 声音 | App 播放非演奏者轨道；电子琴自行发声。独立候选随包离线加载 Violin 40 / Cello 42 两个单预设 SF2；最终放行仍需 iPhone 真机听音与资产证据闭环。 |
+| 声音 | App 播放非演奏者轨道；电子琴自行发声。独立候选随包离线加载 Violin 40 / Cello 42 两个单预设 SF2；中提琴声部当前暂用小提琴音色。最终放行仍需 iPhone 真机听音与资产证据闭环。 |
 | 乐谱 | K.478 离线钢琴分谱页面阅读（由同源 PDF 渲染）；首个候选演奏台不含自动翻页或钢琴卷帘。根开发 host 中的卷帘实现继续保留。 |
 | 分发 | 先以 TestFlight 封闭测试收集可用性证据。 |
 
-当前首页只有 K.478 的「开始 USB MIDI 排练」与钢琴分谱阅读入口。其他曲目与导入能力留在未接入的旧页面中，不应通过深链、截图或测试说明暴露给本轮测试者。
+当前首页只有 K.478 的「进入 MIDI 排练」与钢琴分谱阅读入口；演奏台中才开始/停止 MIDI 跟随。其他曲目与导入能力留在未接入的旧页面中，不应通过深链、截图或测试说明暴露给本轮测试者。
 
 ## 3. 明确不承诺
 
@@ -57,7 +57,7 @@ PDF OMR 未来若要从开发协议恢复为产品能力，至少应同时具备
 3. **真机**：完成 `docs/release_checklist.md` 的目标设备记录，尤其 USB 热插拔、跟随、长休止、停止后恢复。
 4. **范围**：App 和 TestFlight 元数据只描述本页列出的能力。Apple 要求 Beta 应符合 App Review Guidelines，且外部测试需要提供测试信息和审核。见 [Apple TestFlight](https://developer.apple.com/testflight/) 与 [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)。
 5. **保留能力的二进制边界**：旧的 OMR、麦克风和文件导入代码继续留在仓库根开发 host；发布候选使用 `apps/testflight_ios` 独立 Flutter host 与 `packages/k478_practice` 共享功能包，避免生成旧插件的注册和 Pods。最终签名 Archive 仍需复核插件注册、Info.plist、Privacy Report 与实际资产，不能只依据源码结构。
-6. **反馈闭环**：已定义反馈入口、已知问题、回滚方式和下一次是否扩大测试的 Go/No-Go 判断。
+6. **反馈闭环**：TestFlight 前必须在 release dossier 与测试说明中填写反馈入口、已知问题、暂停/回滚负责人和下一次是否扩大测试的 Go/No-Go 判断；当前仓库没有这些真实记录。
 
 ## 6. 下一次决策
 

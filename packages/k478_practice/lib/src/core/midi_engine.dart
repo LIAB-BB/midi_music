@@ -18,6 +18,11 @@ abstract class MidiPlaybackEngine {
     required int velocity,
   });
   Future<void> noteOff({required int channel, required int note});
+  Future<void> controlChange({
+    required int channel,
+    required int controller,
+    required int value,
+  });
   Future<void> allNotesOff();
   Future<void> dispose();
 }
@@ -119,6 +124,24 @@ class MidiEngine implements MidiPlaybackEngine {
       final soundfontId = _soundfontIdsByChannel[channel];
       if (soundfontId == null) return;
       await _backend.stopNote(sfId: soundfontId, channel: channel, key: note);
+    });
+  }
+
+  @override
+  Future<void> controlChange({
+    required int channel,
+    required int controller,
+    required int value,
+  }) async {
+    await _enqueueChannelOperation(channel, () async {
+      final soundfontId = _soundfontIdsByChannel[channel];
+      if (soundfontId == null) return;
+      await _backend.controlChange(
+        sfId: soundfontId,
+        channel: channel,
+        controller: controller,
+        value: value,
+      );
     });
   }
 
@@ -269,6 +292,18 @@ class MidiProBackend {
     required int channel,
     required int key,
   }) => _midiPro.stopNote(sfId: sfId, channel: channel, key: key);
+
+  Future<void> controlChange({
+    required int sfId,
+    required int channel,
+    required int controller,
+    required int value,
+  }) => _midiPro.controlChange(
+    sfId: sfId,
+    channel: channel,
+    controller: controller,
+    value: value,
+  );
 
   Future<void> stopAllNotes({required int sfId}) =>
       _midiPro.stopAllNotes(sfId: sfId);

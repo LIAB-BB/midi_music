@@ -8,6 +8,9 @@ class _FakeBridge implements MidiInputPlatformBridge {
       StreamController<Object?>.broadcast();
   final Object? startResult;
   var stopped = false;
+  var stopCalls = 0;
+  Completer<void>? startGate;
+  Completer<void>? startStarted;
 
   _FakeBridge({this.startResult = const []});
 
@@ -15,11 +18,16 @@ class _FakeBridge implements MidiInputPlatformBridge {
   Stream<Object?> events() => controller.stream;
 
   @override
-  Future<Object?> start() async => startResult;
+  Future<Object?> start() async {
+    startStarted?.complete();
+    await startGate?.future;
+    return startResult;
+  }
 
   @override
   Future<void> stop() async {
     stopped = true;
+    stopCalls++;
   }
 
   Future<void> close() => controller.close();
@@ -85,6 +93,32 @@ void main() {
 
     await input.dispose();
     await subscription.cancel();
+    await bridge.close();
+  });
+
+  test('dispose 会等待进行中的平台 start，并最终 stop', () async {
+    final bridge =
+        _FakeBridge(
+            startResult: const [
+              {'id': 'usb-1', 'name': 'Digital Piano'},
+            ],
+          )
+          ..startGate = Completer<void>()
+          ..startStarted = Completer<void>();
+    final input = IosMidiInput(bridge: bridge);
+
+    final starting = input.start();
+    await bridge.startStarted!.future;
+    final disposing = input.dispose();
+    expect(bridge.stopped, isFalse);
+
+    bridge.startGate!.complete();
+    await starting;
+    await disposing;
+
+    expect(bridge.stopCalls, 1);
+    expect(input.state.isConnected, isFalse);
+    await expectLater(input.start(), throwsStateError);
     await bridge.close();
   });
 }

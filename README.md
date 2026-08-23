@@ -1,198 +1,85 @@
-# 🎵 MIDI 伴奏 App
+# MIDI Music
 
-> 当前定位：**iOS USB MIDI 封闭试用候选方案**，尚未达到 TestFlight 分发门槛。它不是面向所有乐器、所有乐谱或所有平台的通用智能伴奏产品。
+当前仓库同时保留两条路径：**K.478 iOS Release Candidate** 是唯一候选发布实现；仓库根目录是保留旧能力的 Legacy host。两者不能互相替代验证结果。
 
-这是一个 Flutter iOS 应用：电子琴通过 USB MIDI 向 iPhone 发送按键；App 静音由用户演奏的钢琴轨，并按演奏节奏播放其余 MIDI 声部。电子琴自身负责钢琴发声。
+候选范围、证据和试用门槛以 [release scope](docs/product/release_scope.md)、[能力矩阵](docs/product/capability_matrix.md) 和 [发布清单](docs/release_checklist.md) 为准。当前仍未完成真机、签名 Archive/IPA、SoundFont 官方输入比对与最终隐私报告核验，不能宣称已可 TestFlight 分发。
 
-当前唯一的产品范围以 [`docs/product/release_scope.md`](docs/product/release_scope.md) 为准；功能实现状态见 [`docs/product/capability_matrix.md`](docs/product/capability_matrix.md)。
+## Release Candidate：K.478 iPhone + CoreMIDI
 
-## 当前已实现的候选试用路径
+- Host：`apps/testflight_ios`
+- 实现包：`packages/k478_practice`；输入包：`packages/core_midi_input`
+- 范围：iOS 13.0+、iPhone-only、固定莫扎特 K.478；首轮仅以直连 class-compliant USB 电子琴验收。
+- 电子琴自行发出钢琴声；App 只播放轨道 1/2/3 的弦乐伴奏。中提琴声部当前暂用小提琴音色。
+- 固定钢琴轨 4/5 用于跟随；没有通用选轨、钢琴卷帘、导入、自动翻页或 MusicXML 五线谱渲染承诺。
+- 乐谱是 21 页独立 PDF 预渲染页，可从首页或演奏台手动进入；不随播放同步。
 
-- **iOS USB MIDI 输入** — 使用 CoreMIDI 接收 class-compliant USB MIDI 电子琴的 Note On。
-- **分轨 MIDI 跟随** — 用户选择钢琴右、左手等演奏轨；App 在跟随期间静音这些轨，并调整其余伴奏轨的速度。
-- **K.478 首版入口** — 首页直接载入莫扎特 K.478 钢琴四重奏并进入 USB MIDI 演奏台；不暴露通用导入或曲库入口。
-- **K.478 候选演示曲目** — 离线钢琴分谱阅读与 MIDI 钢琴卷帘位置反馈；MIDI 与源 PDF 已和 Mutopia 原始包完成哈希比对。页面图已记录逐页哈希，但仍需补齐可复现渲染证据后才可分发，见 [`docs/evidence/k478_asset_evidence.md`](docs/evidence/k478_asset_evidence.md)。
-- **iPhone 真机验收** — USB 热插拔、跟随和长休止恢复必须在真实 iPhone 与电子琴上验证；模拟器只适合界面检查。
-
-## 当前不承诺
-
-- 麦克风识别、任意乐器跟随、错音/跳段/复调鲁棒跟随，或“AI 交响乐团”。
-- Android、蓝牙 MIDI、云曲库、教师功能、订阅、stem 混音或预渲染管弦乐音频。
-- 通用 PDF 识谱、手写谱识别、MusicXML 五线谱渲染、自动翻页或乐谱与播放进度同步。
-- 除 K.478 候选资产外的内置曲库内容；K.478 页面图在补齐可复现渲染证据前也不进入分发包。
-
-PDF OMR、麦克风输入和 MusicXML 解析代码仍保留在仓库中，供未来独立开发；它们不在当前首页、导航或 TestFlight 承诺中。
-
-## 🏗️ 技术栈
-
-| 技术 | 用途 |
-|------|------|
-| Flutter 3.44.1（CI 基线） | 应用框架 |
-| Cupertino Widgets | iOS 风格 UI |
-| flutter_midi_pro | iOS MIDI/SoundFont 播放引擎 |
-| dart_midi_pro | MIDI 文件解析 |
-| MusicXML 轻量解析器 | 实验性地转为播放数据，不等于五线谱渲染 |
-| iOS CoreMIDI | USB MIDI 设备发现和按键输入 |
-| Provider | 状态管理 |
-
-## 📁 项目结构
-
-```
-lib/
-├── main.dart                          # 入口
-├── app.dart                           # CupertinoApp 配置
-├── core/
-│   ├── midi/
-│   │   ├── midi_engine.dart           # SoundFont 引擎封装
-│   │   ├── midi_parser.dart           # MIDI 文件解析
-│   │   ├── midi_player.dart           # 播放控制器
-│   │   └── tempo_map.dart             # 速度映射
-│   ├── midi_input/
-│   │   ├── midi_input.dart             # MIDI 输入模型与接口
-│   │   └── ios_midi_input.dart         # CoreMIDI 平台通道适配
-│   ├── import/
-│   │   ├── musicxml_parser.dart       # MusicXML 转播放时间线
-│   │   └── score_import_service.dart  # MIDI/MusicXML/PDF 导入分流
-│   └── follow/
-│       ├── pitch_input.dart           # 音高输入抽象
-│       ├── microphone_input.dart      # 麦克风音频输入
-│       ├── onset_detector.dart        # 音符起始检测
-│       ├── follow_mode_controller.dart # 变速跟随状态机
-│       ├── midi_follow_mode_session.dart # USB MIDI 跟随会话
-│       ├── follow_mode_session.dart   # 旧麦克风跟随会话（当前 UI 不使用）
-│       └── follow_playback_target.dart # 跟随播放目标抽象
-├── models/
-│   └── midi_track.dart                # MIDI 轨道模型
-└── ui/
-    ├── pages/
-    │   ├── home_page.dart             # K.478 首版首页
-    │   ├── home_page_legacy.dart      # 保留的旧曲库/导入页面（未接入首版）
-    │   └── player_page.dart           # 播放器页面
-    └── theme/
-        └── luxury_theme.dart          # 黑金主题组件
-test/
-├── follow_mode_controller_test.dart
-├── follow_mode_session_test.dart
-├── microphone_input_test.dart
-├── midi_engine_test.dart
-├── midi_parse_test.dart
-├── midi_player_controller_test.dart
-├── midi_timeline_test.dart
-└── widget_test.dart
-assets/
-├── midi/
-    ├── mozart_k478_piano_quartet.mid # USB MIDI demo（钢琴四重奏）
-    └── Beethoven-Moonlight-Sonata.mid # 其他测试用 MIDI 文件
-└── scores/
-    ├── mozart_k478_piano_part.pdf # K.478 公版钢琴分谱源文件
-    └── mozart_k478_piano_part/    # 离线翻页使用的 PDF 页面图像
-docs/
-├── release_checklist.md               # 真机与试用发布验收清单
-├── product/                            # 当前范围、能力证据与策略
-└── evidence/                           # 资产准入台账
-```
-
-## 🚀 快速开始
-
-### 环境要求
-
-- Flutter 3.44.1（CI 使用版本）
-- Dart 3.11+
-- iOS 13.6+
-
-### 安装与运行
+候选本地门禁：
 
 ```bash
-# 克隆项目
-git clone https://github.com/LIAB-BB/midi_music.git
-cd midi_music
-
-# 安装依赖
+cd packages/core_midi_input
 flutter pub get
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze && flutter test
 
-# 运行（模拟器可检查 UI；USB MIDI 必须连接真机）
-flutter run
+cd ../k478_practice
+flutter pub get
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze && flutter test
+
+cd ../../apps/testflight_ios
+flutter pub get --enforce-lockfile
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze && flutter test
+# 构建由发布负责人显式执行：flutter build ios --release --no-codesign
 ```
 
-### 质量检查
+PDF 页面来源可复现验证：
 
 ```bash
+tool/verify_k478_score_pages.sh
+```
+
+无签名或签名构建完成后，审核实际二进制而不是只看源码：
+
+```bash
+tool/verify_testflight_ios_bundle.sh apps/testflight_ios/build/ios/iphoneos/Runner.app
+```
+
+该脚本不替代签名 Archive 的 Privacy Report 或 iPhone 真机验收。
+
+## 技术结构与保留能力索引
+
+候选使用 Flutter + Cupertino；`core_midi_input` 负责 iOS CoreMIDI 输入，`dart_midi_pro` 解析固定 MIDI，`flutter_midi_pro` 驱动 SoundFont，Provider 管理页面播放状态。
+
+```text
+apps/testflight_ios/       独立 iPhone 候选 host 与 iOS 原生配置
+packages/k478_practice/    K.478 UI、播放、Wait Mode 跟随与随包资产
+packages/core_midi_input/  CoreMIDI Dart/原生输入边界
+```
+
+根 Legacy host 仍保留 import、麦克风跟随、PDF OMR 协议和钢琴卷帘研发代码；它们不进入候选二进制。更详细的模块与风险快照见 [CLAUDE.md](CLAUDE.md)（若该文件有本地未提交改动，以工作区内容为准）。
+
+## Legacy host：根目录
+
+根目录 `lib/`、`test/`、Android/iOS host 保留旧曲库、导入、麦克风跟随、PDF OMR 协议与钢琴卷帘等研发代码。它不属于 K.478 候选二进制边界，也不应被 TestFlight 文案或截图暗示为候选能力。
+
+```bash
+flutter pub get
 flutter analyze
 flutter test
+flutter build apk --debug
 ```
 
-### 上线前验收
+根 host 的最低 iOS 版本为 13.6；候选 host 的最低 iOS 版本为 13.0。旧 host 的 TimGM 下载路径和其他 MIDI 不进入候选包。
 
-自动化测试通过不等于可以发布。交付封闭试用版前，还需要用 iPhone 和真实电子琴完成 USB MIDI 热插拔、轨道静音、播放控制、跟随和长休止恢复的人工验收；所有分发资产和音色库策略也必须通过核验。
+## 发布前仍需外部证据
 
-详见 [`docs/release_checklist.md`](docs/release_checklist.md)、[`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md) 与 [`docs/product/release_scope.md`](docs/product/release_scope.md)。
+- iPhone + 直连 USB 电子琴：连接、活动会话拔出/重插、跟随、长休止和听音。
+- 签名 Archive/IPA：资产、插件、Info.plist 与 Privacy Report 复核。
+- 两个 K.478 SF2：官方输入比对、授权通知复核与真机离线听音。
+- App 图标、截图和任何对外物料：逐项登记到资产台账；当前未登记即阻止 TestFlight。
+- 试用说明、反馈入口和 Go/No-Go 由负责人确认；本仓库不预设最终数字门槛。
 
-### 资源与音色库的当前状态
+## License
 
-仓库根开发 host 的默认运行路径仍会下载并缓存 TimGM6mb.sf2；它**不构成
-离线可用或可发布的保证**，也不进入本轮候选。独立候选
-`apps/testflight_ios` 改为随包加载 `packages/k478_practice` 中的 Violin 40
-与 Cello 42 单预设 SF2，已记录许可证、哈希、结构测试及 Apple sampler
-离线渲染证据；在官方输入比对、签名 IPA 检查和 iPhone 真机听音完成前，
-仍不能宣布音色库发布门槛已闭环。
-
-K.478 以外的内置 MIDI 不应被当作试用曲库或对外展示内容，除非先在资产台账中完成授权核验。标为“禁止分发”的资源必须从最终 Flutter asset manifest 和 IPA 中排除；仅隐藏首页入口不能消除分发风险。详细记录见 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md)。
-
-### 仅供开发的 PDF OMR 接口
-
-PDF OMR 不在当前封闭试用范围内。开发中如要调试协议，可通过 Dart define 配置受控服务：
-
-```bash
-flutter run --dart-define=OMR_SERVICE_BASE_URL=https://your-api.example.com
-```
-
-接口约定见 [`docs/omr_service_contract.md`](docs/omr_service_contract.md)。仓库中的 [`server/omr_service`](server/omr_service) 是无认证的开发骨架，不能直接公开部署。
-
-## 🎯 变速跟随模式
-
-变速跟随是本 App 的核心特色功能，让伴奏跟着演奏者的节奏走。
-
-### 工作原理
-
-```
-电子琴 USB MIDI Note On → 跟随状态机 → 实时调整伴奏速度
-```
-
-1. **CoreMidiInputPlugin** — 使用 iOS CoreMIDI 发现并连接输入源，解析通道消息
-2. **IosMidiInput** — 将原生事件转换为 Dart 的设备状态和 `MidiInputMessage`
-3. **FollowModeController** — 状态机（idle / following / waitingForOnset），默认精确匹配音符，并用 EMA 平滑速度因子
-4. **MidiFollowModeSession** — 串联 MIDI 输入、跟随控制器和播放器；开始时静音选中的电子琴声部组，退出时恢复原状态
-
-当前跟随是预期音符匹配与速度平滑，不保证处理错音、跳段、复调或任意 rubato。多轨同 MIDI 通道的限制见下文“多轨道共享 MIDI 通道”。
-
-### 使用方式
-
-1. 在播放器页面的轨道列表中，选择一个或多个由电子琴演奏的轨道；钢琴双手通常需要同时选择
-2. 将 class-compliant USB MIDI 电子琴直接连接到 iPhone，确认页面显示设备名
-3. 打开「跟随模式」开关；无需麦克风权限
-4. 开始演奏，伴奏会自动跟随你的节奏
-5. 关闭开关或点击停止按钮退出跟随模式
-
-## 🔧 技术架构细节
-
-### 多轨道共享 MIDI 通道
-
-许多古典音乐 MIDI 文件（如贝多芬月光奏鸣曲）会将多个轨道（右手、左手）分配到同一个 MIDI 通道（channel 0）。本 App 使用 `trackIndex` 保留逻辑轨道身份：
-
-- **TimelineEvent** 携带 `trackIndex` 字段标识事件所属轨道
-- **解析器** 在解析每个轨道时自动填入 `trackIndex`
-- **播放器** 按 `trackIndex`（而非 channel）判断静音并调整 NoteOn 力度
-
-该机制可以覆盖多数按轨道静音和音量调整场景，但底层合成器仍按
-`channel + note` 发声。多个轨道共享同一 channel/note 时，以及 Program
-Change、Control Change、Pitch Bend 等通道级状态发生冲突时，暂不保证轨道完全独立。
-
-### 播放引擎
-
-- 以约 5ms 周期轮询时间线，实际调度精度受平台、UI 和系统负载影响
-- TempoMap 支持多 tempo 变化（如月光奏鸣曲含 61 个 tempo 变化点）
-- 二分查找实现高效 seek 定位
-
-## 📄 License
-
-MIT
+MIT。第三方音乐、PDF、页面图和 SoundFont 的分发结论以 [资产台账](docs/evidence/asset_manifest.md) 为准，不因仓库许可证自动获得授权。

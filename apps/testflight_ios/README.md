@@ -7,8 +7,8 @@ OMR、麦克风输入、`permission_handler` 或旧的泛曲库入口。
 ## 当前发布范围
 
 - 一首内置曲目：莫扎特《钢琴四重奏 K.478》；
-- class-compliant USB CoreMIDI 输入；
-- 电子琴自行发钢琴声，App 只播放小提琴 I/II 与大提琴伴奏；
+- CoreMIDI 输入（首轮只以直连 class-compliant USB 电子琴验收）；
+- 电子琴自行发钢琴声，App 只播放小提琴 / 中提琴声部 / 大提琴伴奏；中提琴声部当前暂用小提琴音色；
 - 本地打包的 SF2，不在启动时下载音色；
 - 21 页钢琴声部 PDF 预渲染页。
 
@@ -24,6 +24,7 @@ flutter pub get
 flutter analyze
 flutter test
 flutter build ios --release --no-codesign
+../../tool/verify_testflight_ios_bundle.sh build/ios/iphoneos/Runner.app
 ```
 
 构建产物必须复核 `ios/Podfile.lock` 只包含 `core_midi_input` 与

@@ -21,6 +21,21 @@ void main() {
     expect(find.byType(InteractiveViewer), findsOneWidget);
   });
 
+  testWidgets('三倍文本缩放下候选首页仍可构建', (tester) async {
+    await tester.pumpWidget(
+      const K478PracticeApp(textScalerOverride: TextScaler.linear(3)),
+    );
+    await tester.pump();
+
+    // 导航栏标题会被 Cupertino 按系统规则限制缩放；验证首页正文确实
+    // 收到了三倍 Dynamic Type，而不是仅靠页面可构建来声称覆盖。
+    final displayTitle = find.text('钢琴四重奏\nK.478');
+    expect(displayTitle, findsOneWidget);
+    final textScaler = MediaQuery.textScalerOf(tester.element(displayTitle));
+    expect(textScaler.scale(10), 30);
+    expect(tester.takeException(), isNull);
+  });
+
   test('USB 状态随拔出和重连更新，不把会话存在误作已连接', () {
     final disconnected = midiConnectionPresentation(
       sessionActive: true,

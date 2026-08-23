@@ -16,21 +16,34 @@ const _scoreAssetPrefix = 'assets/scores/mozart_k478_piano_part/page';
 const _scorePageCount = 21;
 
 class K478PracticeApp extends StatelessWidget {
-  const K478PracticeApp({super.key});
+  /// 仅用于 widget 验证 App 内部的 Dynamic Type 布局；生产调用保持 null。
+  final TextScaler? textScalerOverride;
+
+  const K478PracticeApp({super.key, this.textScalerOverride});
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => K478PlayerController(),
-      child: const CupertinoApp(
+      child: CupertinoApp(
         title: 'K.478 排练',
         debugShowCheckedModeBanner: false,
-        theme: CupertinoThemeData(
+        theme: const CupertinoThemeData(
           brightness: Brightness.dark,
           primaryColor: _Palette.gold,
           scaffoldBackgroundColor: _Palette.background,
           barBackgroundColor: Color(0xE6090909),
         ),
+        builder: (context, child) {
+          final override = textScalerOverride;
+          if (override == null || child == null) {
+            return child ?? const SizedBox.shrink();
+          }
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(textScaler: override),
+            child: child,
+          );
+        },
         home: _HomePage(),
       ),
     );
@@ -67,7 +80,7 @@ class _HomePageState extends State<_HomePage> {
       );
       if (!mounted) return;
       final player = context.read<K478PlayerController>();
-      player.loadSong(song);
+      await player.loadSong(song);
       await player.prepareSoundfont();
       _loadError = null;
     } catch (error) {
@@ -83,14 +96,18 @@ class _HomePageState extends State<_HomePage> {
       navigationBar: CupertinoNavigationBar(
         border: null,
         middle: const Text('K.478 排练'),
-        trailing: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () => unawaited(
-            Navigator.of(context).push(
-              CupertinoPageRoute<void>(builder: (_) => const _NoticesPage()),
+        trailing: Semantics(
+          label: '第三方通知',
+          button: true,
+          child: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: () => unawaited(
+              Navigator.of(context).push(
+                CupertinoPageRoute<void>(builder: (_) => const _NoticesPage()),
+              ),
             ),
+            child: const Icon(CupertinoIcons.info_circle),
           ),
-          child: const Icon(CupertinoIcons.info_circle),
         ),
       ),
       child: _Backdrop(
@@ -162,12 +179,12 @@ class _HomeCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _Eyebrow('IOS · USB MIDI · TESTFLIGHT CANDIDATE'),
+          const _Eyebrow('iOS · CoreMIDI · TESTFLIGHT CANDIDATE'),
           const SizedBox(height: 16),
           const Text('钢琴四重奏\nK.478', style: _displayStyle),
           const SizedBox(height: 10),
           const Text(
-            '莫扎特 · 钢琴右手、左手与弦乐分轨\n首轮只验证一首内置曲目与 USB MIDI 跟随。',
+            '莫扎特 · 钢琴右手、左手与弦乐分轨\n首轮只验证一首内置曲目与 CoreMIDI 跟随。',
             style: _mutedStyle,
           ),
           const SizedBox(height: 22),
@@ -197,7 +214,7 @@ class _HomeCard extends StatelessWidget {
                   ? const CupertinoActivityIndicator(
                       color: CupertinoColors.black,
                     )
-                  : Text(ready ? '开始 USB MIDI 排练' : '重试准备离线音色'),
+                  : Text(ready ? '进入 MIDI 排练' : '重试准备离线音色'),
             ),
           ),
           const SizedBox(height: 10),
@@ -230,6 +247,7 @@ class _PracticePageState extends State<_PracticePage> {
   StreamSubscription<MidiInputState>? _stateSubscription;
   MidiInputState _inputState = const MidiInputState();
   String? _followError;
+  var _isStartingFollow = false;
 
   @override
   void dispose() {
@@ -243,25 +261,40 @@ class _PracticePageState extends State<_PracticePage> {
       if (mounted) setState(() {});
       return;
     }
+    if (_isStartingFollow) return;
     if (!player.isSoundfontReady) {
       await _showDialog('弦乐音色尚未准备好', '请回到首页重试准备离线音色。');
       return;
     }
 
+    setState(() => _isStartingFollow = true);
     final input = IosMidiInput();
     _stateSubscription = input.states.listen((state) {
       if (mounted) setState(() => _inputState = state);
     });
-    final session = K478MidiFollowSession(
+    late final K478MidiFollowSession session;
+    session = K478MidiFollowSession(
       player: player,
       performerTracks: player.performerTracks,
       input: input,
       config: const FollowModeConfig(),
     );
+    session.onStateChanged = (_) {
+      if (mounted && identical(_followSession, session)) setState(() {});
+    };
+    session.onTerminated = (terminatedSession, error) {
+      if (!mounted || !identical(_followSession, terminatedSession)) return;
+      unawaited(_handleTerminatedSession(terminatedSession, error));
+    };
     try {
       await session.start();
-      if (!mounted) {
+      if (!mounted || !session.isActive) {
         await session.dispose();
+        await _stateSubscription?.cancel();
+        _stateSubscription = null;
+        if (mounted) {
+          setState(() => _followError = 'MIDI 输入在启动过程中已中断；请检查连接后重试。');
+        }
         return;
       }
       setState(() {
@@ -273,6 +306,8 @@ class _PracticePageState extends State<_PracticePage> {
       await _stateSubscription?.cancel();
       _stateSubscription = null;
       if (mounted) setState(() => _followError = '$error');
+    } finally {
+      if (mounted) setState(() => _isStartingFollow = false);
     }
   }
 
@@ -282,6 +317,19 @@ class _PracticePageState extends State<_PracticePage> {
     await session?.dispose();
     await _stateSubscription?.cancel();
     _stateSubscription = null;
+  }
+
+  Future<void> _handleTerminatedSession(
+    K478MidiFollowSession session,
+    Object error,
+  ) async {
+    if (!identical(_followSession, session)) return;
+    _followSession = null;
+    await _stateSubscription?.cancel();
+    _stateSubscription = null;
+    if (mounted) {
+      setState(() => _followError = 'MIDI 输入已中断：$error。请重新开始跟随。');
+    }
   }
 
   Future<void> _showDialog(String title, String message) {
@@ -304,9 +352,22 @@ class _PracticePageState extends State<_PracticePage> {
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(
+      navigationBar: CupertinoNavigationBar(
         border: null,
-        middle: Text('K.478 演奏台'),
+        middle: const Text('K.478 演奏台'),
+        trailing: Semantics(
+          label: '查看乐谱',
+          button: true,
+          child: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: () => unawaited(
+              Navigator.of(context).push(
+                CupertinoPageRoute<void>(builder: (_) => const _ScorePage()),
+              ),
+            ),
+            child: const Text('乐谱'),
+          ),
+        ),
       ),
       child: _Backdrop(
         child: SafeArea(
@@ -331,6 +392,7 @@ class _PracticePageState extends State<_PracticePage> {
   }
 
   Widget _transportPanel(K478PlayerController player) {
+    final followActive = _followSession?.isActive ?? false;
     return _Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -349,29 +411,42 @@ class _PracticePageState extends State<_PracticePage> {
               ),
             ],
           ),
-          CupertinoSlider(
-            value: player.progress,
-            onChanged: player.totalDuration == 0
-                ? null
-                : (value) => player.seekTo(value * player.totalDuration),
+          Semantics(
+            label: '播放位置',
+            child: CupertinoSlider(
+              value: player.progress,
+              onChanged: followActive || player.totalDuration == 0
+                  ? null
+                  : (value) =>
+                        unawaited(player.seekTo(value * player.totalDuration)),
+            ),
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               _RoundControl(
                 icon: CupertinoIcons.stop_fill,
-                onPressed: player.stop,
+                onPressed: followActive ? null : () => unawaited(player.stop()),
+                semanticLabel: '停止伴奏',
               ),
               _RoundControl(
                 icon: player.isPlaying
                     ? CupertinoIcons.pause_fill
                     : CupertinoIcons.play_fill,
                 emphasized: true,
-                onPressed: player.isPlaying ? player.pause : player.play,
+                onPressed: followActive
+                    ? null
+                    : () => unawaited(
+                        player.isPlaying ? player.pause() : player.play(),
+                      ),
+                semanticLabel: player.isPlaying ? '暂停伴奏' : '播放伴奏',
               ),
               _RoundControl(
                 icon: CupertinoIcons.backward_end_fill,
-                onPressed: () => player.seekTo(0),
+                onPressed: followActive
+                    ? null
+                    : () => unawaited(player.seekTo(0)),
+                semanticLabel: '回到开头',
               ),
             ],
           ),
@@ -392,7 +467,7 @@ class _PracticePageState extends State<_PracticePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _Eyebrow('USB MIDI 输入'),
+          const _Eyebrow('COREMIDI 输入'),
           const SizedBox(height: 12),
           _StatusRow(
             icon: connection.healthy
@@ -405,15 +480,21 @@ class _PracticePageState extends State<_PracticePage> {
           SizedBox(
             width: double.infinity,
             child: CupertinoButton.filled(
-              onPressed: () => unawaited(_toggleFollow(player)),
+              onPressed: _isStartingFollow
+                  ? null
+                  : () => unawaited(_toggleFollow(player)),
               child: Text(
-                session == null ? '开始 USB MIDI 跟随' : '停止 USB MIDI 跟随',
+                _isStartingFollow
+                    ? '正在启动 MIDI 跟随'
+                    : session == null
+                    ? '开始 MIDI 跟随'
+                    : '停止 MIDI 跟随',
               ),
             ),
           ),
           const SizedBox(height: 10),
           const Text(
-            '开始后，首个 MIDI Note On 才启动弦乐。App 不接收或播放钢琴声部音频。',
+            '首轮验收使用直连 USB 电子琴；首个正确起拍才启动弦乐。App 不接收或播放钢琴声部音频。',
             style: _smallMutedStyle,
           ),
           if (_followError != null) ...[
@@ -438,21 +519,30 @@ class _PracticePageState extends State<_PracticePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('小提琴 I / II · 大提琴'),
+                    Text('小提琴 / 中提琴声部 / 大提琴'),
                     SizedBox(height: 3),
-                    Text('钢琴两轨永久留给电子琴。', style: _smallMutedStyle),
+                    Text(
+                      '中提琴声部当前暂用小提琴音色；钢琴两轨永久留给电子琴。',
+                      style: _smallMutedStyle,
+                    ),
                   ],
                 ),
               ),
-              CupertinoSwitch(
-                value: player.stringsEnabled,
-                onChanged: player.setStringsEnabled,
+              Semantics(
+                label: '弦乐伴奏开关',
+                child: CupertinoSwitch(
+                  value: player.stringsEnabled,
+                  onChanged: player.setStringsEnabled,
+                ),
               ),
             ],
           ),
-          CupertinoSlider(
-            value: player.stringsVolume,
-            onChanged: player.setStringsVolume,
+          Semantics(
+            label: '弦乐伴奏音量',
+            child: CupertinoSlider(
+              value: player.stringsVolume,
+              onChanged: player.setStringsVolume,
+            ),
           ),
           Text(
             '伴奏音量 ${(player.stringsVolume * 100).round()}%',
@@ -465,6 +555,7 @@ class _PracticePageState extends State<_PracticePage> {
 
   Widget _speedPanel(K478PlayerController player) {
     const speeds = [0.5, 0.75, 1.0, 1.25];
+    final followActive = _followSession?.isActive ?? false;
     return _Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -477,19 +568,25 @@ class _PracticePageState extends State<_PracticePage> {
             children: speeds
                 .map((speed) {
                   final selected = (player.playbackSpeed - speed).abs() < 0.01;
-                  return CupertinoButton(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    color: selected ? _Palette.gold : _Palette.raised,
-                    onPressed: () => player.setSpeed(speed),
-                    child: Text(
-                      '${speed.toStringAsFixed(speed == 1 ? 0 : 2)}×',
-                      style: TextStyle(
-                        color: selected
-                            ? CupertinoColors.black
-                            : _Palette.primary,
+                  return Semantics(
+                    button: true,
+                    label: '速度 ${speed.toStringAsFixed(speed == 1 ? 0 : 2)} 倍',
+                    child: CupertinoButton(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      color: selected ? _Palette.gold : _Palette.raised,
+                      onPressed: followActive
+                          ? null
+                          : () => player.setSpeed(speed),
+                      child: Text(
+                        '${speed.toStringAsFixed(speed == 1 ? 0 : 2)}×',
+                        style: TextStyle(
+                          color: selected
+                              ? CupertinoColors.black
+                              : _Palette.primary,
+                        ),
                       ),
                     ),
                   );
@@ -529,18 +626,21 @@ class _ScorePageState extends State<_ScorePage> {
       child: ColoredBox(
         color: const Color(0xFFF2EEE5),
         child: SafeArea(
-          child: PageView.builder(
-            controller: _controller,
-            itemCount: _scorePageCount,
-            onPageChanged: (index) => setState(() => _currentPage = index),
-            itemBuilder: (context, index) => InteractiveViewer(
-              minScale: 0.8,
-              maxScale: 3,
-              child: Center(
-                child: Image.asset(
-                  '$_scoreAssetPrefix-${(index + 1).toString().padLeft(2, '0')}.png',
-                  package: 'k478_practice',
-                  fit: BoxFit.contain,
+          child: Semantics(
+            label: '第${_currentPage + 1}页，共$_scorePageCount页',
+            child: PageView.builder(
+              controller: _controller,
+              itemCount: _scorePageCount,
+              onPageChanged: (index) => setState(() => _currentPage = index),
+              itemBuilder: (context, index) => InteractiveViewer(
+                minScale: 0.8,
+                maxScale: 3,
+                child: Center(
+                  child: Image.asset(
+                    '$_scoreAssetPrefix-${(index + 1).toString().padLeft(2, '0')}.png',
+                    package: 'k478_practice',
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
             ),
@@ -591,32 +691,38 @@ class _NoticesPage extends StatelessWidget {
 
 class _RoundControl extends StatelessWidget {
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final bool emphasized;
+  final String semanticLabel;
 
   const _RoundControl({
     required this.icon,
     required this.onPressed,
+    required this.semanticLabel,
     this.emphasized = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: onPressed,
-      child: Container(
-        width: emphasized ? 58 : 46,
-        height: emphasized ? 58 : 46,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: emphasized ? _Palette.gold : _Palette.raised,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          icon,
-          color: emphasized ? CupertinoColors.black : _Palette.primary,
-          size: emphasized ? 24 : 18,
+    return Semantics(
+      label: semanticLabel,
+      button: true,
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: onPressed,
+        child: Container(
+          width: emphasized ? 58 : 46,
+          height: emphasized ? 58 : 46,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: emphasized ? _Palette.gold : _Palette.raised,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            color: emphasized ? CupertinoColors.black : _Palette.primary,
+            size: emphasized ? 24 : 18,
+          ),
         ),
       ),
     );
@@ -748,7 +854,7 @@ String _followStateLabel(FollowModeState state) => switch (state) {
   required FollowModeState followState,
 }) {
   if (!sessionActive) {
-    return (label: '尚未开始 USB MIDI 跟随', healthy: false);
+    return (label: '尚未开始 MIDI 跟随', healthy: false);
   }
   if (!isConnected) {
     return (label: 'CoreMIDI · 未检测到设备', healthy: false);

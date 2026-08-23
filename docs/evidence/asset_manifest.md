@@ -11,7 +11,7 @@
 | 资源 | 路径/用途 | 当前状态 | 已知来源与限制 | 进入试用版前的动作 |
 | --- | --- | --- | --- | --- |
 | Mozart K.478 MIDI | `assets/midi/mozart_k478_piano_quartet.mid` | 已核验 | 与 Mutopia `k478-score.mid` 的 SHA-256 一致；来源页标注 Public Domain。 | 随包前保持哈希不变；替换文件或扩展分发范围时重新核验。 |
-| Mozart K.478 钢琴分谱页面图 | `assets/scores/mozart_k478_piano_part/page-*.png` | 待核验 | 已记录 21 张本地页面图的逐页 SHA-256，且源 PDF 与 Mutopia 原始文件一致；但尚未保存页面图的渲染命令、工具版本与可复现来源记录。 | 先从已核验 PDF 重现页面渲染并记录命令/工具版本，再准入随包分发。 |
+| Mozart K.478 钢琴分谱页面图 | `assets/scores/mozart_k478_piano_part/page-*.png` | 已核验 | 已核验 PDF 用 Poppler `pdftoppm 26.05.0` 的 `-r 180 -png` 复现，21 页与随包 PNG 逐字节一致；脚本见 `tool/verify_k478_score_pages.sh`。 | 文件替换、重编码或渲染参数变化时重新核验。 |
 | Mozart K.478 原始 PDF | `assets/scores/mozart_k478_piano_part.pdf` | 已核验，不随包 | 与 Mutopia `k478-piano-a4.pdf` 的 SHA-256 一致；仅用于追溯页面图来源。 | 不加入 Flutter manifest；如改为应用内 PDF 读取，再确认实际分发清单。 |
 | 其余内置 MIDI | `assets/midi/` 中其他文件 | 禁止分发 | 当前仓内无充分来源/商业授权证据。 | 逐首获得许可或替换为可复核来源后再恢复入口。 |
 | TimGM6mb SF2 | `assets/soundfonts/TimGM6mb.sf2` | 禁止分发 | 随包文件没有完整许可/版本/校验和记录，且默认运行路径未使用它。 | 决定随包或下载策略；记录来源、许可证、SHA-256、署名和完整性校验。 |
@@ -39,3 +39,5 @@
 4. 发生文件替换、重新编码、裁剪、拼接或改变分发渠道时，重新审核记录。
 
 K.478 的来源页、原始包与 SHA-256 比对记录见 [`k478_asset_evidence.md`](k478_asset_evidence.md)。
+
+候选 `Runner.app` 的 `packages/k478_practice/assets` 子树采用精确白名单：仅允许本表登记的 K.478 MIDI、21 张页面 PNG、Violin/Cello 两个 SF2 与 `legal/third_party_notices.txt`。`tool/verify_testflight_ios_bundle.sh` 会拒绝该子树内任何额外文件；Flutter 自带 manifest、shader 等运行时资源不属于此子树。
