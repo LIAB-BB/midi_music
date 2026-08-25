@@ -4,6 +4,48 @@
 
 自动化、真机、签名 IPA 是三条不同证据链；任一未完成都不能写成“已发布”。建议将本次记录填入 [release dossier 模板](releases/k478_release_dossier_template.md)。
 
+## 双机真机装机（开发签名，先于 TestFlight）
+
+目标：两台 iPhone 都脱离 Mac 数据线，各自直连电子琴完成 S1–S7。当前候选 Team 为 `XV6N683H3X`（`com.liab.k478Testflight`），Automatic Signing。
+
+### 装机前（每台手机各做一次）
+
+1. iPhone 与 Mac 同一 Wi‑Fi；首次仍建议 **USB 连一次** 完成“信任此电脑”。
+2. iPhone：设置 → 隐私与安全性 → 开发者模式 → 打开（若系统要求）。
+3. Xcode → Window → Devices and Simulators：确认设备出现；勾选 **Connect via network**（无线调试）。
+4. 该 Apple ID / Team 下把两台设备 UDID 加进开发设备列表（Automatic 首次 Run 时常会自动注册；失败则到 developer.apple.com 手动加）。
+5. 本机已有 Development 证书即可；无需先上 TestFlight。
+
+### 安装命令（候选 host）
+
+```bash
+cd apps/testflight_ios
+flutter pub get --enforce-lockfile
+# 查看设备 ID（含 wireless）
+flutter devices
+# 装到指定真机（示例：把 <device_id> 换成 flutter devices 里的 ID）
+flutter run --release -d <device_id>
+```
+
+装成功后：**拔掉 Mac 线**（若仍插着），只保留电子琴 USB 通路，再跑下面 S5–S7。
+
+### 双机记录表（必填）
+
+| 项 | 手机 A（负责人） | 手机 B（协作者） |
+| --- | --- | --- |
+| 机型 / iOS | | |
+| 设备 ID（`flutter devices`） | | |
+| 接线：无线调试 / 直连琴的转接头 | | |
+| 电子琴型号 | | |
+| 构建 commit | | |
+| S1 听音 | 待测 | 待测 |
+| S5 连接与拔插 | 待测 | 待测 |
+| S6 跟随启停与首音 | 待测 | 待测 |
+| S7 钢琴休止弦乐连续 | 待测 | 待测 |
+| 阻塞问题 | | |
+
+两台都未完成 S5–S7 前，不把单机结果写成“真机已通过”。
+
 ## 预检
 
 ```bash
