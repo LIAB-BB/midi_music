@@ -139,14 +139,17 @@ class MidiFollowModeSession {
         _started = false;
         _speedFactor = 1.0;
         unawaited(_playbackTarget.setSpeed(1.0));
+        break;
       case FollowModeState.following:
         if (!_playbackTarget.isPlaying) {
           unawaited(_playbackTarget.play());
         }
+        break;
       case FollowModeState.waitingForOnset:
         if (_playbackTarget.isPlaying) {
           unawaited(_playbackTarget.pause());
         }
+        break;
     }
     onStateChanged?.call(state);
   }

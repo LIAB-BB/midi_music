@@ -167,7 +167,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       navigationBar: CupertinoNavigationBar(
         border: null,
         backgroundColor: const Color(0xFFF5EBD7).withValues(alpha: 0.92),
-        previousPageTitle: '乐库',
+        previousPageTitle: 'K.478',
         middle: Text(
           score.title,
           maxLines: 1,
@@ -408,7 +408,7 @@ class _ScoreDocumentView extends StatelessWidget {
                   child: PdfScoreViewer(
                     pageAssetPrefix: score.pdfPageAssetPrefix!,
                     pageCount: score.pdfPageCount!,
-                    label: '公版 PDF 钢琴分谱',
+                    label: 'K.478 钢琴分谱',
                   ),
                 )
               : AspectRatio(

@@ -1,0 +1,28 @@
+PODS:
+  - core_midi_input (0.1.0):
+    - Flutter
+  - Flutter (1.0.0)
+  - flutter_midi_pro (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - core_midi_input (from `.symlinks/plugins/core_midi_input/ios`)
+  - Flutter (from `Flutter`)
+  - flutter_midi_pro (from `.symlinks/plugins/flutter_midi_pro/ios`)
+
+EXTERNAL SOURCES:
+  core_midi_input:
+    :path: ".symlinks/plugins/core_midi_input/ios"
+  Flutter:
+    :path: Flutter
+  flutter_midi_pro:
+    :path: ".symlinks/plugins/flutter_midi_pro/ios"
+
+SPEC CHECKSUMS:
+  core_midi_input: 693aab0592f8887f8f083c9af6dcf1d280eab425
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  flutter_midi_pro: 3907e27a81681f2c9bdc28c3e771734ad41128d6
+
+PODFILE CHECKSUM: 9df471bcc75ea5ea5f2730d534a2056311f21b2d
+
+COCOAPODS: 1.16.2

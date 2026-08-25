@@ -181,6 +181,8 @@ flutter test
 - `chopin_nocturne.mid` — 肖邦夜曲（Format 1，14 tracks，PPQ=384）
 - `beethoven_moonlight_2.mid` — 贝多芬月光第二乐章（Format 1，11 tracks，PPQ=96）
 
+> ⚠️ **版权状态（2026-08-03）**：6 首中仅 K.478（Mutopia CC0）可确认商用；巴赫 BWV 846 为 Benjamin Robert Tubb 个人版权（许可待确认），其余 4 首来源不明。上架前必须逐首核查/替换，许可清单见 `docs/launch_roadmap.md` §4。
+
 ### Assets (`assets/scores/`)
 - `mozart_k478_piano_part.pdf` 与 `mozart_k478_piano_part/page-01.png` 至 `page-21.png` — K.478 同源公版钢琴分谱及其离线页面渲染；来源、许可和使用边界见 `docs/demo_assets.md`
 

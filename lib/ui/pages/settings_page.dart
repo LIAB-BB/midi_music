@@ -270,7 +270,7 @@ class _MidiInputCard extends StatelessWidget {
           _SectionHeading(label: 'MIDI INPUT', title: '电子琴输入'),
           SizedBox(height: 12),
           Text(
-            '当前 demo 仅使用 iOS USB MIDI。电子琴自行发声，App 接收按键并播放其余伴奏，不采集麦克风音频。',
+            '当前 demo 仅验证 iOS USB MIDI。电子琴自行发声，App 通过 CoreMIDI 接收按键并推进跟随进度，不采集麦克风音频。',
             style: TextStyle(
               fontSize: 14,
               height: 1.5,

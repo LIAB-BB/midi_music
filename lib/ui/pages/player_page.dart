@@ -30,11 +30,11 @@ class PlayerPage extends StatelessWidget {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         border: null,
-        previousPageTitle: '乐库',
+        previousPageTitle: 'K.478',
         middle: Consumer<MidiPlayerController>(
           builder: (_, player, _) => Text(
             player.songData == null
-                ? 'Nocturne Stage'
+                ? 'K.478 演奏台'
                 : displaySongTitle(player.songData!.fileName),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -90,12 +90,12 @@ class _EmptyStage extends StatelessWidget {
               const SectionEyebrow(label: 'NO SCORE LOADED'),
               const SizedBox(height: 18),
               Text(
-                '先导入 MIDI 或 MusicXML 乐谱。',
+                '先从 K.478 首页进入排练。',
                 style: luxuryDisplayStyle(context, size: 30),
               ),
               const SizedBox(height: 10),
               const Text(
-                '当前没有可播放曲目。',
+                '本试用版不提供通用曲目导入。',
                 style: TextStyle(
                   fontSize: 14,
                   height: 1.45,
@@ -152,7 +152,7 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
 
   Future<void> _stopAfterMidiDisconnect() async {
     await _stopFollowMode();
-    _showTransientError('USB MIDI 已断开，跟随模式已停止。');
+    _showTransientError('MIDI 输入已断开，跟随模式已停止。');
   }
 
   Future<void> _initializeMidiInput() async {
@@ -163,7 +163,7 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _midiInputState = MidiInputState(
-            errorMessage: 'USB MIDI 初始化失败：$error',
+            errorMessage: 'CoreMIDI 初始化失败：$error',
           );
         });
       }
@@ -252,7 +252,7 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
     final player = widget.player;
     final song = player.songData;
     if (song == null) {
-      _showAlert('请先导入乐谱', '请先加载 MIDI 乐谱。');
+      _showAlert('请先载入 K.478', '请从首页进入内置 K.478 演奏台。');
       return false;
     }
     if (!player.isSoundfontReady) {
