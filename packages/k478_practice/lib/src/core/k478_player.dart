@@ -164,7 +164,12 @@ class K478PlayerController extends ChangeNotifier {
     if (notify) _notifyListeners();
   }
 
-  Future<void> seekTo(double seconds) {
+  /// 将时间线定位到 [seconds]。
+  ///
+  /// 默认跳过目标时刻已经发生的事件，符合手动 seek 的通常语义。经人工
+  /// 批准的 Wait Mode 重入可传入 [includeEventsAtTarget]，以便重新发出
+  /// 恰好落在重入时刻的伴奏 Note On。
+  Future<void> seekTo(double seconds, {bool includeEventsAtTarget = false}) {
     if (_disposed) return Future<void>.value();
     _cancelScheduledPause();
     return _enqueueTransport(() async {
@@ -174,7 +179,7 @@ class K478PlayerController extends ChangeNotifier {
       await _silenceActiveNotes();
       if (_disposed) return;
       _currentTime = seconds.clamp(0, totalDuration);
-      _updateEventIndex();
+      _updateEventIndex(includeEventsAtTarget: includeEventsAtTarget);
       await _restoreChannelStateAtCurrentPosition();
       if (_disposed) return;
       if (wasPlaying) _startTicker();
@@ -183,12 +188,12 @@ class K478PlayerController extends ChangeNotifier {
   }
 
   /// 请求播放器在谱面边界暂停；用于长休止，不能在匹配上一音时立即静音。
-  Future<void> pauseAt(double scoreTime) {
+  Future<void> pauseAt(double scoreTime, {bool Function()? isCancelled}) {
     if (_disposed) return Future<void>.value();
     final boundaryReached = Completer<void>();
     final scheduled = _enqueueTransport(() async {
-      if (_disposed) {
-        boundaryReached.complete();
+      if (_disposed || (isCancelled?.call() ?? false)) {
+        if (!boundaryReached.isCompleted) boundaryReached.complete();
         return;
       }
       _cancelScheduledPause();
@@ -199,7 +204,16 @@ class K478PlayerController extends ChangeNotifier {
         if (_disposed) return;
       }
     });
-    return scheduled.then((_) => boundaryReached.future);
+    return scheduled.then((_) {
+      // 当 pauseAt 在前序 transport 后排队、而播放器已经释放时，
+      // _enqueueTransport 会跳过 operation。此时仍须完成对外 Future，
+      // 否则 Session dispose 会永久等待一个没有机会注册的边界。
+      if (!boundaryReached.isCompleted &&
+          (_disposed || (isCancelled?.call() ?? false))) {
+        boundaryReached.complete();
+      }
+      return boundaryReached.future;
+    });
   }
 
   void setSpeed(double speed) {
@@ -442,14 +456,16 @@ class K478PlayerController extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  void _updateEventIndex() {
+  void _updateEventIndex({required bool includeEventsAtTarget}) {
     final song = _song;
     if (song == null) return;
     var low = 0;
     var high = song.timeline.length;
     while (low < high) {
       final middle = (low + high) ~/ 2;
-      if (song.timeline[middle].time <= _currentTime) {
+      final eventTime = song.timeline[middle].time;
+      if (eventTime < _currentTime ||
+          (!includeEventsAtTarget && eventTime == _currentTime)) {
         low = middle + 1;
       } else {
         high = middle;

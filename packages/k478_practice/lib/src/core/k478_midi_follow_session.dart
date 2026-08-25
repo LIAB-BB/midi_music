@@ -27,6 +27,8 @@ class K478MidiFollowSession {
   FollowModeState _state = FollowModeState.idle;
   double _speedFactor = 1;
   double _speedBeforeStart = 1;
+  Future<void> _commandTail = Future<void>.value();
+  int _commandGeneration = 0;
 
   FollowSessionStateCallback? onStateChanged;
   FollowSessionTerminatedCallback? onTerminated;
@@ -114,6 +116,7 @@ class K478MidiFollowSession {
     if (disposing != null) return disposing;
     if (_disposed) return Future<void>.value();
     _disposed = true;
+    _commandGeneration++;
     _started = false;
     _followController.stop(notifyCallbacks: false);
     _followController.onSpeedChanged = null;
@@ -132,8 +135,11 @@ class K478MidiFollowSession {
     if (starting != null) {
       await starting.catchError((Object _) {});
     }
-    _player.setSpeed(_speedBeforeStart);
+    // 先请求停止，取消已经注册的 pauseAt；再等待本 Session 的命令尾部。
+    // 若反过来等待，队尾可能正等待一个未来休止边界而导致退出卡住。
     await _player.stop();
+    await _commandTail.catchError((Object _) {});
+    _player.setSpeed(_speedBeforeStart);
     await _input.dispose();
     _setState(FollowModeState.idle);
     _speedFactor = 1;
@@ -165,41 +171,70 @@ class K478MidiFollowSession {
 
   void _handleMatch(FollowMatch match) {
     if (_disposed || _terminating) return;
-    unawaited(_applyMatch(match));
+    _enqueuePlayerCommand((generation) => _applyMatch(match, generation));
   }
 
-  Future<void> _applyMatch(FollowMatch match) async {
-    if (_disposed || _terminating) return;
+  Future<void> _applyMatch(FollowMatch match, int generation) async {
+    if (_isCommandCancelled(generation)) return;
     if (match.resumesFromRest) {
-      await _player.seekTo(match.scoreTime);
-      if (_disposed || _terminating) return;
+      await _player.seekTo(match.scoreTime, includeEventsAtTarget: true);
+      if (_isCommandCancelled(generation)) return;
       await _player.play();
-      if (_disposed || _terminating) return;
+      if (_isCommandCancelled(generation)) return;
     } else if (match.isInitialMatch) {
       await _player.play();
-      if (_disposed || _terminating) return;
+      if (_isCommandCancelled(generation)) return;
     }
     final rest = match.followingRest;
     if (rest != null) {
-      await _player.pauseAt(rest.restStartScoreTime);
-      if (_disposed || _terminating) return;
+      await _player.pauseAt(
+        rest.restStartScoreTime,
+        isCancelled: () => _isCommandCancelled(generation),
+      );
+      if (_isCommandCancelled(generation)) return;
       _followController.markRestBoundaryReached(rest);
     }
   }
 
   void _handleRealignmentRequested(FollowRealignmentRequest request) {
     if (_disposed || _terminating) return;
-    // 保持 controller 的期望 onset 和播放器的谱面时间一致；seek 会在原有
-    // 播放状态下恢复，等待长休止时不会被此路径触发。
-    unawaited(_player.seekTo(request.scoreTime));
+    _enqueuePlayerCommand((generation) async {
+      // 保持 controller 的期望 onset 和播放器的谱面时间一致；所有 Session
+      // 命令共用同一队列，不能越过未完成的 play、pauseAt 或前一次 seek。
+      await _player.seekTo(request.scoreTime);
+      if (_isCommandCancelled(generation)) return;
+    });
   }
 
   void _handleRuntimeError(Object error, StackTrace? stackTrace) {
     if (_disposed || _terminating) return;
     _terminating = true;
+    _commandGeneration++;
     _started = false;
     unawaited(_terminateAfterInputError(error));
   }
+
+  void _enqueuePlayerCommand(Future<void> Function(int generation) operation) {
+    final generation = _commandGeneration;
+    final next = _commandTail.catchError((Object _) {}).then<void>((_) async {
+      if (_isCommandCancelled(generation)) return;
+      await operation(generation);
+    });
+    unawaited(
+      next.then<void>(
+        (_) {},
+        onError: (Object error, StackTrace stackTrace) {
+          if (!_isCommandCancelled(generation)) {
+            _handleRuntimeError(error, stackTrace);
+          }
+        },
+      ),
+    );
+    _commandTail = next.catchError((Object _) {});
+  }
+
+  bool _isCommandCancelled(int generation) =>
+      _disposed || _terminating || generation != _commandGeneration;
 
   Future<void> _terminateAfterInputError(Object error) async {
     await dispose();

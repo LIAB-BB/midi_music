@@ -16,6 +16,7 @@
 | 其余内置 MIDI | `assets/midi/` 中其他文件 | 禁止分发 | 当前仓内无充分来源/商业授权证据。 | 逐首获得许可或替换为可复核来源后再恢复入口。 |
 | TimGM6mb SF2 | `assets/soundfonts/TimGM6mb.sf2` | 禁止分发 | 随包文件没有完整许可/版本/校验和记录，且默认运行路径未使用它。 | 决定随包或下载策略；记录来源、许可证、SHA-256、署名和完整性校验。 |
 | K.478 Violin / Cello SF2 | `packages/k478_practice/assets/soundfonts/k478_{violin,cello}.sf2` | 待核验 | MuseScore_General 0.2 的 bank 0 Program 40/42 子集；MIT 授权通知、输入与输出哈希、无界面转换链、preset 测试和 Apple sampler 离线渲染均已记录。官方 OSUOSL 归档存在同版本文件，但输入 SF3 的全量字节比对与 iPhone 真机发声尚未完成。 | 完成官方输入比对；在签名 Archive/IPA 中复核哈希与授权通知；iPhone 离线加载并分别听音后再改为“已核验”。 |
+| Cupertino Icons 字体 | `packages/cupertino_icons/assets/CupertinoIcons.ttf` | 待核验 | `cupertino_icons 1.0.9` 声明 MIT（Copyright © 2016 Vladimir Kharlampidi）；候选 UI 使用 `CupertinoIcons`，必须实际随包且在第三方通知中保留许可文本。 | 在 lockfile、签名 Archive/IPA 与 `FontManifest.json` 中复核版本和字体路径；变更版本时重新审计许可。 |
 | App 图标、字体、截图、宣传音频 | 待补充 | 待核验 | 未形成清单。 | 在 TestFlight 前逐项登记。 |
 
 ## 新资产记录模板
@@ -40,4 +41,4 @@
 
 K.478 的来源页、原始包与 SHA-256 比对记录见 [`k478_asset_evidence.md`](k478_asset_evidence.md)。
 
-候选 `Runner.app` 的 `packages/k478_practice/assets` 子树采用精确白名单：仅允许本表登记的 K.478 MIDI、21 张页面 PNG、Violin/Cello 两个 SF2 与 `legal/third_party_notices.txt`。`tool/verify_testflight_ios_bundle.sh` 会拒绝该子树内任何额外文件；Flutter 自带 manifest、shader 等运行时资源不属于此子树。
+候选 `Runner.app` 的 `packages/k478_practice/assets` 子树采用精确白名单：仅允许本表登记的 K.478 MIDI、21 张页面 PNG、Violin/Cello 两个 SF2 与 `legal/third_party_notices.txt`。审计同时要求已登记的 `cupertino_icons` 字体出现在 `FontManifest.json`，拒绝 host 级 `flutter_assets/assets` 与未知 package 资产目录；Flutter 自带 manifest、shader 等运行时资源不属于这些自定义资产目录。

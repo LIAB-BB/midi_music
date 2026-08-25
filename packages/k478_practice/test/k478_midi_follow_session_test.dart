@@ -11,6 +11,7 @@ import 'package:k478_practice/src/models/midi_track.dart';
 class _ReadyEngine implements MidiPlaybackEngine {
   Completer<void>? allNotesOffGate;
   Completer<void>? allNotesOffStarted;
+  final List<int> noteOns = [];
 
   @override
   bool get isReady => true;
@@ -44,7 +45,9 @@ class _ReadyEngine implements MidiPlaybackEngine {
     required int channel,
     required int note,
     required int velocity,
-  }) async {}
+  }) async {
+    noteOns.add(note);
+  }
 
   @override
   Future<void> setInstrument({
@@ -285,14 +288,25 @@ void main() {
   });
 
   test('长休止在边界暂停，错误重入不恢复，正确重入 seek 后播放', () async {
-    final player = K478PlayerController(engine: _ReadyEngine());
+    final engine = _ReadyEngine();
+    final player = K478PlayerController(engine: engine);
     await player.loadSong(
       MidiSongData(
         fileName: 'k478.mid',
         format: 1,
         ticksPerBeat: 480,
         tracks: const [],
-        timeline: const [],
+        timeline: [
+          TimelineEvent(
+            type: MidiEventType.noteOn,
+            tick: 240,
+            time: 0.2,
+            channel: 0,
+            trackIndex: 1,
+            data1: 67,
+            data2: 100,
+          ),
+        ],
         tempoChanges: [TempoChange(tick: 0, microsecondsPerBeat: 500000)],
         timeSignatureChanges: const [],
         totalTicks: 480,
@@ -328,7 +342,10 @@ void main() {
         ),
       ],
       input: input,
-      config: const FollowModeConfig(restThresholdSeconds: 0.05),
+      config: const FollowModeConfig(
+        restThresholdSeconds: 0.05,
+        approvedWaitReentryTicks: {240},
+      ),
     );
     await session.start();
     final at = DateTime(2026, 8, 23, 12);
@@ -355,6 +372,7 @@ void main() {
     expect(session.state, FollowModeState.following);
     expect(player.state, PlaybackState.playing);
     expect(player.currentTime, greaterThanOrEqualTo(0.2));
+    expect(engine.noteOns, contains(67));
     await session.dispose();
     player.dispose();
   });
@@ -404,7 +422,10 @@ void main() {
         ),
       ],
       input: input,
-      config: const FollowModeConfig(restThresholdSeconds: 0.05),
+      config: const FollowModeConfig(
+        restThresholdSeconds: 0.05,
+        approvedWaitReentryTicks: {120},
+      ),
     );
     await session.start();
     engine.allNotesOffGate = Completer<void>();

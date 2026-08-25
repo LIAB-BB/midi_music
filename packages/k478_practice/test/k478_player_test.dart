@@ -503,6 +503,85 @@ void main() {
     player.dispose();
   });
 
+  test('dispose 会完成尚未执行的 pauseAt Future', () async {
+    final engine = _FakeEngine()..disposedCompleted = Completer<void>();
+    final player = K478PlayerController(engine: engine);
+    await player.loadSong(
+      MidiSongData(
+        fileName: 'k478.mid',
+        format: 1,
+        ticksPerBeat: 480,
+        tracks: const [],
+        timeline: const [],
+        tempoChanges: [TempoChange(tick: 0, microsecondsPerBeat: 500000)],
+        timeSignatureChanges: const [],
+        totalTicks: 480,
+        totalDuration: 0.2,
+      ),
+    );
+    await player.play();
+
+    engine
+      ..allNotesOffGate = Completer<void>()
+      ..allNotesOffStarted = Completer<void>();
+
+    final pausing = player.pause();
+    await engine.allNotesOffStarted!.future;
+    final boundary = player.pauseAt(0.1);
+    player.dispose();
+
+    engine.allNotesOffGate!.complete();
+    await pausing;
+    await expectLater(boundary, completes);
+    await engine.disposedCompleted!.future;
+  });
+
+  test('重入 seek 会重新分发目标时刻的弦乐 Note On', () async {
+    final engine = _FakeEngine();
+    final player = K478PlayerController(engine: engine);
+    await player.loadSong(
+      MidiSongData(
+        fileName: 'k478.mid',
+        format: 1,
+        ticksPerBeat: 480,
+        tracks: [
+          MidiTrackInfo(index: 1, programByChannel: {0: 40}),
+        ],
+        timeline: [
+          TimelineEvent(
+            type: MidiEventType.programChange,
+            tick: 0,
+            time: 0,
+            channel: 0,
+            trackIndex: 1,
+            data1: 40,
+          ),
+          TimelineEvent(
+            type: MidiEventType.noteOn,
+            tick: 240,
+            time: 0.2,
+            channel: 0,
+            trackIndex: 1,
+            data1: 67,
+            data2: 100,
+          ),
+        ],
+        tempoChanges: [TempoChange(tick: 0, microsecondsPerBeat: 500000)],
+        timeSignatureChanges: const [],
+        totalTicks: 480,
+        totalDuration: 0.4,
+      ),
+    );
+
+    await player.seekTo(0.2, includeEventsAtTarget: true);
+    await player.play();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(engine.noteOns, contains(67));
+    await player.pause();
+    player.dispose();
+  });
+
   test('内置 K.478 弦乐轨只含候选支持的 CC7，不含 pitch bend 或 sustain', () {
     final bytes = File(
       'assets/midi/mozart_k478_piano_quartet.mid',

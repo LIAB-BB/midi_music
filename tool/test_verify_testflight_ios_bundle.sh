@@ -7,7 +7,10 @@ audit="$repo_root/tool/verify_testflight_ios_bundle.sh"
 source_assets="$repo_root/packages/k478_practice/assets"
 temp_root="$(mktemp -d "${TMPDIR:-/tmp}/k478-bundle-audit.XXXXXX")"
 app_path="$temp_root/Runner.app"
+flutter_assets_root="$app_path/Frameworks/App.framework/flutter_assets"
 assets_root="$app_path/Frameworks/App.framework/flutter_assets/packages/k478_practice/assets"
+font_manifest="$flutter_assets_root/FontManifest.json"
+cupertino_font="$flutter_assets_root/packages/cupertino_icons/assets/CupertinoIcons.ttf"
 
 cleanup() {
   rm -rf "$temp_root"
@@ -35,6 +38,9 @@ cp -R "$source_assets" "$assets_root"
 rm -f \
   "$assets_root/scores/mozart_k478_piano_part.pdf" \
   "$assets_root/soundfonts/README.md"
+mkdir -p "$(dirname "$cupertino_font")"
+: > "$cupertino_font"
+printf '[{"family":"packages/cupertino_icons/CupertinoIcons","fonts":[{"asset":"packages/cupertino_icons/assets/CupertinoIcons.ttf"}]}]\n' > "$font_manifest"
 
 "$audit" "$app_path" >/dev/null
 
@@ -52,5 +58,15 @@ rm -f "$assets_root/soundfonts/extra.sf2"
 
 printf 'not allowed' > "$assets_root/unregistered.bin"
 expect_rejected 'arbitrary custom asset'
+rm -f "$assets_root/unregistered.bin"
+
+mkdir -p "$flutter_assets_root/assets"
+printf 'not allowed' > "$flutter_assets_root/assets/unregistered.bin"
+expect_rejected 'host-level Flutter asset'
+rm -rf "$flutter_assets_root/assets"
+
+mkdir -p "$flutter_assets_root/packages/unregistered_package"
+printf 'not allowed' > "$flutter_assets_root/packages/unregistered_package/asset.bin"
+expect_rejected 'unregistered package asset'
 
 echo 'bundle audit allowlist self-test passed'

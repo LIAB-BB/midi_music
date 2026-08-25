@@ -81,8 +81,13 @@ class IosMidiInput implements MidiInput {
     _eventSubscription = _bridge.events().listen(
       _handleEvent,
       onError: (Object error, StackTrace stackTrace) {
+        // dispose 已同步标记 _disposed，但平台 stream 的错误回调可能已在
+        // event loop 中排队；不能在销毁后的输入对象上再发布运行时错误。
+        if (_disposed || _messageController.isClosed) return;
         _updateState(MidiInputState(errorMessage: 'CoreMIDI 连接中断：$error'));
-        _messageController.addError(error, stackTrace);
+        if (!_messageController.isClosed) {
+          _messageController.addError(error, stackTrace);
+        }
       },
     );
 

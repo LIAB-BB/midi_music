@@ -7,6 +7,8 @@
 > 基线：`main`
 >
 > 目标：供后续 GPT 或人工审阅当前 K.478 iOS CoreMIDI USB 候选修改。本文是审阅入口，不等同于 TestFlight 发布证明。
+>
+> 后续状态：本文件是 2026-08-23 的历史审阅快照。2026-08-24 的第二次复审发现新增问题并已建立整改记录，当前结论以 [`k478_candidate_rereview_response_2026-08-24.md`](k478_candidate_rereview_response_2026-08-24.md) 和 `docs/product/release_scope.md` 为准。
 
 ## 本轮结论
 

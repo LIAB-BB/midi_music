@@ -25,6 +25,11 @@ class FollowModeConfig {
   final double minMeasuredSpeedFactor;
   final double maxMeasuredSpeedFactor;
   final double restThresholdSeconds;
+
+  /// 只有明确审阅为“全体可以等待”的重入 tick 才会暂停伴奏。
+  ///
+  /// 默认空集：不能仅因钢琴声部休止而自动暂停其他声部。
+  final Set<int> approvedWaitReentryTicks;
   final int unmatchedThreshold;
   final int chordInputWindowMs;
 
@@ -37,6 +42,7 @@ class FollowModeConfig {
     this.minMeasuredSpeedFactor = 0.6,
     this.maxMeasuredSpeedFactor = 1.6,
     this.restThresholdSeconds = 1.0,
+    this.approvedWaitReentryTicks = const <int>{},
     this.unmatchedThreshold = 3,
     this.chordInputWindowMs = 80,
   });
@@ -46,11 +52,13 @@ class FollowModeConfig {
 class FollowRestBoundary {
   final double restStartScoreTime;
   final double resumeScoreTime;
+  final int reentryStartTick;
   final int reentryOnsetIndex;
 
   const FollowRestBoundary({
     required this.restStartScoreTime,
     required this.resumeScoreTime,
+    required this.reentryStartTick,
     required this.reentryOnsetIndex,
   });
 }
@@ -94,8 +102,8 @@ typedef FollowRuntimeErrorCallback =
 /// 将演奏者输入与钢琴谱面起拍匹配的状态机。
 ///
 /// 第一个正确起拍前不做 look-ahead；这样演奏者误按后面音符时，绝不会
-/// 意外启动伴奏。长休止由 [FollowRestBoundary] 明确描述，播放器据此在
-/// 休止起点暂停，并在正确重入时回到下一起拍的谱面时间。
+/// 意外启动伴奏。只有配置中人工批准的 [FollowRestBoundary] 才会要求
+/// 播放器在边界暂停；其他钢琴休止保持伴奏连续。
 class FollowModeController {
   final Stream<OnsetEvent> _onsetStream;
   FollowModeConfig _config;
@@ -195,7 +203,7 @@ class FollowModeController {
       return;
     }
     resumeFromIndex(onsetIndex);
-    if (_isTimeInsideLongRestBefore(onsetIndex, currentTimeSeconds)) {
+    if (_isTimeInsideApprovedRestBefore(onsetIndex, currentTimeSeconds)) {
       _setState(FollowModeState.waitingForOnset);
     }
   }
@@ -235,7 +243,11 @@ class FollowModeController {
     final resumesFromRest = _state == FollowModeState.waitingForOnset;
     _unmatchedCount = 0;
 
-    if (_lastOnsetTimestamp != null && _lastMatchedOnsetIndex != null) {
+    // 休止后的第一拍相距很远，不能把它当作演奏速度样本；它只重建
+    // 下一段连续演奏的计时基线。
+    if (!resumesFromRest &&
+        _lastOnsetTimestamp != null &&
+        _lastMatchedOnsetIndex != null) {
       final actualInterval =
           onset.timestamp.difference(_lastOnsetTimestamp!).inMilliseconds /
           1000.0;
@@ -285,6 +297,7 @@ class FollowModeController {
     if (_state == FollowModeState.idle ||
         pending == null ||
         pending.reentryOnsetIndex != rest.reentryOnsetIndex ||
+        pending.reentryStartTick != rest.reentryStartTick ||
         pending.restStartScoreTime != rest.restStartScoreTime) {
       return;
     }
@@ -319,9 +332,13 @@ class FollowModeController {
     if (next.startTime - previous.endTime < _config.restThresholdSeconds) {
       return null;
     }
+    if (!_config.approvedWaitReentryTicks.contains(next.startTick)) {
+      return null;
+    }
     return FollowRestBoundary(
       restStartScoreTime: previous.endTime,
       resumeScoreTime: next.startTime,
+      reentryStartTick: next.startTick,
       reentryOnsetIndex: reentryIndex,
     );
   }
@@ -355,14 +372,14 @@ class FollowModeController {
     _pendingRest = null;
   }
 
-  bool _isTimeInsideLongRestBefore(int noteIndex, double currentTimeSeconds) {
-    final next = _scoreOnsets[noteIndex];
-    if (currentTimeSeconds >= next.startTime) return false;
-    final restStart = noteIndex == 0
-        ? 0.0
-        : _scoreOnsets[noteIndex - 1].endTime;
-    return currentTimeSeconds >= restStart &&
-        next.startTime - restStart >= _config.restThresholdSeconds;
+  bool _isTimeInsideApprovedRestBefore(
+    int noteIndex,
+    double currentTimeSeconds,
+  ) {
+    final rest = _restBefore(noteIndex);
+    if (rest == null) return false;
+    return currentTimeSeconds >= rest.restStartScoreTime &&
+        currentTimeSeconds < rest.resumeScoreTime;
   }
 
   bool _isTrailingChordNote(OnsetEvent onset) {

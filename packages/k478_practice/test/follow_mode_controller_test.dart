@@ -151,7 +151,10 @@ void main() {
     final input = StreamController<OnsetEvent>.broadcast();
     final controller = FollowModeController.fromOnsetStream(
       onsetStream: input.stream,
-      config: const FollowModeConfig(restThresholdSeconds: 1),
+      config: const FollowModeConfig(
+        restThresholdSeconds: 1,
+        approvedWaitReentryTicks: {120},
+      ),
     );
     final matches = <FollowMatch>[];
     final speeds = <double>[];
@@ -196,6 +199,73 @@ void main() {
     expect(matches.last.resumesFromRest, isTrue);
     expect(matches.last.scoreTime, 2);
     expect(controller.state, FollowModeState.following);
+    controller.dispose();
+    await input.close();
+  });
+
+  test('未批准的钢琴休止不能自动暂停其他声部', () async {
+    final input = StreamController<OnsetEvent>.broadcast();
+    final controller = FollowModeController.fromOnsetStream(
+      onsetStream: input.stream,
+      config: const FollowModeConfig(restThresholdSeconds: 1),
+    );
+    final matches = <FollowMatch>[];
+    controller.onMatch = matches.add;
+    controller.loadScore([_note(60, 0, 0, 0.5), _note(62, 120, 2, 2.5)]);
+    controller.start();
+
+    final at = DateTime(2026, 8, 24, 12);
+    input.add(_onset(60, at));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(matches.single.followingRest, isNull);
+    expect(controller.pendingRest, isNull);
+    expect(controller.state, FollowModeState.following);
+
+    input.add(_onset(62, at.add(const Duration(seconds: 2))));
+    await Future<void>.delayed(Duration.zero);
+    expect(matches, hasLength(2));
+    expect(controller.state, FollowModeState.following);
+    controller.dispose();
+    await input.close();
+  });
+
+  test('批准等待点的重入不把休止时长计入速度', () async {
+    final input = StreamController<OnsetEvent>.broadcast();
+    final controller = FollowModeController.fromOnsetStream(
+      onsetStream: input.stream,
+      config: const FollowModeConfig(
+        restThresholdSeconds: 1,
+        approvedWaitReentryTicks: {120},
+      ),
+    );
+    final matches = <FollowMatch>[];
+    final speeds = <double>[];
+    controller.onMatch = matches.add;
+    controller.onSpeedChanged = speeds.add;
+    controller.loadScore([
+      _note(60, 0, 0, 0.5),
+      _note(62, 120, 2, 2.2),
+      _note(64, 240, 2.5, 2.7),
+    ]);
+    controller.start();
+
+    final at = DateTime(2026, 8, 24, 12);
+    input.add(_onset(60, at));
+    await Future<void>.delayed(Duration.zero);
+    controller.markRestBoundaryReached(matches.single.followingRest!);
+
+    // 谱面间隔为 2 秒、实际间隔为 1.5 秒；旧逻辑会把速度推到 1.1。
+    input.add(_onset(62, at.add(const Duration(milliseconds: 1500))));
+    await Future<void>.delayed(Duration.zero);
+    expect(matches.last.resumesFromRest, isTrue);
+    expect(controller.speedFactor, 1);
+    expect(speeds, isEmpty);
+
+    input.add(_onset(64, at.add(const Duration(seconds: 2))));
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.speedFactor, 1);
+    expect(speeds, [1]);
     controller.dispose();
     await input.close();
   });

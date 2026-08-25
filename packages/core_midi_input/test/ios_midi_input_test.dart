@@ -121,4 +121,29 @@ void main() {
     await expectLater(input.start(), throwsStateError);
     await bridge.close();
   });
+
+  test('dispose 后排队的平台错误不会再写入消息流', () async {
+    final bridge = _FakeBridge()
+      ..startGate = Completer<void>()
+      ..startStarted = Completer<void>();
+    final input = IosMidiInput(bridge: bridge);
+    final errors = <Object>[];
+    final subscription = input.messages.listen(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) => errors.add(error),
+    );
+
+    final starting = input.start();
+    await bridge.startStarted!.future;
+    final disposing = input.dispose();
+    bridge.controller.addError(StateError('late platform error'));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(errors, isEmpty);
+    bridge.startGate!.complete();
+    await starting;
+    await disposing;
+    await subscription.cancel();
+    await bridge.close();
+  });
 }

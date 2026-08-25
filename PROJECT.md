@@ -15,7 +15,7 @@
 
 - iOS + CoreMIDI USB 输入；不承诺 Android MIDI 输入。
 - 已标注声部的分轨 MIDI、基础播放控制、轨道静音与速度跟随。
-- K.478 的离线 PDF 钢琴分谱阅读和真实 MIDI 钢琴卷帘。
+- K.478 的离线钢琴分谱页面阅读（由同源 PDF 预渲染）；候选不含钢琴卷帘。
 - 在全部发布门槛通过后，才可进入小范围 TestFlight 可用性验证；不面向公众正式商业发布。
 
 ## 当前不在范围内
@@ -31,7 +31,7 @@
 
 1. 音色库交付策略和版权证据明确；
 2. 目标曲目所有资产都可用于该分发渠道；
-3. iPhone + 真实电子琴完成 USB 连接、跟随、长休止和退出恢复验证；
+3. iPhone + 真实电子琴完成 USB 连接、跟随、钢琴休止期间的连续弦乐和退出恢复验证；
 4. 已知限制在测试说明和产品页中如实披露。
 
 详情见 [`docs/product/capability_matrix.md`](docs/product/capability_matrix.md) 与 [`docs/release_checklist.md`](docs/release_checklist.md)。

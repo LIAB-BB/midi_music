@@ -13,9 +13,19 @@ app_path="${1:-}"
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 info_plist="$app_path/Info.plist"
-assets_root="$app_path/Frameworks/App.framework/flutter_assets/packages/k478_practice/assets"
+flutter_assets_root="$app_path/Frameworks/App.framework/flutter_assets"
+assets_root="$flutter_assets_root/packages/k478_practice/assets"
+font_manifest="$flutter_assets_root/FontManifest.json"
+cupertino_font_relative="packages/cupertino_icons/assets/CupertinoIcons.ttf"
 [[ -f "$info_plist" ]] || fail "Info.plist missing"
 [[ -d "$assets_root" ]] || fail "Flutter candidate assets missing"
+[[ -f "$font_manifest" ]] || fail "FontManifest missing"
+[[ -f "$flutter_assets_root/$cupertino_font_relative" ]] || fail "Cupertino icon font missing"
+grep -Fq "$cupertino_font_relative" "$font_manifest" || fail "Cupertino icon font is not registered"
+
+# 候选 host 没有自己的 Flutter assets。若此目录出现，说明任何未登记的
+# host 资源都可能绕过下面的 k478_practice 精确白名单。
+[[ ! -e "$flutter_assets_root/assets" ]] || fail "unexpected host-level Flutter assets"
 
 family0=$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:0' "$info_plist" 2>/dev/null) || fail "UIDeviceFamily missing"
 [[ "$family0" == "1" ]] || fail "UIDeviceFamily[0] must be 1, got $family0"
@@ -51,6 +61,22 @@ for plugin in core_midi_input flutter_midi_pro; do
   privacy="$app_path/Frameworks/$plugin.framework/${plugin}_privacy.bundle/PrivacyInfo.xcprivacy"
   [[ -f "$privacy" ]] || fail "plugin privacy manifest missing: $privacy"
 done
+
+# 允许的 package 资产目录只有候选内容包和 Cupertino 图标字体；任何其他
+# package 资源都应先进入资产台账并更新本审计，而不是静默随包。
+while IFS= read -r package_dir; do
+  package_name="$(basename "$package_dir")"
+  case "$package_name" in
+    k478_practice|cupertino_icons) ;;
+    *) fail "unexpected Flutter package asset directory: $package_name" ;;
+  esac
+done < <(find "$flutter_assets_root/packages" -mindepth 1 -maxdepth 1 -type d -print)
+
+cupertino_assets_root="$flutter_assets_root/packages/cupertino_icons"
+while IFS= read -r bundled_asset; do
+  relative="${bundled_asset#"$cupertino_assets_root/"}"
+  [[ "$relative" == "assets/CupertinoIcons.ttf" ]] || fail "unexpected Cupertino asset: $relative"
+done < <(find "$cupertino_assets_root" -mindepth 1 ! -type d -print)
 
 source_assets="$repo_root/packages/k478_practice/assets"
 expected_relative_assets=(

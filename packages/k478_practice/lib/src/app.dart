@@ -244,6 +244,7 @@ class _PracticePage extends StatefulWidget {
 
 class _PracticePageState extends State<_PracticePage> {
   K478MidiFollowSession? _followSession;
+  K478MidiFollowSession? _startingFollowSession;
   StreamSubscription<MidiInputState>? _stateSubscription;
   MidiInputState _inputState = const MidiInputState();
   String? _followError;
@@ -256,7 +257,7 @@ class _PracticePageState extends State<_PracticePage> {
   }
 
   Future<void> _toggleFollow(K478PlayerController player) async {
-    if (_followSession != null) {
+    if (_followSession != null || _startingFollowSession != null) {
       await _disposeFollowSession();
       if (mounted) setState(() {});
       return;
@@ -267,31 +268,40 @@ class _PracticePageState extends State<_PracticePage> {
       return;
     }
 
-    setState(() => _isStartingFollow = true);
-    final input = IosMidiInput();
-    _stateSubscription = input.states.listen((state) {
-      if (mounted) setState(() => _inputState = state);
+    setState(() {
+      _isStartingFollow = true;
+      _inputState = const MidiInputState();
+      _followError = null;
     });
+    final input = IosMidiInput();
     late final K478MidiFollowSession session;
+    final stateSubscription = input.states.listen((state) {
+      if (mounted && _ownsSession(session)) {
+        setState(() => _inputState = state);
+      }
+    });
+    _stateSubscription = stateSubscription;
     session = K478MidiFollowSession(
       player: player,
       performerTracks: player.performerTracks,
       input: input,
       config: const FollowModeConfig(),
     );
+    _startingFollowSession = session;
     session.onStateChanged = (_) {
-      if (mounted && identical(_followSession, session)) setState(() {});
+      if (mounted && _ownsSession(session)) setState(() {});
     };
     session.onTerminated = (terminatedSession, error) {
-      if (!mounted || !identical(_followSession, terminatedSession)) return;
+      if (!mounted || !_ownsSession(terminatedSession)) return;
       unawaited(_handleTerminatedSession(terminatedSession, error));
     };
     try {
       await session.start();
-      if (!mounted || !session.isActive) {
+      if (!mounted ||
+          !session.isActive ||
+          !identical(_startingFollowSession, session)) {
         await session.dispose();
-        await _stateSubscription?.cancel();
-        _stateSubscription = null;
+        await _cancelStateSubscription(stateSubscription);
         if (mounted) {
           setState(() => _followError = 'MIDI 输入在启动过程中已中断；请检查连接后重试。');
         }
@@ -299,34 +309,66 @@ class _PracticePageState extends State<_PracticePage> {
       }
       setState(() {
         _followSession = session;
+        _startingFollowSession = null;
         _followError = null;
       });
     } catch (error) {
       await session.dispose();
-      await _stateSubscription?.cancel();
-      _stateSubscription = null;
+      await _cancelStateSubscription(stateSubscription);
       if (mounted) setState(() => _followError = '$error');
     } finally {
-      if (mounted) setState(() => _isStartingFollow = false);
+      if (mounted) {
+        setState(() {
+          if (identical(_startingFollowSession, session)) {
+            _startingFollowSession = null;
+          }
+          _isStartingFollow = false;
+        });
+      } else if (identical(_startingFollowSession, session)) {
+        _startingFollowSession = null;
+      }
     }
   }
 
   Future<void> _disposeFollowSession() async {
-    final session = _followSession;
+    final activeSession = _followSession;
+    final startingSession = _startingFollowSession;
     _followSession = null;
-    await session?.dispose();
-    await _stateSubscription?.cancel();
+    _startingFollowSession = null;
+    final stateSubscription = _stateSubscription;
     _stateSubscription = null;
+    await stateSubscription?.cancel();
+    await activeSession?.dispose();
+    if (startingSession != null && !identical(startingSession, activeSession)) {
+      await startingSession.dispose();
+    }
+  }
+
+  bool _ownsSession(K478MidiFollowSession session) =>
+      identical(_followSession, session) ||
+      identical(_startingFollowSession, session);
+
+  Future<void> _cancelStateSubscription(
+    StreamSubscription<MidiInputState> subscription,
+  ) async {
+    await subscription.cancel();
+    if (identical(_stateSubscription, subscription)) {
+      _stateSubscription = null;
+    }
   }
 
   Future<void> _handleTerminatedSession(
     K478MidiFollowSession session,
     Object error,
   ) async {
-    if (!identical(_followSession, session)) return;
-    _followSession = null;
-    await _stateSubscription?.cancel();
+    if (!_ownsSession(session)) return;
+    if (identical(_followSession, session)) _followSession = null;
+    if (identical(_startingFollowSession, session)) {
+      _startingFollowSession = null;
+    }
+    final stateSubscription = _stateSubscription;
     _stateSubscription = null;
+    await stateSubscription?.cancel();
     if (mounted) {
       setState(() => _followError = 'MIDI 输入已中断：$error。请重新开始跟随。');
     }
@@ -393,6 +435,10 @@ class _PracticePageState extends State<_PracticePage> {
 
   Widget _transportPanel(K478PlayerController player) {
     final followActive = _followSession?.isActive ?? false;
+    final transportLocked = isFollowTransportLocked(
+      isStartingFollow: _isStartingFollow,
+      sessionActive: followActive,
+    );
     return _Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -415,7 +461,7 @@ class _PracticePageState extends State<_PracticePage> {
             label: '播放位置',
             child: CupertinoSlider(
               value: player.progress,
-              onChanged: followActive || player.totalDuration == 0
+              onChanged: transportLocked || player.totalDuration == 0
                   ? null
                   : (value) =>
                         unawaited(player.seekTo(value * player.totalDuration)),
@@ -426,7 +472,9 @@ class _PracticePageState extends State<_PracticePage> {
             children: [
               _RoundControl(
                 icon: CupertinoIcons.stop_fill,
-                onPressed: followActive ? null : () => unawaited(player.stop()),
+                onPressed: transportLocked
+                    ? null
+                    : () => unawaited(player.stop()),
                 semanticLabel: '停止伴奏',
               ),
               _RoundControl(
@@ -434,7 +482,7 @@ class _PracticePageState extends State<_PracticePage> {
                     ? CupertinoIcons.pause_fill
                     : CupertinoIcons.play_fill,
                 emphasized: true,
-                onPressed: followActive
+                onPressed: transportLocked
                     ? null
                     : () => unawaited(
                         player.isPlaying ? player.pause() : player.play(),
@@ -443,7 +491,7 @@ class _PracticePageState extends State<_PracticePage> {
               ),
               _RoundControl(
                 icon: CupertinoIcons.backward_end_fill,
-                onPressed: followActive
+                onPressed: transportLocked
                     ? null
                     : () => unawaited(player.seekTo(0)),
                 semanticLabel: '回到开头',
@@ -456,9 +504,9 @@ class _PracticePageState extends State<_PracticePage> {
   }
 
   Widget _usbPanel(K478PlayerController player) {
-    final session = _followSession;
+    final session = _followSession ?? _startingFollowSession;
     final connection = midiConnectionPresentation(
-      sessionActive: session != null,
+      sessionActive: session?.isActive ?? false,
       isConnected: _inputState.isConnected,
       primaryDeviceName: _inputState.primaryDeviceName,
       followState: session?.state ?? FollowModeState.idle,
@@ -556,6 +604,10 @@ class _PracticePageState extends State<_PracticePage> {
   Widget _speedPanel(K478PlayerController player) {
     const speeds = [0.5, 0.75, 1.0, 1.25];
     final followActive = _followSession?.isActive ?? false;
+    final transportLocked = isFollowTransportLocked(
+      isStartingFollow: _isStartingFollow,
+      sessionActive: followActive,
+    );
     return _Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -577,7 +629,7 @@ class _PracticePageState extends State<_PracticePage> {
                         vertical: 8,
                       ),
                       color: selected ? _Palette.gold : _Palette.raised,
-                      onPressed: followActive
+                      onPressed: transportLocked
                           ? null
                           : () => player.setSpeed(speed),
                       child: Text(
@@ -865,6 +917,12 @@ String _followStateLabel(FollowModeState state) => switch (state) {
     healthy: true,
   );
 }
+
+/// 启动会话尚未完成时，也必须锁住手动 transport，避免抢先播放伴奏。
+bool isFollowTransportLocked({
+  required bool isStartingFollow,
+  required bool sessionActive,
+}) => isStartingFollow || sessionActive;
 
 class _Palette {
   static const background = Color(0xFF060606);

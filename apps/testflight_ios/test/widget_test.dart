@@ -54,4 +54,19 @@ void main() {
     expect(reconnected.healthy, isTrue);
     expect(reconnected.label, 'Digital Piano · 跟随中');
   });
+
+  test('MIDI Session 启动中即锁住手动 transport', () {
+    expect(
+      isFollowTransportLocked(isStartingFollow: true, sessionActive: false),
+      isTrue,
+    );
+    expect(
+      isFollowTransportLocked(isStartingFollow: false, sessionActive: true),
+      isTrue,
+    );
+    expect(
+      isFollowTransportLocked(isStartingFollow: false, sessionActive: false),
+      isFalse,
+    );
+  });
 }
