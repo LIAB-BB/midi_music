@@ -124,6 +124,15 @@ flutter test
 - `pdf_omr_client.dart` — HTTP OMR 客户端。通过 `OMR_SERVICE_BASE_URL` 配置服务端地址，创建 `/v1/omr/jobs` 任务并轮询 MusicXML 结果
 - `pdf_to_musicxml_converter.dart` — PDF 到 MusicXML 转换抽象，隔离本地测试 Fake 和服务端 OMR 实现
 
+### Selective Interactive Score Foundation (`lib/models/` + `lib/core/notation/` + `lib/core/score/`)
+- `midi_score_part.dart` — 可记谱 MIDI 声部、谱表模式、推荐选择来源与降级警告的数据模型
+- `score_session.dart` — 原始 `MidiSongData` 为播放真相；派生 MusicXML、小节映射、选择和警告仅用于显示。当前没有接入 UI 或候选包
+- `midi_part_analyzer.dart` / `midi_score_selection.dart` — 按轨道/channel 分声部，并以曲目默认、全局默认、自动回退的固定优先级选择显示声部
+- `midi_to_musicxml_converter.dart` / `midi_notation_service.dart` — 有音符、轨道、小节与 XML 大小预算的派生转换；服务在 isolate 中运行，支持取消。不要把派生结果当作播放数据
+- `score_renderer_protocol.dart` — 未来渲染器消息的严格解析合同
+- `score_renderer_port.dart` / `score_playback_port.dart` / `score_playback_coordinator.dart` — 渲染和播放通过最小端口解耦；协调器未依赖或改造 `MidiPlayerController`，目前无具体 renderer 或 UI 实现
+- 详细边界、后续适配顺序与安全门槛见 `docs/architecture/interactive_score_selective_integration.md`。接入 WebView/OSMD、通用导入、OMR 或候选包前必须单独审阅
+
 ### OMR Server (`server/omr_service/`)
 - FastAPI 最小服务端骨架，接口遵循 `docs/omr_service_contract.md`
 - 接收 PDF 后后台调用 Audiveris：`audiveris -batch -transcribe -export -output ...`
@@ -170,6 +179,7 @@ flutter test
 - `microphone_input_test.dart` — 麦克风输入生命周期测试（4 用例）
 - `player_seek_widgets_test.dart` — 播放页 seek 控件合同测试（2 用例）
 - `widget_test.dart` — App smoke test
+- `midi_part_analyzer_test.dart`、`midi_score_selection_test.dart`、`midi_to_musicxml_converter_test.dart`、`midi_notation_service_test.dart`、`score_session_test.dart`、`score_renderer_protocol_test.dart`、`score_playback_coordinator_test.dart` — 选择性移植的记谱基础层合同测试；不构成 UI、WebView 或真机验收
 
 测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
 
