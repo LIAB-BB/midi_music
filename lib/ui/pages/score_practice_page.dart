@@ -11,7 +11,9 @@ import '../../core/midi/midi_parser.dart';
 import '../../core/midi/midi_player.dart';
 import '../../core/notation/midi_notation_service.dart';
 import '../../core/notation/midi_score_selection.dart';
+import '../../core/score/midi_player_score_playback_adapter.dart';
 import '../../core/score/score_playback_coordinator.dart';
+import '../../core/score/score_renderer_port.dart';
 import '../../core/score/score_renderer_protocol.dart';
 import '../../core/settings/app_settings.dart';
 import '../../models/midi_track.dart';
@@ -70,6 +72,8 @@ class PracticeScoreMetadata {
 
 class ScorePracticePage extends StatefulWidget {
   final PracticeScoreMetadata score;
+  final String previousPageTitle;
+  final bool allowFileImport;
   final ScoreSession? initialSession;
   final ScoreSurfaceFactory? surfaceFactory;
   final ScoreImportService? importService;
@@ -79,6 +83,8 @@ class ScorePracticePage extends StatefulWidget {
   const ScorePracticePage({
     super.key,
     required this.score,
+    this.previousPageTitle = '乐库',
+    this.allowFileImport = true,
     this.initialSession,
     this.surfaceFactory,
     this.importService,
@@ -337,7 +343,10 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   void _attachRendererPort(ScoreRendererPort port) {
     final player = _player;
     if (player == null) return;
-    _coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    _coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
   }
 
   void _handleRendererMessage(ScoreRendererMessage message) {
@@ -739,7 +748,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       navigationBar: CupertinoNavigationBar(
         border: null,
         backgroundColor: const Color(0xFFF8F0DC),
-        previousPageTitle: '乐库',
+        previousPageTitle: widget.previousPageTitle,
         middle: Text(
           score.title,
           maxLines: 1,
@@ -802,16 +811,17 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
   }
 
   Widget _buildScoreBody() {
+    final onImportScore = widget.allowFileImport
+        ? _importScoreForCurrentPage
+        : null;
     if (_displaySession == null && _isGeneratingNotation) {
-      return _NotationGeneratingState(
-        onImportScore: _importScoreForCurrentPage,
-      );
+      return _NotationGeneratingState(onImportScore: onImportScore);
     }
     if (_displaySession == null && _notationError != null) {
       return _NotationErrorState(
         message: _notationError!,
         onRetry: _retryNotation,
-        onImportScore: _importScoreForCurrentPage,
+        onImportScore: onImportScore,
       );
     }
     return InteractiveScoreView(
@@ -819,7 +829,7 @@ class _ScorePracticePageState extends State<ScorePracticePage> {
       zoom: _scoreZoom,
       onMessage: _handleRendererMessage,
       onPortReady: _attachRendererPort,
-      onImportScore: _importScoreForCurrentPage,
+      onImportScore: onImportScore,
       surfaceFactory: widget.surfaceFactory,
     );
   }
@@ -930,7 +940,7 @@ class _ComplexRepeatBanner extends StatelessWidget {
 }
 
 class _NotationGeneratingState extends StatelessWidget {
-  final VoidCallback onImportScore;
+  final VoidCallback? onImportScore;
 
   const _NotationGeneratingState({required this.onImportScore});
 
@@ -959,11 +969,13 @@ class _NotationGeneratingState extends StatelessWidget {
                     '正在生成五线谱',
                     style: TextStyle(color: Color(0xFF5F4A35), fontSize: 14),
                   ),
-                  const SizedBox(height: 14),
-                  CupertinoButton(
-                    onPressed: onImportScore,
-                    child: const Text('导入文件'),
-                  ),
+                  if (onImportScore != null) ...[
+                    const SizedBox(height: 14),
+                    CupertinoButton(
+                      onPressed: onImportScore,
+                      child: const Text('导入文件'),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -977,7 +989,7 @@ class _NotationGeneratingState extends StatelessWidget {
 class _NotationErrorState extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
-  final VoidCallback onImportScore;
+  final VoidCallback? onImportScore;
 
   const _NotationErrorState({
     required this.message,
@@ -1039,10 +1051,11 @@ class _NotationErrorState extends StatelessWidget {
                         onPressed: onRetry,
                         child: const Text('重试'),
                       ),
-                      CupertinoButton(
-                        onPressed: onImportScore,
-                        child: const Text('导入文件'),
-                      ),
+                      if (onImportScore != null)
+                        CupertinoButton(
+                          onPressed: onImportScore,
+                          child: const Text('导入文件'),
+                        ),
                     ],
                   ),
                 ],

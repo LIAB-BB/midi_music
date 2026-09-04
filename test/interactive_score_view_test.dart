@@ -4,7 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:midi_music/core/score/score_playback_coordinator.dart';
+import 'package:midi_music/core/score/score_renderer_port.dart';
 import 'package:midi_music/core/score/score_renderer_protocol.dart';
 import 'package:midi_music/ui/widgets/interactive_score_view.dart';
 // The app-facing package intentionally hides the platform delegates required by

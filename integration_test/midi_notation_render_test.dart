@@ -6,7 +6,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:midi_music/core/notation/midi_to_musicxml_converter.dart';
-import 'package:midi_music/core/score/score_playback_coordinator.dart';
+import 'package:midi_music/core/score/score_renderer_port.dart';
 import 'package:midi_music/core/score/score_renderer_protocol.dart';
 import 'package:midi_music/models/midi_score_part.dart';
 import 'package:midi_music/models/midi_track.dart';

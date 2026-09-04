@@ -5,7 +5,7 @@ import 'dart:isolate';
 import 'package:flutter/cupertino.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import '../../core/score/score_playback_coordinator.dart';
+import '../../core/score/score_renderer_port.dart';
 import '../../core/score/score_renderer_protocol.dart';
 
 class ScoreSurface {

@@ -1,6 +1,6 @@
 # 🎵 MIDI 伴奏 App
 
-一款面向 iOS 的 Flutter MIDI 练习与伴奏应用。首页（乐库）同时提供内置曲目卡片与本地文件导入，当前主产品路径由此进入真实 MIDI 自动五线谱；用户可点击小节、选择声部、缩放谱面并播放原 MIDI。USB MIDI 变速跟随代码保留在高级演奏台，当前首页暂无产品入口。
+一款面向 iOS 的 Flutter MIDI 练习与伴奏应用。根 App 首页聚焦 K.478：既可进入 USB MIDI 演奏台，也可把内置 MIDI 直接生成交互五线谱；用户可点击小节、选择声部、缩放谱面并播放原 MIDI。通用曲库与本地文件导入保留在 `ScoreLibraryPage`，当前默认首页不直接展示。
 
 ## ✨ 核心功能
 
@@ -11,7 +11,7 @@
 - **MIDI 文件播放** — 支持多轨道共享同一 MIDI 通道的复杂文件（如贝多芬月光奏鸣曲），播放/暂停/停止/进度控制
 - **SoundFont 音色引擎** — 基于 FluidSynth (Android) / AVFoundation (iOS)，加载 SF2/SF3 音色库
 - **轨道控制** — 按轨道控制音量和静音；共享通道上的同音重叠及通道级控制事件目前存在限制
-- **USB MIDI 跟随（保留高级能力）** — 使用 iOS CoreMIDI 接收电子琴 Note On，实时调整伴奏速度；可选多个钢琴轨，并在跟随期间一起静音。当前首页不导航到该页，只在提供高级演奏台产品/调试入口时验收
+- **USB MIDI 跟随** — 根 App 首页可进入高级演奏台；独立 TestFlight 候选也提供固定 K.478 验证路径。两者都使用 iOS CoreMIDI 接收电子琴 Note On，实时调整伴奏速度
 - **iOS 风格 UI** — 全 Cupertino 组件，简约流畅
 
 ## 🏗️ 技术栈
@@ -63,7 +63,8 @@ lib/
 │   └── score_session.dart             # 谱面原文、播放数据与小节映射会话
 └── ui/
     ├── pages/
-    │   ├── home_page.dart             # 首页（文件选择）
+    │   ├── home_page.dart             # 默认 K.478 首页
+    │   ├── home_page_legacy.dart      # 保留的通用曲库/文件导入入口
     │   ├── score_practice_page.dart   # 交互谱面练习页
     │   └── player_page.dart           # 保留的高级演奏台
     ├── widgets/
@@ -92,7 +93,12 @@ assets/
 ├── score_renderer/                    # 离线 OSMD 运行时
 └── scores/                            # 示例 PDF 与其 OMR 输入资源
 docs/
-└── release_checklist.md               # 上线前人工验收清单
+├── release_checklist.md               # 根交互谱面验收清单
+└── releases/k478_testflight_checklist.md # 独立候选验收清单
+apps/testflight_ios/                    # 独立 K.478 TestFlight host
+packages/
+├── core_midi_input/                    # 独立 CoreMIDI 插件
+└── k478_practice/                      # 独立 K.478 练习功能包
 ```
 
 ## 🚀 快速开始
@@ -105,7 +111,7 @@ docs/
 
 当前验证基线：Flutter 3.44.1 / Dart 3.12.1。
 
-截至 2026-08-15 的验证记录中，`flutter test` 共 311 项；iOS WKWebView/OSMD fixture 另由
+合并后的测试数量以本次提交的最新门禁结果为准；iOS WKWebView/OSMD fixture 另由
 `integration_test/midi_notation_render_test.dart` 验证 dotted/triplet/tie、
 multi-voice、grand-staff、percussion、缩放重排及缩放后小节点击。
 
@@ -130,11 +136,19 @@ flutter analyze
 flutter test
 ```
 
+独立 TestFlight 候选需要在各自目录解析依赖并单独检查：
+
+```bash
+cd packages/core_midi_input && flutter pub get && flutter analyze && flutter test
+cd ../k478_practice && flutter pub get && flutter analyze && flutter test
+cd ../../apps/testflight_ios && flutter pub get --enforce-lockfile && flutter analyze && flutter test
+```
+
 ### 上线前验收
 
-自动化测试通过后，发布或交付试用版前还需要完成人工验收。当前核心发布必测为 SoundFont、MIDI 自动五线谱、声部默认与无损总谱切换，以及 MusicXML 直接路径；PDF 只验证“未配置时明确拒绝”，除非本轮另行纳入受控 OMR 开发验收。真实电子琴 USB、轨道静音和跟随属于高级演奏台专项：仅在本版本提供该产品入口或调试入口时验收，且不阻断当前首页可达的核心发布路径。
+自动化测试通过后，发布或交付试用版前还需要完成人工验收。根 App 的交互谱面与独立 K.478 TestFlight 候选是两套构建目标，必须分别验收，任何一套的通过都不能替代另一套。
 
-详见 [`docs/release_checklist.md`](docs/release_checklist.md)。
+详见 [`docs/release_checklist.md`](docs/release_checklist.md) 和 [`docs/releases/k478_testflight_checklist.md`](docs/releases/k478_testflight_checklist.md)。
 
 ### 项目文档
 
@@ -147,11 +161,12 @@ flutter test
 - [`docs/demo_assets.md`](docs/demo_assets.md)：K.478 素材来源、许可与当前用途
 - [`docs/omr_service_contract.md`](docs/omr_service_contract.md)：PDF OMR 服务协议
 - [`docs/release_checklist.md`](docs/release_checklist.md)：自动门禁和人工验收
+- [`docs/releases/k478_testflight_checklist.md`](docs/releases/k478_testflight_checklist.md)：独立 K.478 USB MIDI TestFlight 候选验收
 - [`战略规划.md`](战略规划.md) / [`MIDI伴奏可行报告.md`](MIDI伴奏可行报告.md)：长期路线与早期可行性研究，不代表当前产品入口
 
 ### 准备资源文件
 
-App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。也可以将 MIDI 测试文件放入 `assets/midi/` 目录。App 支持从设备文件系统选择 MIDI、MusicXML 和 PDF：MIDI 从真实音符自动生成显示谱，MusicXML 直接进入离线交互谱面，PDF 先经 OMR 服务生成 MusicXML。自动谱只负责显示，声音始终来自原始 MIDI 时间线。
+根 App 首次运行会自动下载并缓存 TimGM6mb.sf2 SoundFont。默认 K.478 首页直接使用内置 MIDI；保留的 `ScoreLibraryPage` 支持从设备文件系统选择 MIDI、MusicXML 和 PDF。MIDI 从真实音符自动生成显示谱，MusicXML 直接进入离线交互谱面，PDF 先经 OMR 服务生成 MusicXML。自动谱只负责显示，声音始终来自原始 MIDI 时间线。独立 TestFlight 候选使用自己的随包 Violin/Cello 音色与静态分页谱，不复用根 App 的 TimGM 或 OSMD 路径。
 
 当前“可以运行”不代表所有随包资源已经获准分发：K.478 证据仍需归档，其他内置 MIDI 和 TimGM6mb 随包文件在完成许可与交付核验前不得进入试用构建。具体状态见 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md)。
 
@@ -168,7 +183,7 @@ flutter run --dart-define=OMR_SERVICE_BASE_URL=https://your-api.example.com
 
 ## 🎯 变速跟随模式
 
-变速跟随由保留的高级演奏台提供，让伴奏跟着演奏者的节奏走。当前首页没有前往该页的产品入口；以下说明仅适用于提供高级演奏台产品入口或调试入口的专项验收。
+变速跟随由高级演奏台提供，让伴奏跟着演奏者的节奏走。根 App 首页的「开始 USB MIDI 排练」可以进入该页；独立 TestFlight 候选则使用 `packages/k478_practice` 的固定 K.478 流程。
 
 ### 工作原理
 
@@ -183,7 +198,7 @@ flutter run --dart-define=OMR_SERVICE_BASE_URL=https://your-api.example.com
 
 ### 使用方式
 
-前置条件：通过高级演奏台产品入口或调试入口进入 `PlayerPage`。当前普通首页导入会进入 `ScorePracticePage`，不能直接使用以下 USB 跟随流程。
+前置条件：从根 App 首页进入 `PlayerPage`，或运行独立 K.478 候选；交互谱面页本身不负责启动 USB 跟随。
 
 1. 在播放器页面的轨道列表中，选择一个或多个由电子琴演奏的轨道；钢琴双手通常需要同时选择
 2. 将 class-compliant USB MIDI 电子琴直接连接到 iPhone，确认页面显示设备名

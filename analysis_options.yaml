@@ -1,36 +1,9 @@
 # https://dart.dev/tools/analysis
 
+include: analysis_options_strict.yaml
+
 analyzer:
-  language:
-    strict-casts: true
-    strict-inference: true
-    strict-raw-types: true
-  errors:
-    # 未使用的 import 视为错误，避免残留
-    unused_import: error
-    # 未使用的局部变量视为警告
-    unused_local_variable: warning
-
-include: package:flutter_lints/flutter.yaml
-
-linter:
-  rules:
-    # ---- 错误预防 ----
-    - unawaited_futures           # 未 await 的 future 必须显式用 unawaited() 包裹
-    - avoid_void_async            # 禁止 async void 函数（异常无法捕获）
-    - noop_primitive_operations   # 禁止无意义的表达式（如 list.length == 0 写成 list.length == 0 && ...）
-
-    # ---- 代码风格一致性 ----
-    - require_trailing_commas     # 尾逗号：减少 git diff 冲突，两位施工者必开
-    - prefer_const_constructors   # 优先 const 构造，提升 Flutter 性能
-    - prefer_const_declarations   # 优先 const 声明
-    - annotate_overrides          # 重写方法必须加 @override
-
-    # ---- Flutter 专用 ----
-    - use_key_in_widget_constructors  # Widget 构造函数建议加 key
-    - avoid_unnecessary_containers    # 禁止多余的 Container 嵌套
-    - sort_child_properties_last      # child 属性放在构造参数最后
-
-    # ---- 代码整洁 ----
-    - avoid_print                     # 禁止 print 遗留
-    - eol_at_end_of_file              # 文件末尾空行
+  # Monorepo 子工程在各自目录解析 path dependencies，并由独立 CI job 检查。
+  exclude:
+    - apps/**
+    - packages/**

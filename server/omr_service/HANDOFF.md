@@ -1,6 +1,9 @@
 # OMR 服务端交接文档
 
-> 状态：开发交接材料，不是生产部署批准。对外开放前必须设计并验证认证/授权、限流、TLS、恶意文件防护、访问日志、数据保留和删除流程；当前产品边界见 [`../../docs/product/release_scope.md`](../../docs/product/release_scope.md)。
+> 状态：开发交接材料，不属于根 App 默认双入口或独立 K.478 TestFlight 候选，
+> 也不是生产部署批准。对外开放前必须设计并验证认证/授权、限流、TLS、恶意
+> 文件防护、访问日志、数据保留和删除流程；当前产品边界见
+> [`../../docs/product/release_scope.md`](../../docs/product/release_scope.md)。
 
 ## 目标
 
@@ -208,7 +211,8 @@ App 负责：
 - 上传 PDF。
 - 轮询任务。
 - 保留 MusicXML 原文给离线 OSMD 显示，并从同一原文解析播放数据与小节边界。
-- 播放，以及在提供高级演奏台入口时执行跟随；当前首页练习页不暴露 USB MIDI 跟随入口。
+- 播放；根默认首页的 USB MIDI `PlayerPage` 是独立入口，不由 OMR 服务控制，
+  也不能用 OMR 验收替代其真机跟随证据。
 
 App 不负责：
 

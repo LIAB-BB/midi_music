@@ -158,7 +158,7 @@ class StageConsole extends StatelessWidget {
         children: [
           Row(
             children: [
-              const SectionEyebrow(label: 'NOCTURNE STAGE'),
+              const SectionEyebrow(label: 'K.478 PRACTICE'),
               const Spacer(),
               StatusBadge(label: accentLabel, color: accent),
             ],
@@ -181,7 +181,7 @@ class StageConsole extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      '黑金排练控制台',
+                      'USB MIDI 排练控制台',
                       style: TextStyle(
                         fontSize: 13,
                         letterSpacing: 1.5,

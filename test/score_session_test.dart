@@ -4,9 +4,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/import/musicxml_parser.dart';
 import 'package:midi_music/core/import/score_import_service.dart';
 import 'package:midi_music/models/midi_score_part.dart';
+import 'package:midi_music/models/midi_track.dart';
 import 'package:midi_music/models/score_session.dart';
 
 void main() {
+  test('仅 MIDI 会话不宣称存在可交互谱面', () {
+    final session = ScoreSession.midiOnly(_song());
+
+    expect(session.musicXml, isNull);
+    expect(session.mappingStatus, ScoreMappingStatus.unavailable);
+    expect(session.hasInteractiveScore, isFalse);
+  });
+
   test('MusicXML 会话保留原文、真实弱起边界和复杂反复警告', () async {
     final xml = File(
       'test/fixtures/interactive_score.musicxml',
@@ -115,6 +124,20 @@ void main() {
     ]);
   });
 }
+
+MidiSongData _song() => MidiSongData(
+  fileName: 'fixture.mid',
+  format: 0,
+  ticksPerBeat: 480,
+  tracks: const [],
+  timeline: const [],
+  tempoChanges: [TempoChange(tick: 0, microsecondsPerBeat: 500000)],
+  timeSignatureChanges: [
+    TimeSignatureChange(tick: 0, numerator: 4, denominator: 4),
+  ],
+  totalTicks: 0,
+  totalDuration: 0,
+);
 
 const _backupMusicXml = '''
 <score-partwise>

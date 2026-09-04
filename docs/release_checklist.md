@@ -1,6 +1,14 @@
 # 上线前验收清单
 
-本文用于发布或交付 iOS 试用版前的轻量人工验收。自动化测试负责基础契约，本文重点覆盖当前首页可到达的 MIDI 自动五线谱、声部选择与默认、无损播放状态、MusicXML 直接路径、PDF OMR 的受控边界、固定播放控制和设置。
+本文用于发布或交付**根目录 iOS App** 前的人工验收。自动化测试负责基础
+契约，本文覆盖默认首页的两个 K.478 入口：交互五线谱和 USB MIDI 高级演奏台，
+以及非默认 `home_page_legacy.dart` 中保留的通用导入开发回归。后者没有生产
+导航入口，不属于默认试用承诺，也不作为根双入口发布的人工阻断场景。
+
+`apps/testflight_ios` + `packages/k478_practice` 是独立候选，使用 21 张静态
+分页图和离线 SF2，必须执行
+[`releases/k478_testflight_checklist.md`](releases/k478_testflight_checklist.md)。
+两套清单的自动化、资产、二进制和真机结果不能互相替代。
 
 当前产品范围以 [`product/release_scope.md`](product/release_scope.md) 为准；能力证据和资产准入分别见 [`product/capability_matrix.md`](product/capability_matrix.md) 与 [`evidence/asset_manifest.md`](evidence/asset_manifest.md)。
 
@@ -19,7 +27,8 @@ LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 flutter build ios --debug --no-codesign
 flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 ```
 
-截至 2026-08-15 的验证记录为 Flutter 3.44.1 / Dart 3.12.1，`flutter test` 共 311 项；iOS OSMD integration fixture 独立运行，不计入 311 项。新增测试后应同步刷新本段与自动门禁记录。
+测试总数和通过结果必须绑定本次 commit 的实际输出；本文件不写死历史测试数。
+iOS OSMD integration fixture 仍须独立运行，不能由根目录 Widget/单元测试代替。
 
 ### 1.1 受测架构约束
 
@@ -31,6 +40,10 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - `MidiPlayerController.clearScore()` 仅用于等待异步资源时原子卸载旧曲，清空旧位置与 AB，保留 SoundFont 和全局速度，避免上一曲泄漏。
 - MusicXML 保持原文直接显示；PDF 经 OMR 得到 MusicXML 后走同一直接路径，不经过 MIDI 自动记谱。
 - 谱面默认使用 OSMD 原生 70% 缩放，底部按钮按 10% 在 50%–140% 间重排；不得用 CSS transform 伪缩放，缩放后的 layout、点击命中与高亮必须使用同一坐标。
+- 默认 `HomePage` 必须同时提供“查看交互五线谱”和“开始 USB MIDI 排练”；
+  `home_page_legacy.dart` 的通用曲库/导入不能被写成默认入口。
+- 根 App 的 K.478 五线谱来自 MIDI→MusicXML→OSMD，不直接显示 PDF/PNG。
+  独立候选的 21 张 PNG 只在其专用 host 中验收。
 
 ## 2. 验收前准备
 
@@ -40,7 +53,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - [ ] 已运行 `flutter pub get`
 - [ ] 已运行 `dart format lib test integration_test`，确认没有未预期格式改动
 - [ ] 已运行 `flutter analyze`
-- [ ] 已运行 `flutter test`，确认 311 项通过
+- [ ] 已运行 `flutter test`，并把实际通过数、commit 和时间写入本轮记录
 - [ ] 已运行 `git diff --check`
 - [ ] 已完成 UTF-8 环境的 iOS Debug no-codesign 构建
 - [ ] 构建后已检查 `ios/Podfile.lock`，没有未解释的依赖漂移
@@ -48,19 +61,21 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 ### 2.2 资产、音色与试用说明
 
 - [ ] 本轮随包、下载或展示的 MIDI、PDF、页面图、SoundFont、OSMD、图标、字体和截图均已与 `docs/evidence/asset_manifest.md` 对照
-- [ ] 只有资产台账中状态为“已核验”的资源进入最终 Flutter asset manifest、IPA、截图和 TestFlight；仅隐藏首页卡片不算排除
+- [ ] 只有资产台账中“分发许可”为“允许”的资源进入最终 Flutter asset manifest、IPA、截图和 TestFlight；来源“已核验”不能替代分发许可，仅隐藏首页卡片不算排除
 - [ ] 已从最终构建产物反查实际资产，没有依赖文档清单猜测 IPA 内容
 - [ ] SoundFont 的来源、许可证、固定版本、SHA-256、实际加载路径和失败体验均已记录
-- [ ] TestFlight 说明只描述当前交互五线谱范围，写明自动谱、设备和 PDF OMR 限制，并提供反馈入口
+- [ ] 根 App 说明只描述交互五线谱与首页可达的 USB 演奏台，写明自动谱、设备和 PDF OMR 限制，并提供反馈入口
+- [ ] 若构建独立 K.478 候选，已改用其专用清单和资产白名单，没有沿用根 App 文案
 - [ ] 已定义资产权利、音色不可用、崩溃或严重错谱出现时的暂停测试、回滚方式和负责人
 
 ### 2.3 设备与测试素材
 
-- [ ] 准备一份可导入的有效 MIDI 文件
-- [ ] 准备内置 K.478，并准备另一首没有曲目默认的 MIDI
-- [ ] 准备一份可离线导入的标准 MusicXML，包含首、中、末小节
-- [ ] 准备一份可经 OMR 服务转换的 PDF；若 OMR 服务不可用，明确记录为外部未验收项
-- [ ] 准备一份无效或异常 MIDI 文件，用于导入失败路径
+- [ ] `[非阻断开发回归]` 如需验证未接入生产导航的通用导入，准备专用测试
+  harness 和一份获准用于开发验证的有效 MIDI 文件
+- [ ] 准备内置 K.478
+- [ ] `[非阻断开发回归]` 准备一份可离线导入的标准 MusicXML，包含首、中、末小节
+- [ ] `[非阻断开发回归]` 若明确进行受控 OMR 开发验收，准备一份可转换的 PDF；OMR 不属于默认试用范围
+- [ ] `[非阻断开发回归]` 准备一份无效或异常 MIDI 文件，用于导入失败路径
 - [ ] `flutter devices` 已识别一台受支持的实体 iPhone，并记录机型、device id 与 iOS 版本；当前参考设备为 iPhone 14 Pro，但不是唯一允许机型
 - [ ] 真机已运行 OSMD integration fixture，收到 `ready` 和非空 layout
 - [ ] 如需验证首次启动 SoundFont 下载，先清理应用数据或使用首次安装状态
@@ -78,7 +93,9 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 
 ## 4. 场景总览
 
-建议按下表顺序执行。S0 核验分发资产与范围，S1 准备音色，S2-S4 验证 MIDI 自动谱、声部默认和无损切换，S5 验证小节与布局，S6 覆盖三种导入路径和错误隔离。
+建议按下表顺序执行。S0 核验分发资产与范围，S1 准备音色，S2-S4 验证 MIDI
+自动谱、声部默认和无损切换，S5 验证小节与布局。S6 只覆盖未接入生产导航的
+通用导入开发回归，不属于根默认双入口的发布阻断场景。
 
 | 编号 | 模块 | 场景 | 必测设备 |
 |---|---|---|---|
@@ -88,7 +105,7 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 | S3 | 声部与默认 | 加入/移除弦乐，本曲与全局默认 | 真机必测 |
 | S4 | 无损换谱 | time、speed、AB、playing 保持 | 真机必测 |
 | S5 | 谱面交互与适配 | 首中末小节、OSMD、横竖屏与 1.8x | 真机必测 |
-| S6 | 导入与错误隔离 | MIDI/MusicXML、PDF 配置边界、失败重试与上一曲隔离 | 模拟器或真机；OSMD 真机 |
+| S6（非阻断开发回归） | 导入与错误隔离 | MIDI/MusicXML、PDF 配置边界、失败重试与上一曲隔离 | 专用 harness；OSMD 真机 |
 
 ## 5. 详细验收场景
 
@@ -100,9 +117,9 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 
 - [ ] 对照 Flutter asset manifest、IPA、首页卡片、示例文件和 TestFlight 截图列出本轮全部资源
 - [ ] 每项均能对应资产台账中的来源、许可证、完整 SHA-256、渠道和审核结论
-- [ ] `禁止分发` 资源未进入构建产物、截图、CDN 或测试说明
+- [ ] 分发许可为“禁止”或“待批准”的资源未进入构建产物、截图、CDN 或测试说明
 - [ ] SoundFont 下载或随包策略与实际代码路径一致，不存在“随包但未使用”或“下载但无固定版本/完整性校验”的模糊状态
-- [ ] 试用说明明确当前是交互五线谱练习路径，不宣传首页不可达的 USB 跟随、未受控的 PDF OMR、Android 全量质量或出版级自动谱
+- [ ] 试用说明准确列出首页可达的交互五线谱和 USB 演奏台，不宣传未受控的 PDF OMR、Android 全量质量或出版级自动谱
 - [ ] 反馈模板至少包含 App 版本、commit、iPhone/iOS、曲目、输入格式和复现步骤；默认不收集演奏音频
 - [ ] 已指定暂停测试与回滚负责人
 
@@ -117,9 +134,10 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 步骤：
 
 - [ ] 保持网络可用，启动 App 后观察 SoundFont 状态
-- [ ] 从当前产品入口启动后，首页应展示检查中 / 下载中 / 已就绪等状态；不可用当前首页无法到达的 `PlayerPage` 代替本项
+- [ ] 从当前产品入口启动后，点击首页齿轮进入设置页，观察检查中 / 下载中 /
+  已就绪等状态；也可从首页进入 `PlayerPage` 查看同一状态与失败重试入口
 - [ ] 下载完成后状态应变为音色已就绪
-- [ ] 导入 MIDI 后应能使用 SoundFont 正常播放
+- [ ] 从首页进入交互谱面或 `PlayerPage` 后，内置 K.478 应能使用 SoundFont 正常播放
 - [ ] 断网或阻断下载后重新启动 App
 - [ ] 下载失败时应出现失败提示和重试入口
 - [ ] 点击重试后不会崩溃，状态能重新进入准备流程
@@ -156,10 +174,14 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 - [ ] 再次打开面板移除弦乐并应用，恢复钢琴双谱表
 - [ ] 重新加入弦乐，选择“设为本曲默认”，退出练习页后重新进入 K.478
 - [ ] 重进后仍命中已保存的具体声部组合，来源提示为“使用本曲默认”
-- [ ] 选择钢琴与弦乐并“设为全局默认”，再打开另一首没有曲目默认的 MIDI
-- [ ] 新曲按可用声部类别匹配全局默认；不存在的类别不会造成空谱
+- [ ] 选择钢琴与弦乐并“设为全局默认”；跨曲匹配和缺失类别不产生空谱由
+  `midi_score_selection_test.dart` 与设置迁移回归作为当前发布证据
+- [ ] `[非阻断开发回归]` 如通过专用 harness 挂载 `ScoreLibraryPage`，可再打开
+  一首没有曲目默认的获准 MIDI，人工复核全局类别默认；不得为执行本项临时把
+  legacy 页接回生产首页
 
-通过标准：可加入/移除弦乐，本曲默认重进有效，全局类别默认跨曲有效，且本曲默认优先于全局默认。
+通过标准：可加入/移除弦乐，本曲默认重进有效；自动化证明全局类别默认跨曲有效，
+且本曲默认优先于全局默认。legacy 人工回归不阻断根默认双入口发布。
 
 ### S4. 换谱不改变播放状态
 
@@ -199,9 +221,12 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 
 通过标准：本地 OSMD fixture 通过，50%–140% 重排及首中末小节命中准确，默认 70% 密度接近参考图，竖横屏和 1.8x 字号下顶栏/缩放控件/固定底栏不遮挡谱面。
 
-### S6. 导入、PDF 配置边界、失败重试与上一曲隔离
+### S6. 非阻断开发回归：导入、PDF 配置边界、失败重试与上一曲隔离
 
-目的：确认 MIDI 自动谱没有改变 MusicXML 直接路径，PDF 行为与当轮受控服务配置一致，异步失败也不会泄漏上一曲。
+目的：通过 Widget/集成测试或显式以 `ScoreLibraryPage` 为 home 的专用开发
+harness，确认 MIDI 自动谱没有改变 MusicXML 直接路径，PDF 行为与受控服务配置
+一致，异步失败也不会泄漏上一曲。生产 `HomePage` 没有通往此页的导航，本节不
+属于默认试用承诺，也不计入根双入口发布的人工阻断场景。
 
 - [ ] 从文件系统导入有效 MIDI，生成真实可交互五线谱并显示声部入口
 - [ ] 断网导入 MusicXML，原文直接离线排版且不显示 MIDI 声部入口
@@ -214,24 +239,32 @@ flutter test integration_test/midi_notation_render_test.dart -d <device-id>
 
 通过标准：MIDI/MusicXML 核心入口正确，PDF 行为与本轮范围和配置一致；失败可重试，上一曲的谱面、播放位置和 AB 不泄漏到当前曲。
 
-## 6. 高级演奏台专项（不纳入本次发布阻断）
+## 6. 根 App USB MIDI 高级演奏台
 
-`PlayerPage` 仍保留 USB MIDI 发现、轨道选择和 `MidiFollowModeSession`，但当前首页不提供前往该页的产品入口。因此 USB MIDI 热插拔、钢琴轨静音恢复与长休止跟随不属于本次从产品入口可完成的发布阻断验收。
+`PlayerPage` 已从默认 K.478 首页进入，保留 USB MIDI 发现、轨道选择和
+`MidiFollowModeSession`。如果本轮分发根 App，该入口属于发布阻断范围；如果
+只分发独立 `apps/testflight_ios`，不要执行本节代替候选专用 S5–S7。
 
-当提供调试入口或后续产品入口时，再以 iPhone 真机、class-compliant USB MIDI 电子琴和包含长休止的分轨 MIDI，验收以下专项：
+以实体 iPhone、class-compliant USB MIDI 电子琴和包含休止的 K.478 分轨 MIDI
+验收：
 
 - [ ] USB MIDI 设备发现、拔出与重连状态
 - [ ] 跟随模式打开 / 关闭、钢琴轨静音及原始状态恢复
-- [ ] 长休止期间等待与下一次有效起拍恢复
+- [ ] 首页进入演奏台、退出再进入时不崩溃，旧 Session 不泄漏
+- [ ] 开始跟随前手动播放控件可用；跟随活动期间冲突 transport 正确受控
+- [ ] 钢琴单独休止时伴奏声部保持连续；不得把它宣传成已批准 Wait Mode
+- [ ] 错音不误启动，正确起拍后进入跟随；停止跟随后恢复原轨道状态
 
 ## 7. 发布判定
 
 - [ ] 自动化质量门禁全绿
-- [ ] S0-S6 全部通过；S0 资产/范围门槛不可由“仅供测试”豁免
+- [ ] S0-S5 全部通过；S0 资产/范围门槛不可由“仅供测试”豁免；S6 仅在本轮
+  显式纳入通用导入开发验收时记录，不阻断默认双入口发布
 - [ ] 若存在已知问题，已记录影响范围和规避方式
 - [ ] 记录机型的实体 iPhone 上 OSMD integration fixture 通过
 - [ ] 已保存钢琴双谱表和多声部总谱至少两张真机截图，并与参考图放在同一比较输入中完成视觉 QA
 - [ ] 资产台账、SoundFont 记录、TestFlight 说明、反馈入口和回滚负责人已绑定本次 commit/build
-- [ ] 若本版本提供高级演奏台入口，已完成相应 USB MIDI 专项验收；未提供入口时已将该专项列为非阻断已知范围
+- [ ] 根 App 的首页双入口均完成对应人工验收
+- [ ] 本轮记录明确写明构建的是根 App 还是独立 K.478 候选，没有混用两套证据
 
 满足以上条件后，可以进入打包或小范围试用发布。

@@ -4,7 +4,7 @@
 
 ## 项目目标
 
-打造一款面向 iOS 的 Flutter 古典音乐练习工具：使用 SoundFont 播放原始 MIDI，把 MIDI 离线生成可点击五线谱，并保留 MusicXML/PDF OMR 导入路径。当前产品入口以“乐库 → 交互谱面练习页”为主。
+打造一款面向 iOS 的 Flutter 古典音乐练习工具：使用 SoundFont 播放原始 MIDI，把 MIDI 离线生成可点击五线谱，并支持 USB MIDI 排练。根 App 当前以 K.478 首页为入口，分别进入交互谱面页和高级演奏台；通用曲库/文件导入保留为非默认入口。
 
 ## 已实现
 
@@ -15,11 +15,12 @@
 - [x] 换显示谱不重载原 MIDI，保持时间、速度、AB 和播放/暂停状态。
 - [x] 谱面默认 70%，可在 50%–140% 用 OSMD 原生重排缩放，快速连点合并为最终一次排版。
 - [x] SoundFont 准备、MIDI 播放和基本控制。
-- [x] USB MIDI 设备、轨道静音与变速跟随代码保留在高级演奏台。
+- [x] 根 App 首页可进入 USB MIDI 高级演奏台；另有隔离的 `apps/testflight_ios` + `packages/k478_practice` K.478 候选。
 
 ## 当前产品边界
 
-- 首页当前不导航到高级 `PlayerPage`，因此 USB MIDI 跟随是保留能力，不是当前核心入口的发布阻断项。
+- 根 App 与独立 TestFlight 候选是两个构建目标：前者融合交互谱面和旧高级演奏台，后者只验证固定 K.478、CoreMIDI、离线弦乐和静态分页谱；两套证据不能互相替代。
+- 通用 `ScoreLibraryPage`、MusicXML/PDF 文件导入仍保留，但默认 K.478 首页不直接开放该入口。
 - PDF OMR 依赖外部服务；未配置 `OMR_SERVICE_BASE_URL` 时会给出明确错误，不在手机本地运行 OMR。
 - MIDI 自动谱是清晰、可交互的练习谱，不承诺出版级指法、装饰线或排版编辑。
 - 当前验证基线是 Flutter 3.44.1 / Dart 3.12.1；主要发布与真机验收目标为 iOS 13.6+。Android 代码可构建不等于已完成当前版本的全量真机验收。
@@ -27,8 +28,8 @@
 
 ## 完成标准（当前版本）
 
-- [x] 截至 2026-08-15，`flutter analyze` 无问题，`flutter test` 共 311 项通过；新增测试后应刷新此验证记录。
+- [x] 根工程静态分析与测试保持全绿；合并后的具体测试数量以本次提交验证结果为准。
 - [x] 真实 iOS WKWebView 中的本地 OSMD fixture 可排版、缩放、高亮并命中非首小节。
 - [x] iOS Debug no-codesign 构建通过。
 - [ ] 每次试用发布前按 `docs/release_checklist.md` 完成当轮 iPhone 真机人工验收并记录结果。
-- [ ] 如当前版本恢复高级演奏台产品入口，再完成 USB MIDI 电子琴专项验收。
+- [ ] 独立候选按 `docs/releases/k478_testflight_checklist.md` 完成双机、USB、音色、静态分页谱和签名产物验收。

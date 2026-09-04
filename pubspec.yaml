@@ -1,5 +1,5 @@
 name: midi_music
-description: "MIDI伴奏播放器 - 高品质SoundFont音色，支持变速跟随模式"
+description: "MIDI 伴奏与交互五线谱练习应用"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

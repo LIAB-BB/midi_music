@@ -2,15 +2,24 @@
 
 # MIDI伴奏可行报告
 
-> 文档定位：本文保留早期市场与技术调研判断，其中 Flutter + C++ + OLTW、大容量 SoundFont 和 Android 低延迟是候选/长期路线，不代表当前产品入口。当前范围以 [`docs/product/release_scope.md`](docs/product/release_scope.md) 为准，能力证据与资产分发分别见 [`docs/product/capability_matrix.md`](docs/product/capability_matrix.md) 和 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md)。
+> **历史研究材料，非当前产品规划或发布承诺。** 本文保留早期市场与技术
+> 调研判断，其中 Flutter + C++ + OLTW、大容量 SoundFont 和 Android 低延迟
+> 是候选/长期路线。未经当前代码、用户研究、成本测算或权利链重新核验的内容，
+> 不得用于对外断言。当前范围以 [`docs/product/release_scope.md`](docs/product/release_scope.md)
+> 为准，能力证据与资产分发分别见 [`docs/product/capability_matrix.md`](docs/product/capability_matrix.md)
+> 和 [`docs/evidence/asset_manifest.md`](docs/evidence/asset_manifest.md)。
 
-## 当前实现快照（2026-08-15）
+## 当前实现快照（2026-09-04）
 
 - iOS Flutter App 已使用 `flutter_midi_pro` + TimGM6mb SoundFont 完成 MIDI 播放；这是 MVP 基线，尚不等于本文设想的 200–500MB 商业管弦乐音色。
 - MIDI 在后台 isolate 解析，内置和导入 MIDI 可离线生成真实 MusicXML 练习谱，通过本地 OSMD 显示、缩放、高亮和点击小节。
 - 钢琴默认双谱表，明确 upper/lower 轨道保留左右手谱表归属；用户可多选其他声部组成总谱并保存默认。
-- USB MIDI 跟随、轨道静音与变速代码已保留在高级演奏台，但当前首页没有产品入口，不应对外宣称已完成当前版本的真机跟随交付。
-- 当前质量基线为 Flutter 3.44.1 / Dart 3.12.1，311 项 `flutter test` 和独立 iOS WKWebView/OSMD integration fixture。Android 及专业音频跟随算法仍需后续专项验证。
+- 根默认首页同时提供 K.478 交互五线谱和 USB MIDI 高级演奏台；
+  `home_page_legacy.dart` 的通用库/导入不是默认入口。
+- 独立 `apps/testflight_ios` + `packages/k478_practice` 候选继续使用 21 张静态
+  PNG、离线弦乐 SF2 和 CoreMIDI。其证据与根 App 分开，不能互相替代。
+- 自动化测试数、工具版本和通过结果以当前 commit 的实际输出为准；Android、
+  实体电子琴、签名 IPA 与专业音频跟随算法仍需对应专项验证。
 
 > 引用说明：原始调研草稿保留了 `1`–`36` 等引用编号，但参考文献表未随文件保存，无法在本仓库追溯。以下外部技术、市场规模和价格判断只能作为线索；进入采购、融资或架构决策前必须重新查证一手来源。
 

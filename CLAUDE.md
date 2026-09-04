@@ -69,7 +69,7 @@ flutter test
 | `lib/core/follow/pitch_input.dart` | 🔒 高 | 抽象接口，改了所有实现都得跟着改 |
 | `lib/core/follow/follow_playback_target.dart` | 🔒 高 | 抽象接口，同上 |
 | `lib/ui/pages/home_page.dart` | 🔄 低 | 首页 UI，改动影响范围小 |
-| `lib/ui/pages/player_page.dart` | 🔄 低 | 保留的高级演奏台，当前约 587 行；首页不再导航到此页 |
+| `lib/ui/pages/player_page.dart` | 🔄 低 | USB MIDI 高级演奏台，当前约 587 行；默认 K.478 首页可达 |
 | `lib/ui/theme/luxury_theme.dart` | 🔒 高 | 主题定义，改动影响全部 UI |
 | `lib/main.dart` + `lib/app.dart` | 🔒 高 | 入口，极少改动 |
 
@@ -153,9 +153,10 @@ flutter test
 - 接收 PDF 后后台调用 Audiveris：`audiveris -batch -transcribe -export -output ...`
 - 服务端不把 PDF 识谱逻辑放进 Flutter App；App 端只上传 PDF、轮询任务、消费 MusicXML
 - Dockerfile 仅包含 Python API 服务，部署时仍需安装或挂载 Audiveris 运行时
+- OMR 只属于受控开发路径，不进入根默认双入口或独立 K.478 TestFlight 候选
 
 ### Tempo Follow (`lib/core/follow/`)
-- `midi_follow_mode_session.dart` — **保留高级演奏台使用的跟随会话，当前首页不可达**。消费 USB MIDI Note On，驱动 `FollowModeController`；聚合选中的多条电子琴轨，启动时一起静音，退出时恢复用户原始静音状态
+- `midi_follow_mode_session.dart` — **默认 K.478 首页可达的高级演奏台跟随会话**。消费 USB MIDI Note On，驱动 `FollowModeController`；聚合选中的多条电子琴轨，启动时一起静音，退出时恢复用户原始静音状态
 - `pitch_input.dart` — `PitchInput` 抽象接口（`pitchStream`、`start()`、`dispose()`）
 - `microphone_input.dart` — `MicrophoneInput` 实现 `PitchInput`。`flutter_audio_capture` → `pitch_detector_dart`（YIN 算法）→ 输出 `Stream<PitchData>`。流控（处理中跳过新帧）、RMS 音量计算
 - `onset_detector.dart` — 纯 Dart 的 onset 检测器。输入 `PitchData` 流，输出 `Stream<OnsetEvent>`。含 `PitchData` 和 `OnsetEvent` 数据模型。检测逻辑：音量/精度阈值 + 去抖（80ms）+ 静音帧计数
@@ -169,9 +170,10 @@ flutter test
 - `CoreMidiInputPlugin.swift` — 直接使用 iOS CoreMIDI，自动连接当前全部 MIDI 输入源，处理热插拔与 running status；当前产品仅使用 Note On
 
 ### UI Layer (`lib/ui/`)
-- `pages/home_page.dart` — 首页。通过可注入的 `ScoreFilePicker` 与 `ScoreImportService` 选择并导入 MIDI/MusicXML/PDF；所有格式统一进入 `ScorePracticePage`，首页不预加载播放器会话
+- `pages/home_page.dart` — 默认 K.478 首页，提供两个明确入口：“查看交互五线谱”进入 `ScorePracticePage`，“开始 USB MIDI 排练”进入 `PlayerPage`
+- `pages/home_page_legacy.dart` — 非默认通用曲库/导入页；通过可注入的 `ScoreFilePicker` 与 `ScoreImportService` 导入 MIDI/MusicXML/PDF。它的可达能力不得写成默认首页承诺
 - `pages/score_practice_page.dart` — 统一谱面练习页。以单一 `InteractiveScoreView`、悬浮 `ScoreZoomControls` 和固定 `ScoreTransportBar` 组成主界面；MIDI 等待设置加载后自动生成默认谱并支持无损多选总谱，MusicXML/PDF 保持直接路径；异步载入前用 `clearScore()` 隔离旧曲，失败态可重试且不泄漏上一曲
-- `pages/player_page.dart` — 保留的旧高级演奏台。初始化 USB MIDI、展示连接状态并管理 `MidiFollowModeSession`；用户 seek 后同步跟随会话重对齐，但首页导入不再导航至此页
+- `pages/player_page.dart` — USB MIDI 高级演奏台。初始化输入、展示连接状态并管理 `MidiFollowModeSession`；用户 seek 后同步跟随会话重对齐
 - `widgets/interactive_score_view.dart` — 离线 MusicXML 谱面表面，负责加载/错误/暂无谱面状态，并通过受控 renderer port 与本地 OSMD 桥接；缩放使用 OSMD 原生 Zoom 重排，renderer ready、载入和缩放请求各自按代际收敛，连续缩放在桥接层以 80ms 空闲窗口合并为最后一次全量排版
 - `widgets/score_zoom_controls.dart` — 固定栏上方的紧凑缩放控件；默认 70%，按 10% 在 50%–140% 间调整并提供中文语义与 44pt 点击区
 - `widgets/score_transport_bar.dart` — 练习页固定控制栏，提供前后小节、播放/暂停、速度和 AB 循环
@@ -183,10 +185,13 @@ flutter test
 - `widgets/soundfont_banner.dart` — SoundfontBanner（音色下载/重试横幅）
 - `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
 - `widgets/midi_piano_roll.dart` — 解析后 MIDI 的实时钢琴卷帘组件，保留给旧高级演奏台；不是练习页主视图
-- `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，保留组件不作为练习页主视图；PDF 导入须先经 OMR 生成 MusicXML
+- `widgets/pdf_score_viewer.dart` — 未接入默认 root 页面的一段旧分页组件；根练习页不得恢复为直接 PDF/PNG 显示，PDF 导入须先经 OMR 生成 MusicXML
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests（截至 2026-08-15，Flutter 3.44.1 / Dart 3.12.1 验证记录全量 311 项；新增测试后刷新）
+### Tests
+
+测试总数、Flutter/Dart 版本和通过结果必须由当前 commit 的实际命令输出刷新；
+不要把历史数字写成合并后的验证结果。
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
@@ -206,7 +211,7 @@ flutter test
 - `score_practice_page_test.dart` / `score_zoom_controls_test.dart` / `home_score_navigation_test.dart` — 自动记谱、生成/错误/重试、无损换谱、缩放边界与布局、默认保存、竞态隔离和首页导入导航回归
 - `score_part_picker_test.dart` — 声部多选、默认动作、输入快照、中文语义及横屏大字号滚动回归
 - `widget_test.dart` — App smoke test
-- `integration_test/midi_notation_render_test.dart` — 不计入上述 311 项；在 iOS WebView 用生产 `InteractiveScoreView` 等待本地 OSMD `ready` 和非空 layout，覆盖 dotted/triplet/tie、multi-voice、grand-staff、percussion、50%/70% 原生缩放、CSS rect、resize 与缩放后非首小节 gesture 命中
+- `integration_test/midi_notation_render_test.dart` — 独立于根单元/Widget 测试；在 iOS WebView 用生产 `InteractiveScoreView` 等待本地 OSMD `ready` 和非空 layout，覆盖 dotted/triplet/tie、multi-voice、grand-staff、percussion、50%/70% 原生缩放、CSS rect、resize 与缩放后非首小节 gesture 命中
 
 测试使用 `Completer` 做异步时序控制，Fake 实现（`_FakeMidiPlaybackEngine`、`_FakePitchInput`、`_FakePlaybackTarget`、`_FakeAudioCaptureAdapter`、`_FakeMidiPro`）覆盖完整。
 
@@ -222,13 +227,23 @@ flutter test
 - 离线 OSMD 运行时、桥接页与许可证随 Flutter asset bundle 打包；运行时不加载远程脚本。
 
 ### Assets (`assets/scores/`)
-- `mozart_k478_piano_part.pdf` 与 `mozart_k478_piano_part/page-01.png` 至 `page-21.png` — K.478 同源公版钢琴分谱及相关资源；可作为 OMR 输入或素材留存，不是练习页直接展示的谱面来源；来源、许可和使用边界见 `docs/demo_assets.md`
+- `mozart_k478_piano_part.pdf` 与 `mozart_k478_piano_part/page-01.png` 至 `page-21.png` — K.478 同源对照/OMR 开发素材，不是根练习页的显示来源；根 `pubspec.yaml` 若仍声明 PNG 目录，发布前必须按资产台账移除或给出分发理由
+
+### 独立 K.478 TestFlight 候选
+
+- `apps/testflight_ios/` 是 iPhone-only、iOS 13.0+ 的独立 host。
+- `packages/k478_practice/` 提供固定 K.478、21 张静态 PNG 分谱、离线
+  Violin/Cello SF2 和候选播放器；不包含根 App 的 OSMD 交互谱面。
+- `packages/core_midi_input/` 提供候选 CoreMIDI 输入边界。
+- 根 App 与候选 App 的依赖、资产白名单、测试、真机与签名 IPA 证据分别验收，
+  不能互相替代。对应清单为 `docs/release_checklist.md` 和
+  `docs/releases/k478_testflight_checklist.md`。
 
 ---
 
 ## iOS Specifics
 
-- **部署目标**: iOS 13.6（`Podfile` 中指定）
+- **部署目标**: 根 App 为 iOS 13.6（根 `Podfile`）；独立候选为 iOS 13.0+
 - **CocoaPods 镜像**: `https://mirrors.tuna.tsinghua.edu.cn/git/CocoaPods/Specs.git`
 - **音频会话**: AppDelegate 配置 `playback` + `mixWithOthers`；电子琴自行发声，当前 demo 不占用麦克风
 - **USB MIDI**: `CoreMidiInputPlugin.swift` 使用系统 CoreMIDI，无第三方 MIDI 输入依赖
@@ -248,7 +263,7 @@ flutter test
 - **SoundFont**: 首次运行自动从 CDN 下载 TimGM6mb.sf2（~6MB），缓存到应用目录，3 个后备 URL
 - **依赖注入**: `MidiPlayerController`、`MidiEngine`、`MicrophoneInput` 等均支持通过构造函数注入替代实现，便于测试
 - **异步错误处理**: 引擎操作（NoteOn/NoteOff/ProgramChange）通过 `_fireAndForget()` 统一调度，失败时触达 `onPlaybackError` 回调；UI 端以红色横幅展示 4 秒后自动消失
-- **PlayerPage 现状**: 保留的高级演奏台当前约 587 行；首页不再导航到此页，改动 UI 时优先定位对应页面或 widget
+- **PlayerPage 现状**: USB MIDI 高级演奏台约 587 行；默认 K.478 首页可达，改动 UI 时优先定位对应页面或 widget
 
 ---
 

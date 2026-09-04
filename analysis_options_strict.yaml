@@ -1,0 +1,26 @@
+# Shared strict analysis rules for every Flutter app and package in this repo.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    unused_import: error
+    unused_local_variable: warning
+
+linter:
+  rules:
+    - unawaited_futures
+    - avoid_void_async
+    - noop_primitive_operations
+    - require_trailing_commas
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - annotate_overrides
+    - use_key_in_widget_constructors
+    - avoid_unnecessary_containers
+    - sort_child_properties_last
+    - avoid_print
+    - eol_at_end_of_file

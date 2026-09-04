@@ -12,7 +12,7 @@ import 'package:midi_music/core/settings/app_settings.dart';
 import 'package:midi_music/models/midi_score_part.dart';
 import 'package:midi_music/models/midi_track.dart';
 import 'package:midi_music/models/score_session.dart';
-import 'package:midi_music/ui/pages/home_page.dart';
+import 'package:midi_music/ui/pages/home_page_legacy.dart';
 import 'package:midi_music/ui/pages/score_practice_page.dart';
 import 'package:midi_music/ui/widgets/interactive_score_view.dart';
 import 'package:provider/provider.dart';
@@ -114,7 +114,7 @@ void main() {
     await tester.tap(find.byKey(const Key('import-score')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.byType(ScoreLibraryPage), findsOneWidget);
     expect(find.byType(ScorePracticePage), findsNothing);
     expect(importer.paths, isEmpty);
     expect(find.byKey(const Key('import-score')), findsOneWidget);
@@ -159,7 +159,7 @@ void main() {
     await tester.tap(find.byKey(const Key('import-score')));
     await tester.pumpAndSettle();
 
-    expect(find.byType(HomePage), findsOneWidget);
+    expect(find.byType(ScoreLibraryPage), findsOneWidget);
     expect(find.byType(ScorePracticePage), findsNothing);
     expect(find.text('错误'), findsOneWidget);
     expect(find.textContaining('文件内容无法解析'), findsOneWidget);
@@ -180,7 +180,7 @@ Widget _appWithHome({
       ChangeNotifierProvider.value(value: settings),
     ],
     child: CupertinoApp(
-      home: HomePage(
+      home: ScoreLibraryPage(
         filePicker: picker,
         importService: importer,
         practiceSurfaceFactory: _fakeSurface,

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/midi/midi_player.dart';
+import 'package:midi_music/core/score/midi_player_score_playback_adapter.dart';
 import 'package:midi_music/core/score/score_playback_coordinator.dart';
 import 'package:midi_music/core/score/score_renderer_protocol.dart';
 
@@ -13,7 +14,10 @@ void main() {
     final port = RecordingRendererPort();
     final player = readyPlayer()..loadScore(interactiveSession());
     addTearDown(player.dispose);
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
 
     coordinator.handleMessage(
       const ScoreRendererMessage.layout(
@@ -49,7 +53,10 @@ void main() {
     final port = RecordingRendererPort();
     final player = readyPlayer()..loadScore(partialSession());
     addTearDown(player.dispose);
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
 
     coordinator.handleMessage(
       const ScoreRendererMessage.layout(
@@ -87,7 +94,10 @@ void main() {
     final port = RecordingRendererPort();
     final player = readyPlayer()..loadScore(interactiveSession());
     addTearDown(player.dispose);
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
 
     coordinator.handleMessage(
       const ScoreRendererMessage.layout(
@@ -123,7 +133,10 @@ void main() {
     final port = RecordingRendererPort();
     final player = readyPlayer()..loadScore(interactiveSession());
     addTearDown(player.dispose);
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
 
     coordinator.syncFromPlayer();
     coordinator.syncFromPlayer();
@@ -138,7 +151,10 @@ void main() {
     final port = RecordingRendererPort();
     final player = readyPlayer()..loadScore(interactiveSession());
     addTearDown(player.dispose);
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
 
     coordinator.handleMessage(
       const ScoreRendererMessage.gestureEnd(
@@ -163,7 +179,10 @@ void main() {
     final port = RecordingRendererPort();
     final player = readyPlayer()..loadScore(interactiveSession());
     addTearDown(player.dispose);
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
 
     coordinator.handleMessage(
       const ScoreRendererMessage.layout(
@@ -203,7 +222,10 @@ void main() {
     final port = RecordingRendererPort();
     final player = readyPlayer()..loadScore(interactiveSession());
     addTearDown(player.dispose);
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
 
     coordinator.handleMessage(
       const ScoreRendererMessage.layout(
@@ -243,7 +265,10 @@ void main() {
     final port = ControllableRendererPort();
     final player = readyPlayer()..loadScore(interactiveSession());
     addTearDown(player.dispose);
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
     final uncaughtErrors = <Object>[];
 
     final zoneDone = Completer<void>();
@@ -281,7 +306,10 @@ void main() {
   test('空状态清除高亮去重，失败后可重试', () async {
     final port = ControllableRendererPort();
     final player = _MutableMeasurePlayer();
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
     final uncaughtErrors = <Object>[];
 
     final zoneDone = Completer<void>();
@@ -326,7 +354,10 @@ void main() {
     final port = RecordingRendererPort();
     final player = readyPlayer();
     addTearDown(player.dispose);
-    final coordinator = ScorePlaybackCoordinator(player: player, port: port);
+    final coordinator = ScorePlaybackCoordinator(
+      player: MidiPlayerScorePlaybackAdapter(player),
+      port: port,
+    );
 
     coordinator.syncFromPlayer();
     coordinator.syncFromPlayer();

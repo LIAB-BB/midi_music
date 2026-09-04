@@ -84,13 +84,13 @@ class PerformanceConsole extends StatelessWidget {
       player.isPlaying,
     );
     final followNote = switch (followState) {
-      FollowModeState.following => '伴奏正在跟随你的速度。',
+      FollowModeState.following => '排练进度正在跟随你的速度。',
       FollowModeState.waitingForOnset => '等待下一次起拍。',
       FollowModeState.idle =>
         isFollowMode
             ? '跟随已开启，等待电子琴输入。'
             : midiInputState.isConnected
-            ? 'USB MIDI 已就绪，可开启跟随。'
+            ? '已检测到 MIDI 输入；首轮试用仅验证 USB MIDI。'
             : '请将电子琴通过 USB MIDI 连接到 iPhone。',
     };
     final midiName = midiInputState.primaryDeviceName;
@@ -155,8 +155,8 @@ class PerformanceConsole extends StatelessWidget {
                 Expanded(
                   child: Text(
                     midiConnected
-                        ? 'USB MIDI · $midiName'
-                        : midiInputState.errorMessage ?? 'USB MIDI · 未检测到设备',
+                        ? 'CoreMIDI · $midiName'
+                        : midiInputState.errorMessage ?? 'CoreMIDI · 未检测到设备',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(

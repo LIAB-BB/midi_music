@@ -1,22 +1,14 @@
 import 'dart:async';
 
-import '../midi/midi_player.dart';
+import 'score_playback_port.dart';
+import 'score_renderer_port.dart';
 import 'score_renderer_protocol.dart';
-
-abstract class ScoreRendererPort {
-  Future<void> loadMusicXml(String musicXml);
-
-  Future<void> setZoom(double zoom);
-
-  Future<void> highlightMeasure(int ordinal, {required bool scrollIntoView});
-
-  Future<void> clearHighlight();
-}
 
 enum ScoreMessageHandlingResult { handled, ignored, unmappableMeasure }
 
+/// 在播放位置与谱面渲染器之间同步高亮和小节跳转。
 class ScorePlaybackCoordinator {
-  final MidiPlayerController player;
+  final ScorePlaybackPort player;
   final ScoreRendererPort port;
   int? _lastHighlightedOrdinal;
   bool _hasSynchronizedRenderer = false;
@@ -109,8 +101,7 @@ class ScorePlaybackCoordinator {
       }
       succeeded = true;
     } catch (_) {
-      // The renderer may be temporarily unavailable. Leave the last successful
-      // state unchanged so the next player sync can retry this command.
+      // 渲染器可能暂时不可用；下一次播放器同步会重试。
     } finally {
       if (succeeded) {
         _hasSynchronizedRenderer = true;

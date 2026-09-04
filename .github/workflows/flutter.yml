@@ -2,75 +2,120 @@ name: Flutter
 
 on:
   push:
-    branches:
-      - main
-      - master
   pull_request:
 
 jobs:
-  analyze-and-test:
+  root-app-checks:
+    # 根 App 集成交互五线谱与 USB MIDI；该 job 不能替代独立候选的门禁。
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.44.1"
+          flutter-version: '3.44.1'
           channel: stable
           cache: true
-
-      - name: Show Flutter version
-        run: flutter --version
-
-      - name: Verify release configuration
+      - name: Verify root release configuration
         run: |
           test -f pubspec.lock
           python - <<'PY'
           from pathlib import Path
-
           manifest = Path('android/app/src/main/AndroidManifest.xml').read_text()
           if 'android.permission.INTERNET' not in manifest:
               raise SystemExit('Android main manifest must declare INTERNET for release SoundFont downloads')
-
           gradle = Path('android/app/build.gradle.kts').read_text()
           if 'signingConfigs.getByName("debug")' in gradle:
               raise SystemExit('Release build must not use debug signing')
           PY
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --debug
 
-      - name: Install dependencies
-        run: flutter pub get --enforce-lockfile
-
-      - name: Format check
-        run: dart format --output=none --set-exit-if-changed .
-
-      - name: Analyze
-        run: flutter analyze
-
-      - name: Test
-        run: flutter test
-
-      - name: Android debug build
-        run: flutter build apk --debug
-
-  ios-build:
+  root-app-ios-build:
+    # 根 iOS App 的无签名构建检查。
     runs-on: macos-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.44.1"
+          flutter-version: '3.44.1'
           channel: stable
           cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: cd ios && LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 pod install --deployment
+      - run: flutter build ios --release --no-codesign
+      - name: Verify root Podfile.lock stayed immutable
+        run: git diff --exit-code -- ios/Podfile.lock
 
-      - name: Install dependencies
-        run: flutter pub get --enforce-lockfile
+  core-midi-input-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/core_midi_input
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+      # Package lockfiles are intentionally not committed.
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
 
-      - name: iOS no-codesign build
-        run: flutter build ios --release --no-codesign
+  k478-practice-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/k478_practice
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+      # Package lockfiles are intentionally not committed.
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+      - name: Verify committed K.478 score-page hashes
+        run: cd ../.. && sha256sum -c docs/evidence/k478_page_sha256.txt
+      - name: Install PDF renderer
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes poppler-utils
+      - name: Reproduce K.478 score pages from the verified PDF
+        run: cd ../.. && tool/verify_k478_score_pages.sh
+
+  testflight-ios-candidate:
+    runs-on: macos-latest
+    env:
+      COCOAPODS_SPECS_SOURCE: https://cdn.cocoapods.org/
+    defaults:
+      run:
+        working-directory: apps/testflight_ios
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+      - run: cd ios && LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 pod install --deployment
+      - run: flutter build ios --release --no-codesign
+      - name: Verify candidate Podfile.lock stayed immutable
+        run: git diff --exit-code -- ios/Podfile.lock
+      - name: Test candidate bundle-audit allowlist
+        run: ../../tool/test_verify_testflight_ios_bundle.sh
+      - name: Audit candidate Runner.app
+        run: ../../tool/verify_testflight_ios_bundle.sh build/ios/iphoneos/Runner.app

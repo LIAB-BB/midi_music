@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:midi_music/core/score/score_playback_coordinator.dart';
+import 'package:midi_music/core/score/score_renderer_port.dart';
 
 class RecordingRendererPort implements ScoreRendererPort {
   final List<String> loadedXml = [];
