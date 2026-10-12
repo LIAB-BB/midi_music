@@ -77,3 +77,11 @@ CI 不得将它们写成已完成。`CLAUDE.md` 若有用户未提交改动，�
 - `test/`：核心算法、引擎串行化、播放器调度、生命周期和 App smoke tests。
 
 更多模块风险等级、接口细节和测试说明见 `CLAUDE.md`。
+
+## Cursor Cloud specific instructions
+
+- Flutter 固定为 CI 使用的 3.44.1，Android SDK 在 `/opt/android-sdk`。`flutter` 与 `dart` 已放在 `/usr/local/bin`；登录 shell 也会从 `/etc/profile.d/flutter-android.sh` 读到 `ANDROID_HOME`。
+- Linux 环境可以验证根 host、`packages/core_midi_input`、`packages/k478_practice` 和 `apps/testflight_ios` 的 `flutter analyze` / `flutter test`，以及根 host 的 `flutter build apk --debug`。iOS 无签名构建、CocoaPods 和真机验收仍须在 macOS 上做。
+- `apps/testflight_ios` 已提交的 `pubspec.lock` 在 Flutter 3.44.1 上无法通过 `--enforce-lockfile`（`meta` 1.17.0、`test_api` 0.7.10 低于 SDK）。要分析或测试该 host，先执行不带 `--enforce-lockfile` 的 `flutter pub get`，并且不要把因此改写的锁文件提交，除非任务就是更新锁文件。
+- `tool/verify_k478_score_pages.sh` 需要已核验的 Poppler 26.05.0。本环境的 `pdftoppm` 是 24.02.0，不能做页面字节比对。谱页完整性用 `sha256sum -c docs/evidence/k478_page_sha256.txt`。
+- OMR 服务不在 K.478 候选路径内，环境不会启动它。
