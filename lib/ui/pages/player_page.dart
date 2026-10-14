@@ -11,9 +11,12 @@ import '../../core/diagnostics/diagnostic_logger.dart';
 import '../../core/midi/midi_player.dart';
 import '../../core/midi_input/ios_midi_input.dart';
 import '../../core/midi_input/midi_input.dart';
+import '../../core/notation/k478_score_alignment.dart';
+import '../../core/score/k478_measure_follow.dart';
 import '../../core/settings/app_settings.dart';
 import '../../models/midi_track.dart';
 import '../theme/luxury_theme.dart';
+import '../widgets/k478_measure_rail.dart';
 import '../widgets/performance_console.dart';
 import '../widgets/midi_piano_roll.dart';
 import '../widgets/player_helpers.dart';
@@ -130,15 +133,54 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
   final Set<int> _performerTrackIndices = {};
   String? _playbackError;
   Timer? _errorDismissTimer;
+  K478ScoreAlignment? _alignment;
+  K478MeasureFollow? _measureFollow;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.player.onPlaybackError = _onPlaybackError;
+    _bindAlignment();
     _midiInput = IosMidiInput();
     _midiStateSubscription = _midiInput.states.listen(_handleMidiInputState);
     unawaited(_initializeMidiInput());
+  }
+
+  @override
+  void didUpdateWidget(_PlayerBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.player.songData, widget.player.songData)) {
+      _bindAlignment();
+    }
+  }
+
+  void _bindAlignment() {
+    final song = widget.player.songData;
+    if (song == null) {
+      _alignment = null;
+      _measureFollow = null;
+      return;
+    }
+    if (identical(_alignment?.song, song)) return;
+    try {
+      final alignment = K478ScoreAlignment.compile(song);
+      _alignment = alignment;
+      _measureFollow = K478MeasureFollow(
+        alignment: alignment,
+        seekToTime: (seconds) {
+          _seekTo(seconds);
+          return true;
+        },
+      );
+    } on StateError {
+      _alignment = null;
+      _measureFollow = null;
+    }
+  }
+
+  void _seekToMeasure(int ordinal) {
+    _measureFollow?.seekToMeasure(ordinal);
   }
 
   void _handleMidiInputState(MidiInputState state) {
@@ -516,6 +558,14 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
             followSpeedFactor: _followSpeedFactor,
             onSeek: _seekTo,
           ),
+          if (_alignment != null && _measureFollow != null) ...[
+            const SizedBox(height: 14),
+            K478MeasureRail(
+              alignment: _alignment!,
+              currentOrdinal: _measureFollow!.ordinalAt(player.currentTime),
+              onMeasureSelected: _isFollowMode ? null : _seekToMeasure,
+            ),
+          ],
           const SizedBox(height: 14),
           SizedBox(
             height: 254,

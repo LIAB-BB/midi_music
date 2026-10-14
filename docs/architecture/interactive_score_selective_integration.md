@@ -28,19 +28,20 @@
   `ScorePlaybackCoordinator`：用最小端口协调点击跳转、播放器位置高亮、
   自动跟随与暂时性渲染失败后的重试。
 
-这些能力目前仅位于根 Legacy host 的未接线领域层；没有页面、导航、导入入口或
-候选二进制引用它们。
+这些能力里，声部分析、选择、转换和渲染端口仍没有自己的页面。根演奏台已经接入
+`K478MeasureFollow` 和 `K478MeasureRail`：K.478 播放位置显示为当前 MIDI 小节，
+点选会跳到该小节起点；跟随开启时只显示不跳转。候选包、五线谱渲染和自动翻页
+仍未接入。
 
-`K478ScoreAlignment` 是第一条曲目对齐合同：它核对 Mutopia MIDI 的固定轨道
-（钢琴 4/5，弦乐 1/2/3）、派生钢琴 MusicXML，并要求每个演奏者音符落入与
-`MeasureMap` 相同的小节 tick。播放和跟随仍读取原始 `MidiSongData`。它还没有
-页面、翻页或候选包入口。
+`K478ScoreAlignment` 核对 Mutopia MIDI 的固定轨道（钢琴 4/5，弦乐 1/2/3），
+派生仅用于显示的钢琴 MusicXML，并要求每个演奏者音符落入与 `MeasureMap`
+相同的小节 tick。播放和跟随仍读取原始 `MidiSongData`。
 
 ## 明确未移植
 
 - `InteractiveScoreView`、WebView、OSMD、`assets/score_renderer`；
 - 通用 MIDI/MusicXML/PDF 导入改造、OMR 和设置页面；
-- 首页、播放页、K.478 页面、release scope/checklist；
+- 首页、候选 K.478 页面、release scope/checklist；根演奏台只增加 MIDI 小节轨，不含五线谱渲染；
 - `apps/testflight_ios`、`packages/k478_practice`、
   `packages/core_midi_input` 及其依赖/锁文件；
 - 现有 `MidiPlayerController`、`MeasureMap`、`ScoreImportService`、
