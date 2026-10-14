@@ -22,6 +22,7 @@
   原始 `MidiSongData` 不被替换。
 - `MidiNotationService`：在 isolate 中执行分析/转换，支持取消与重建。
 - `ScoreSession`：保存原始播放数据、显示 MusicXML、小节映射状态与降级警告。
+- `K478ScoreAlignment`：把 K.478 的钢琴轨道 4/5 对齐到 MIDI 小节，并派生仅用于显示的钢琴 MusicXML。
 - `ScoreRendererMessage`：严格解析来自未来渲染器的布局、手势和错误消息。
 - `ScoreRendererPort`、`ScorePlaybackPort` 与
   `ScorePlaybackCoordinator`：用最小端口协调点击跳转、播放器位置高亮、
@@ -29,6 +30,11 @@
 
 这些能力目前仅位于根 Legacy host 的未接线领域层；没有页面、导航、导入入口或
 候选二进制引用它们。
+
+`K478ScoreAlignment` 是第一条曲目对齐合同：它核对 Mutopia MIDI 的固定轨道
+（钢琴 4/5，弦乐 1/2/3）、派生钢琴 MusicXML，并要求每个演奏者音符落入与
+`MeasureMap` 相同的小节 tick。播放和跟随仍读取原始 `MidiSongData`。它还没有
+页面、翻页或候选包入口。
 
 ## 明确未移植
 
