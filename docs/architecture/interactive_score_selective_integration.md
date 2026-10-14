@@ -37,7 +37,8 @@
 
 `PieceScoreAlignment` 按曲目包核对轨道、Program 和拍号，派生仅用于显示的演奏者
 MusicXML，并要求每个演奏者音符落入与 `MeasureMap` 相同的小节 tick。播放和跟随
-仍读取原始 `MidiSongData`。下一首曲子增加一份 JSON，不增加播放器分支。
+仍读取原始 `MidiSongData`。五线谱试排由 `PieceScoreGraphic` 和 `PieceScoreStrip` 完成：只画当前曲目包派生的
+MusicXML，点选仍走时间表。它不是 OSMD、Verovio 或候选包里的正式刻谱。
 
 ## 明确未移植
 

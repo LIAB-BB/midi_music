@@ -131,6 +131,7 @@ flutter test
 - `midi_to_musicxml_converter.dart` / `midi_notation_service.dart` — 有音符、轨道、小节与 XML 大小预算的派生转换；服务在 isolate 中运行，支持取消。不要把派生结果当作播放数据
 - `piece_manifest.dart` — 曲目包声明。轨道角色、拍号和演奏文件名来自 JSON，播放器按 `performanceFile` 选用
 - `piece_score_alignment.dart` — 按曲目包派生演奏者 MusicXML，并要求小节 tick 与 MIDI 小节线一致。原始 `MidiSongData` 仍是播放数据
+- `piece_score_graphic.dart` — 从曲目包 MusicXML 抽出双手谱小节，供试排绘制。不是 OSMD 正式刻谱
 - `k478_measure_follow.dart` — `PieceMeasureFollow` 把播放时间映射到曲目包小节，并按小节起点请求跳转。不依赖 `MidiPlayerController`
 - `score_renderer_protocol.dart` — 未来渲染器消息的严格解析合同
 - `score_renderer_port.dart` / `score_playback_port.dart` / `score_playback_coordinator.dart` — 渲染和播放通过最小端口解耦；协调器未依赖或改造 `MidiPlayerController`，目前无具体 renderer 或 UI 实现
@@ -166,7 +167,8 @@ flutter test
 - `widgets/track_salon.dart` — TrackSalon（轨道列表）、TrackTile（单轨道磁贴）
 - `widgets/soundfont_banner.dart` — SoundfontBanner（音色下载/重试横幅）
 - `widgets/player_helpers.dart` — 共享组件：SectionEyebrow、OrnamentLine、StatusBadge；工具函数：`followAccent()`、`followLabel()`、`formatClock()`、`displaySongTitle()`
-- `widgets/k478_measure_rail.dart` — 根演奏台的小节轨，读取当前曲目包。播放位置高亮当前小节，点选跳到小节起点；跟随开启时只显示不跳转。这不是五线谱渲染，候选包未接入
+- `widgets/k478_measure_rail.dart` — 根演奏台的小节轨，读取当前曲目包。播放位置高亮当前小节，点选跳到小节起点；跟随开启时只显示不跳转
+- `widgets/piece_score_strip.dart` — 根演奏台用曲目包 MusicXML 试排当前钢琴谱。点小节沿用时间表跳转。候选包未接入，也不是正式刻谱引擎
 - `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，支持翻页与双指缩放
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 

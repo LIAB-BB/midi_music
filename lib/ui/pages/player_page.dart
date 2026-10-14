@@ -19,6 +19,7 @@ import '../../core/settings/app_settings.dart';
 import '../../models/midi_track.dart';
 import '../theme/luxury_theme.dart';
 import '../widgets/k478_measure_rail.dart';
+import '../widgets/piece_score_strip.dart';
 import '../widgets/performance_console.dart';
 import '../widgets/midi_piano_roll.dart';
 import '../widgets/player_helpers.dart';
@@ -592,6 +593,12 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
             const SizedBox(height: 14),
             K478MeasureRail(
               alignment: _alignment!,
+              currentOrdinal: _measureFollow!.ordinalAt(player.currentTime),
+              onMeasureSelected: _isFollowMode ? null : _seekToMeasure,
+            ),
+            const SizedBox(height: 14),
+            PieceScoreStrip(
+              musicXml: _alignment!.musicXml,
               currentOrdinal: _measureFollow!.ordinalAt(player.currentTime),
               onMeasureSelected: _isFollowMode ? null : _seekToMeasure,
             ),
