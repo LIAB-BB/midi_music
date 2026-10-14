@@ -1,12 +1,12 @@
 import 'package:flutter/cupertino.dart';
 
-import '../../core/notation/k478_score_alignment.dart';
+import '../../core/notation/piece_score_alignment.dart';
 import '../theme/luxury_theme.dart';
 import 'player_helpers.dart';
 
-/// K.478 的小节轨。它显示 MIDI 小节位置，不渲染五线谱。
+/// 曲目包的小节轨。它显示时间表上的小节，不渲染五线谱。
 class K478MeasureRail extends StatefulWidget {
-  final K478ScoreAlignment alignment;
+  final PieceScoreAlignment alignment;
   final int currentOrdinal;
   final ValueChanged<int>? onMeasureSelected;
 

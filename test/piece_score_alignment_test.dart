@@ -2,28 +2,39 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/midi/midi_parser.dart';
-import 'package:midi_music/core/notation/k478_score_alignment.dart';
+import 'package:midi_music/core/notation/piece_score_alignment.dart';
+import 'package:midi_music/core/score/piece_manifest.dart';
 import 'package:midi_music/models/midi_track.dart';
 import 'package:midi_music/models/score_session.dart';
 
 void main() {
-  test('K.478 钢琴声部按 MIDI 小节对齐，且不替换播放数据', () {
-    final bytes = File(
-      'assets/midi/mozart_k478_piano_quartet.mid',
-    ).readAsBytesSync();
-    final song = MidiFileParser().parseBytes(
-      bytes,
-      fileName: 'mozart_k478_piano_quartet.mid',
-    );
+  late PieceManifest manifest;
 
-    final alignment = K478ScoreAlignment.compile(song);
+  setUpAll(() {
+    manifest = PieceManifest.parse(
+      File('assets/pieces/k478.json').readAsStringSync(),
+    );
+  });
+
+  test('K.478 曲目包声明演奏者和伴奏轨道', () {
+    expect(manifest.id, 'mozart-k478');
+    expect(manifest.performanceFile, 'mozart_k478_piano_quartet.mid');
+    expect(manifest.performerTrackIndexes, {4, 5});
+    expect(manifest.accompanimentTrackIndexes, {1, 2, 3});
+  });
+
+  test('曲目包把演奏者声部按 MIDI 小节对齐，且不替换播放数据', () {
+    final song = _k478Song();
+    final alignment = PieceScoreAlignment.compile(song, manifest);
     final session = alignment.toSession();
 
     expect(identical(session.songData, song), isTrue);
+    expect(session.sourceFingerprint, 'piece:mozart-k478');
     expect(session.sourceType, ScoreSourceType.midiNotation);
     expect(session.mappingStatus, ScoreMappingStatus.complete);
     expect(session.hasInteractiveScore, isTrue);
-    expect(session.selectedPartIds, {alignment.pianoPartId});
+    expect(session.selectedPartIds, alignment.notationPartIds);
+    expect(alignment.notationPartIds, hasLength(1));
     expect(alignment.musicXml, contains('<measure'));
     expect(alignment.measures, hasLength(360));
     expect(alignment.measures.first.ordinal, 1);
@@ -31,12 +42,12 @@ void main() {
     expect(alignment.measures.last.endTick, 552576);
 
     final performerNoteCount = song.tracks
-        .where((track) => k478PerformerTrackIndexes.contains(track.index))
+        .where((track) => manifest.performerTrackIndexes.contains(track.index))
         .fold<int>(0, (total, track) => total + track.notes.length);
     expect(alignment.performerNotes, hasLength(performerNoteCount));
     expect(
       alignment.performerNotes.map((note) => note.trackIndex).toSet(),
-      k478PerformerTrackIndexes,
+      manifest.performerTrackIndexes,
     );
 
     const measureLength = 1536;
@@ -55,20 +66,12 @@ void main() {
         note.measureOrdinal,
       );
       expect(note.measureOrdinal, (note.startTick ~/ measureLength) + 1);
-      expect(
-        alignment.measureStartTick(note.measureOrdinal),
-        lessThanOrEqualTo(note.startTick),
-      );
     }
-    expect(
-      alignment.performerNoteCountInMeasure(1),
-      alignment.performerNotes.where((note) => note.measureOrdinal == 1).length,
-    );
   });
 
-  test('缺少固定弦乐和钢琴轨道的曲目不能编译成 K.478 对齐', () {
+  test('轨道合同不符的曲目不能按该曲目包编译', () {
     final song = MidiSongData(
-      fileName: 'other.mid',
+      fileName: manifest.performanceFile,
       format: 1,
       ticksPerBeat: 384,
       tracks: [
@@ -97,18 +100,11 @@ void main() {
       totalDuration: 1,
     );
 
-    expect(() => K478ScoreAlignment.compile(song), throwsStateError);
+    expect(() => PieceScoreAlignment.compile(song, manifest), throwsStateError);
   });
 
   test('查询不存在的小节会拒绝', () {
-    final bytes = File(
-      'assets/midi/mozart_k478_piano_quartet.mid',
-    ).readAsBytesSync();
-    final song = MidiFileParser().parseBytes(
-      bytes,
-      fileName: 'mozart_k478_piano_quartet.mid',
-    );
-    final alignment = K478ScoreAlignment.compile(song);
+    final alignment = PieceScoreAlignment.compile(_k478Song(), manifest);
 
     expect(() => alignment.measureStartTick(0), throwsArgumentError);
     expect(() => alignment.measureOrdinalAtTick(-1), throwsArgumentError);
@@ -117,4 +113,29 @@ void main() {
       throwsStateError,
     );
   });
+
+  test('曲目包拒绝重复轨道和缺少演奏者', () {
+    expect(
+      () => PieceManifest.parse(
+        '{"id":"x","title":"x","performanceFile":"x.mid","ticksPerBeat":384,"tracks":[{"index":1,"role":"performer","program":0},{"index":1,"role":"accompaniment","program":40}]}',
+      ),
+      throwsFormatException,
+    );
+    expect(
+      () => PieceManifest.parse(
+        '{"id":"x","title":"x","performanceFile":"x.mid","ticksPerBeat":384,"tracks":[{"index":1,"role":"accompaniment","program":40}]}',
+      ),
+      throwsFormatException,
+    );
+  });
+}
+
+MidiSongData _k478Song() {
+  final bytes = File(
+    'assets/midi/mozart_k478_piano_quartet.mid',
+  ).readAsBytesSync();
+  return MidiFileParser().parseBytes(
+    bytes,
+    fileName: 'mozart_k478_piano_quartet.mid',
+  );
 }

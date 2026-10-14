@@ -2,11 +2,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/midi/midi_parser.dart';
-import 'package:midi_music/core/notation/k478_score_alignment.dart';
+import 'package:midi_music/core/notation/piece_score_alignment.dart';
 import 'package:midi_music/core/score/k478_measure_follow.dart';
+import 'package:midi_music/core/score/piece_manifest.dart';
 
 void main() {
-  late K478ScoreAlignment alignment;
+  late PieceScoreAlignment alignment;
 
   setUpAll(() {
     final bytes = File(
@@ -16,12 +17,15 @@ void main() {
       bytes,
       fileName: 'mozart_k478_piano_quartet.mid',
     );
-    alignment = K478ScoreAlignment.compile(song);
+    final manifest = PieceManifest.parse(
+      File('assets/pieces/k478.json').readAsStringSync(),
+    );
+    alignment = PieceScoreAlignment.compile(song, manifest);
   });
 
   test('播放时间落在对应小节，曲尾停在最后一小节', () {
     final seeks = <double>[];
-    final follow = K478MeasureFollow(
+    final follow = PieceMeasureFollow(
       alignment: alignment,
       seekToTime: (seconds) {
         seeks.add(seconds);
@@ -44,7 +48,7 @@ void main() {
   });
 
   test('跳转被播放器拒绝时不改变当前小节', () {
-    final follow = K478MeasureFollow(
+    final follow = PieceMeasureFollow(
       alignment: alignment,
       seekToTime: (_) => false,
     );

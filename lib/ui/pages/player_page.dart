@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/follow/follow_mode_controller.dart';
@@ -11,8 +12,9 @@ import '../../core/diagnostics/diagnostic_logger.dart';
 import '../../core/midi/midi_player.dart';
 import '../../core/midi_input/ios_midi_input.dart';
 import '../../core/midi_input/midi_input.dart';
-import '../../core/notation/k478_score_alignment.dart';
+import '../../core/notation/piece_score_alignment.dart';
 import '../../core/score/k478_measure_follow.dart';
+import '../../core/score/piece_manifest.dart';
 import '../../core/settings/app_settings.dart';
 import '../../models/midi_track.dart';
 import '../theme/luxury_theme.dart';
@@ -133,8 +135,9 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
   final Set<int> _performerTrackIndices = {};
   String? _playbackError;
   Timer? _errorDismissTimer;
-  K478ScoreAlignment? _alignment;
-  K478MeasureFollow? _measureFollow;
+  PieceScoreAlignment? _alignment;
+  PieceMeasureFollow? _measureFollow;
+  var _packageRequest = 0;
 
   @override
   void initState() {
@@ -157,25 +160,52 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
 
   void _bindAlignment() {
     final song = widget.player.songData;
+    final request = ++_packageRequest;
     if (song == null) {
       _alignment = null;
       _measureFollow = null;
       return;
     }
     if (identical(_alignment?.song, song)) return;
+    unawaited(_loadPiecePackage(song, request));
+  }
+
+  Future<void> _loadPiecePackage(MidiSongData song, int request) async {
     try {
-      final alignment = K478ScoreAlignment.compile(song);
-      _alignment = alignment;
-      _measureFollow = K478MeasureFollow(
-        alignment: alignment,
-        seekToTime: (seconds) {
-          _seekTo(seconds);
-          return true;
-        },
-      );
-    } on StateError {
-      _alignment = null;
-      _measureFollow = null;
+      PieceManifest? manifest;
+      for (final asset in bundledPieceManifestAssets) {
+        final parsed = PieceManifest.parse(await rootBundle.loadString(asset));
+        if (parsed.performanceFile == song.fileName) {
+          manifest = parsed;
+          break;
+        }
+      }
+      if (!mounted || request != _packageRequest) return;
+      if (manifest == null) {
+        setState(() {
+          _alignment = null;
+          _measureFollow = null;
+        });
+        return;
+      }
+      final alignment = PieceScoreAlignment.compile(song, manifest);
+      if (!mounted || request != _packageRequest) return;
+      setState(() {
+        _alignment = alignment;
+        _measureFollow = PieceMeasureFollow(
+          alignment: alignment,
+          seekToTime: (seconds) {
+            _seekTo(seconds);
+            return true;
+          },
+        );
+      });
+    } on Object {
+      if (!mounted || request != _packageRequest) return;
+      setState(() {
+        _alignment = null;
+        _measureFollow = null;
+      });
     }
   }
 

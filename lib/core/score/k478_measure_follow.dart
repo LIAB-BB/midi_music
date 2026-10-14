@@ -1,19 +1,19 @@
 import '../../models/score_session.dart';
 import '../midi/tempo_map.dart';
-import '../notation/k478_score_alignment.dart';
+import '../notation/piece_score_alignment.dart';
 import 'score_playback_port.dart';
 
-/// 把 K.478 的小节对齐接到播放时间。
+/// 把曲目包的小节对齐接到播放时间。
 ///
 /// 不依赖具体播放器：调用方用 [seekToTime] 执行跳转，用 [ordinalAt] 读取当前位置。
-class K478MeasureFollow implements ScorePlaybackPort {
-  final K478ScoreAlignment alignment;
+class PieceMeasureFollow implements ScorePlaybackPort {
+  final PieceScoreAlignment alignment;
   final bool Function(double seconds) seekToTime;
   final TempoMap _tempoMap;
   final ScoreSession _session;
   double _currentTime;
 
-  K478MeasureFollow({
+  PieceMeasureFollow({
     required this.alignment,
     required this.seekToTime,
     double currentTime = 0,
@@ -34,7 +34,7 @@ class K478MeasureFollow implements ScorePlaybackPort {
   int ordinalAt(double seconds) {
     final measures = alignment.measures;
     if (measures.isEmpty) {
-      throw StateError('K.478 对齐结果没有小节');
+      throw StateError('曲目包对齐结果没有小节');
     }
     final duration = alignment.song.totalDuration;
     final safeSeconds = seconds.isFinite ? seconds.clamp(0.0, duration) : 0.0;

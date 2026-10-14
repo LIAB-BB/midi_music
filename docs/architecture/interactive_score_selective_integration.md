@@ -22,20 +22,22 @@
   原始 `MidiSongData` 不被替换。
 - `MidiNotationService`：在 isolate 中执行分析/转换，支持取消与重建。
 - `ScoreSession`：保存原始播放数据、显示 MusicXML、小节映射状态与降级警告。
-- `K478ScoreAlignment`：把 K.478 的钢琴轨道 4/5 对齐到 MIDI 小节，并派生仅用于显示的钢琴 MusicXML。
+- `PieceManifest`：曲目包 JSON。声明演奏文件、演奏者轨道和伴奏轨道。
+- `PieceScoreAlignment`：按曲目包派生演奏者 MusicXML，并把演奏者音符对齐到 MIDI 小节。
+  K.478 的轨道 4/5 与 1/2/3 写在 `assets/pieces/k478.json`，不写进编译器。
 - `ScoreRendererMessage`：严格解析来自未来渲染器的布局、手势和错误消息。
 - `ScoreRendererPort`、`ScorePlaybackPort` 与
   `ScorePlaybackCoordinator`：用最小端口协调点击跳转、播放器位置高亮、
   自动跟随与暂时性渲染失败后的重试。
 
-这些能力里，声部分析、选择、转换和渲染端口仍没有自己的页面。根演奏台已经接入
-`K478MeasureFollow` 和 `K478MeasureRail`：K.478 播放位置显示为当前 MIDI 小节，
-点选会跳到该小节起点；跟随开启时只显示不跳转。候选包、五线谱渲染和自动翻页
-仍未接入。
+这些能力里，声部分析、选择、转换和渲染端口仍没有自己的页面。根演奏台按
+`assets/pieces/k478.json` 加载曲目包，用 `PieceMeasureFollow` 和 `K478MeasureRail`
+显示当前 MIDI 小节，点选会跳到该小节起点；跟随开启时只显示不跳转。候选包、
+五线谱渲染和自动翻页仍未接入。
 
-`K478ScoreAlignment` 核对 Mutopia MIDI 的固定轨道（钢琴 4/5，弦乐 1/2/3），
-派生仅用于显示的钢琴 MusicXML，并要求每个演奏者音符落入与 `MeasureMap`
-相同的小节 tick。播放和跟随仍读取原始 `MidiSongData`。
+`PieceScoreAlignment` 按曲目包核对轨道、Program 和拍号，派生仅用于显示的演奏者
+MusicXML，并要求每个演奏者音符落入与 `MeasureMap` 相同的小节 tick。播放和跟随
+仍读取原始 `MidiSongData`。下一首曲子增加一份 JSON，不增加播放器分支。
 
 ## 明确未移植
 

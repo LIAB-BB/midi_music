@@ -3,21 +3,26 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:midi_music/core/midi/midi_parser.dart';
-import 'package:midi_music/core/notation/k478_score_alignment.dart';
+import 'package:midi_music/core/notation/piece_score_alignment.dart';
+import 'package:midi_music/core/score/piece_manifest.dart';
 import 'package:midi_music/ui/widgets/k478_measure_rail.dart';
 
 void main() {
-  late K478ScoreAlignment alignment;
+  late PieceScoreAlignment alignment;
 
   setUpAll(() {
     final bytes = File(
       'assets/midi/mozart_k478_piano_quartet.mid',
     ).readAsBytesSync();
-    alignment = K478ScoreAlignment.compile(
+    final manifest = PieceManifest.parse(
+      File('assets/pieces/k478.json').readAsStringSync(),
+    );
+    alignment = PieceScoreAlignment.compile(
       MidiFileParser().parseBytes(
         bytes,
         fileName: 'mozart_k478_piano_quartet.mid',
       ),
+      manifest,
     );
   });
 
