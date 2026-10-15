@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src data:; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #161311;
+        color: #f6f0e6;
+      }
+      #score {
+        position: relative;
+      }
+      #highlight {
+        position: absolute;
+        display: none;
+        border: 2px solid #f0d8a0;
+        background: rgba(211, 176, 109, 0.18);
+        pointer-events: none;
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="score"></div>
+    <div id="highlight"></div>
+    <script>
+      (function () {
+        const score = document.getElementById('score');
+        const highlight = document.getElementById('highlight');
+        let osmd = null;
+        let rects = [];
+
+        function post(message) {
+          if (window.ScoreRenderer && ScoreRenderer.postMessage) {
+            ScoreRenderer.postMessage(JSON.stringify(message));
+          }
+        }
+
+        function fail(error) {
+          const text = String((error && error.message) || error || '刻谱失败');
+          post({ type: 'error', message: text.slice(0, 500) });
+        }
+
+        function collect() {
+          const unit = 10 * (osmd.zoom || 1);
+          const list = osmd.GraphicSheet.MeasureList;
+          rects = [];
+          for (let index = 0; index < list.length; index++) {
+            let left = Infinity;
+            let top = Infinity;
+            let right = -Infinity;
+            let bottom = -Infinity;
+            for (const staff of list[index]) {
+              const shape = staff && staff.PositionAndShape;
+              if (!shape || !shape.AbsolutePosition || !shape.Size) continue;
+              const x = shape.AbsolutePosition.x * unit;
+              const y = shape.AbsolutePosition.y * unit;
+              const width = Math.abs(shape.Size.width * unit);
+              const height = Math.abs(shape.Size.height * unit);
+              left = Math.min(left, x);
+              top = Math.min(top, y);
+              right = Math.max(right, x + width);
+              bottom = Math.max(bottom, y + height);
+            }
+            if (!isFinite(left) || right - left < 1 || bottom - top < 1) {
+              continue;
+            }
+            rects.push({
+              ordinal: index + 1,
+              left: left,
+              top: top,
+              width: right - left,
+              height: bottom - top,
+            });
+          }
+          post({ type: 'layout', complete: true, measures: rects });
+        }
+
+        window.loadMusicXml = function (xml) {
+          try {
+            const library = window.opensheetmusicdisplay;
+            if (!library || !library.OpenSheetMusicDisplay) {
+              fail('OpenSheetMusicDisplay 未载入');
+              return;
+            }
+            score.innerHTML = '';
+            osmd = new library.OpenSheetMusicDisplay(score, {
+              backend: 'svg',
+              autoResize: true,
+              drawTitle: false,
+              drawPartNames: false,
+            });
+            osmd
+              .load(xml)
+              .then(function () {
+                osmd.render();
+                collect();
+                post({ type: 'ready' });
+              })
+              .catch(fail);
+          } catch (error) {
+            fail(error);
+          }
+        };
+
+        window.highlightMeasure = function (ordinal, scrollIntoView) {
+          const rect = rects.find(function (item) {
+            return item.ordinal === ordinal;
+          });
+          if (!rect) return;
+          highlight.style.display = 'block';
+          highlight.style.left = rect.left + 'px';
+          highlight.style.top = rect.top + 'px';
+          highlight.style.width = rect.width + 'px';
+          highlight.style.height = rect.height + 'px';
+          if (scrollIntoView) {
+            window.scrollTo(0, Math.max(0, rect.top - 12));
+          }
+        };
+
+        window.clearHighlight = function () {
+          highlight.style.display = 'none';
+        };
+
+        window.setZoom = function (zoom) {
+          if (!osmd) return;
+          osmd.zoom = zoom;
+          osmd.render();
+          collect();
+        };
+
+        let pointer = null;
+        score.addEventListener('pointerdown', function (event) {
+          pointer = {
+            x: event.clientX,
+            y: event.clientY,
+            t: Date.now(),
+          };
+        });
+        score.addEventListener('pointerup', function (event) {
+          if (!pointer) return;
+          const origin = score.getBoundingClientRect();
+          post({
+            type: 'gestureEnd',
+            x: event.clientX - origin.left + window.scrollX,
+            y: event.clientY - origin.top + window.scrollY,
+            travel: Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y),
+            durationMs: Date.now() - pointer.t,
+            pointerCount: 1,
+          });
+          pointer = null;
+        });
+      })();
+    </script>
+  </body>
+</html>
