@@ -133,6 +133,7 @@ flutter test
 - `piece_score_alignment.dart` — 按曲目包派生演奏者 MusicXML，并要求小节 tick 与 MIDI 小节线一致。原始 `MidiSongData` 仍是播放数据
 - `piece_score_graphic.dart` — 从曲目包 MusicXML 抽出双手谱小节，供试排绘制。不是 OSMD 正式刻谱
 - `k478_measure_follow.dart` — `PieceMeasureFollow` 把播放时间映射到曲目包小节，并按小节起点请求跳转。不依赖 `MidiPlayerController`
+- `osmd_score_renderer.dart` — 本地 OpenSheetMusicDisplay 1.9.2 的命令端口。只加载随包脚本，导航拒绝外部地址。没有 WebView 的测试环境仍使用试排
 - `score_renderer_protocol.dart` — 未来渲染器消息的严格解析合同
 - `score_renderer_port.dart` / `score_playback_port.dart` / `score_playback_coordinator.dart` — 渲染和播放通过最小端口解耦；协调器未依赖或改造 `MidiPlayerController`，目前无具体 renderer 或 UI 实现
 - 详细边界、后续适配顺序与安全门槛见 `docs/architecture/interactive_score_selective_integration.md`。接入 WebView/OSMD、通用导入、OMR 或候选包前必须单独审阅

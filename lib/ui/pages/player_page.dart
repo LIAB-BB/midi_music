@@ -14,11 +14,15 @@ import '../../core/midi_input/ios_midi_input.dart';
 import '../../core/midi_input/midi_input.dart';
 import '../../core/notation/piece_score_alignment.dart';
 import '../../core/score/k478_measure_follow.dart';
+import '../../core/score/osmd_score_renderer.dart';
 import '../../core/score/piece_manifest.dart';
+import '../../core/score/score_playback_coordinator.dart';
+import '../../core/score/score_renderer_protocol.dart';
 import '../../core/settings/app_settings.dart';
 import '../../models/midi_track.dart';
 import '../theme/luxury_theme.dart';
 import '../widgets/k478_measure_rail.dart';
+import '../widgets/osmd_score_view.dart';
 import '../widgets/piece_score_strip.dart';
 import '../widgets/performance_console.dart';
 import '../widgets/midi_piano_roll.dart';
@@ -138,6 +142,9 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
   Timer? _errorDismissTimer;
   PieceScoreAlignment? _alignment;
   PieceMeasureFollow? _measureFollow;
+  OsmdScoreRenderer? _osmdRenderer;
+  ScorePlaybackCoordinator? _scoreCoordinator;
+  int? _engravedOrdinal;
   var _packageRequest = 0;
 
   @override
@@ -165,6 +172,9 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
     if (song == null) {
       _alignment = null;
       _measureFollow = null;
+      _osmdRenderer = null;
+      _scoreCoordinator = null;
+      _engravedOrdinal = null;
       return;
     }
     if (identical(_alignment?.song, song)) return;
@@ -186,28 +196,67 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
         setState(() {
           _alignment = null;
           _measureFollow = null;
+          _osmdRenderer = null;
+          _scoreCoordinator = null;
+          _engravedOrdinal = null;
         });
         return;
       }
       final alignment = PieceScoreAlignment.compile(song, manifest);
       if (!mounted || request != _packageRequest) return;
+      final renderer = OsmdScoreRenderer(onMessage: _handleScoreMessage);
+      final follow = PieceMeasureFollow(
+        alignment: alignment,
+        seekToTime: (seconds) {
+          if (_isFollowMode) return false;
+          _seekTo(seconds);
+          return true;
+        },
+      );
       setState(() {
         _alignment = alignment;
-        _measureFollow = PieceMeasureFollow(
-          alignment: alignment,
-          seekToTime: (seconds) {
-            _seekTo(seconds);
-            return true;
-          },
+        _measureFollow = follow;
+        _osmdRenderer = renderer;
+        _scoreCoordinator = ScorePlaybackCoordinator(
+          player: follow,
+          port: renderer,
         );
+        _engravedOrdinal = null;
       });
     } on Object {
       if (!mounted || request != _packageRequest) return;
       setState(() {
         _alignment = null;
         _measureFollow = null;
+        _osmdRenderer = null;
+        _scoreCoordinator = null;
+        _engravedOrdinal = null;
       });
     }
+  }
+
+  void _handleScoreMessage(ScoreRendererMessage message) {
+    final coordinator = _scoreCoordinator;
+    if (coordinator == null) return;
+    coordinator.handleMessage(message);
+    if (message.type == ScoreRendererMessageType.ready ||
+        message.type == ScoreRendererMessageType.layout) {
+      coordinator.syncFromPlayer(force: true);
+    }
+  }
+
+  void _syncEngraving(double seconds) {
+    final follow = _measureFollow;
+    final coordinator = _scoreCoordinator;
+    if (follow == null || coordinator == null || !osmdWebViewAvailable) return;
+    follow.syncTime(seconds);
+    final ordinal = follow.currentMeasureOrdinal;
+    if (ordinal == _engravedOrdinal) return;
+    _engravedOrdinal = ordinal;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scoreCoordinator?.syncFromPlayer();
+    });
   }
 
   void _seekToMeasure(int ordinal) {
@@ -567,6 +616,9 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
     final player = widget.player;
     final song = player.songData;
     if (song == null) return const SizedBox.shrink();
+    if (_measureFollow != null) {
+      _syncEngraving(player.currentTime);
+    }
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -597,11 +649,21 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
               onMeasureSelected: _isFollowMode ? null : _seekToMeasure,
             ),
             const SizedBox(height: 14),
-            PieceScoreStrip(
-              musicXml: _alignment!.musicXml,
-              currentOrdinal: _measureFollow!.ordinalAt(player.currentTime),
-              onMeasureSelected: _isFollowMode ? null : _seekToMeasure,
-            ),
+            if (osmdWebViewAvailable && _osmdRenderer != null)
+              SizedBox(
+                height: 420,
+                child: OsmdScoreView(
+                  key: ValueKey(_alignment!.manifest.id),
+                  renderer: _osmdRenderer!,
+                  musicXml: _alignment!.musicXml,
+                ),
+              )
+            else
+              PieceScoreStrip(
+                musicXml: _alignment!.musicXml,
+                currentOrdinal: _measureFollow!.ordinalAt(player.currentTime),
+                onMeasureSelected: _isFollowMode ? null : _seekToMeasure,
+              ),
           ],
           const SizedBox(height: 14),
           SizedBox(

@@ -30,6 +30,10 @@ class PieceMeasureFollow implements ScorePlaybackPort {
   @override
   int? get currentMeasureOrdinal => ordinalAt(_currentTime);
 
+  void syncTime(double seconds) {
+    _currentTime = seconds;
+  }
+
   /// 把播放时间换成小节序号。超过曲尾时停在最后一小节。
   int ordinalAt(double seconds) {
     final measures = alignment.measures;

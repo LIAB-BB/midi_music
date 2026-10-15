@@ -1,0 +1,5 @@
+OpenSheetMusicDisplay 1.9.2
+source: https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.9.2/build/opensheetmusicdisplay.min.js
+sha256: 54d8e763a75559f78308d09b7bf36cd33f538a280c3c816b34355240335d6630
+license: opensheetmusicdisplay.min.js.LICENSE.txt
+runtime: local asset only; the page forbids network connections
