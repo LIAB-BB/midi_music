@@ -61,16 +61,24 @@ class ScoreImportService {
   }
 
   String _extensionOf(String filePath) {
-    final fileName = filePath.split(Platform.pathSeparator).last;
+    final fileName = _basename(filePath);
     final dotIndex = fileName.lastIndexOf('.');
     if (dotIndex < 0) return '';
     return fileName.substring(dotIndex).toLowerCase();
   }
 
   String _basenameWithoutExtension(String filePath) {
-    final fileName = filePath.split(Platform.pathSeparator).last;
+    final fileName = _basename(filePath);
     final dotIndex = fileName.lastIndexOf('.');
     if (dotIndex < 0) return fileName;
     return fileName.substring(0, dotIndex);
+  }
+
+  /// 同时接受 `/` 与 `\`：Windows 上 `Directory.systemTemp.path` 可能是
+  /// 反斜杠，而调用方/测试可能用正斜杠拼接路径。
+  String _basename(String filePath) {
+    final normalized = filePath.replaceAll('\\', '/');
+    final segments = normalized.split('/');
+    return segments.isEmpty ? filePath : segments.last;
   }
 }
