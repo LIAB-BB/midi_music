@@ -148,13 +148,20 @@ flutter test
 - `follow_mode_session.dart` — **跟随模式会话**，串联 `PitchInput` → `OnsetDetector` → `FollowModeController` → `FollowPlaybackTarget` 的完整生命周期。防并发 start、dispose 打断 start、根据跟随状态自动控制播放器（休止时暂停、恢复时播放），支持 `resumeFromTime()` 在用户 seek 或连续未匹配时按当前播放时间重新对齐
 - `follow_playback_target.dart` — `FollowPlaybackTarget` 抽象 + `MidiFollowPlaybackTarget` 实现，适配 `MidiPlayerController`
 
+### Follow Engine v2（`packages/score_follow/`，实验）
+- 纯 Dart 在线多假设跟随内核：窗口匹配、速度 EMA、和弦尾音保护、漏音分支、
+  按“墙钟 × 速度”预测谱面时间的重新捕获、曲首锁谱窗口。
+- **尚未接入 `packages/k478_practice` 或候选二进制**；设计与 K.478 基准见
+  `docs/architecture/score_follow_v2.md`。
+- 验证命令：`cd packages/score_follow && dart pub get && dart analyze && dart test && dart run tool/benchmark.dart`。
+
 ### MIDI Input (`lib/core/midi_input/` + `ios/Runner/`)
 - `midi_input.dart` — 平台无关的设备、消息、状态模型和 `MidiInput` 接口
 - `ios_midi_input.dart` — MethodChannel/EventChannel 适配，管理设备状态和 MIDI 消息流
 - `CoreMidiInputPlugin.swift` — 直接使用 iOS CoreMIDI，自动连接当前全部 MIDI 输入源，处理热插拔与 running status；当前产品仅使用 Note On
 
 ### UI Layer (`lib/ui/`)
-- `pages/home_page.dart` — 首页，文件选择器（`file_picker`），通过 `ScoreImportService` 加载 MIDI/MusicXML/PDF 并跳转播放页，SoundFont 状态展示
+- `pages/home_page.dart` — 候选首页，仅 K.478 入口与 21 页分谱；文件选择器/导入只在未接线的 `home_page_legacy.dart`，不构成候选能力
 - `pages/score_practice_page.dart` — 曲库练习页。仅对当前 `songId` 对应曲目开放播放、seek 和调速；装饰性谱面明确标记为示意内容，未接线的循环、跟随、指法、移调和视奏入口不展示
 - `pages/player_page.dart` — 播放器页面。初始化 USB MIDI、展示连接状态并管理 `MidiFollowModeSession`；用户 seek 后同步跟随会话重对齐
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调
@@ -167,13 +174,14 @@ flutter test
 - `widgets/pdf_score_viewer.dart` — 已审核 PDF 分谱的离线分页阅读器，支持翻页与双指缩放
 - `theme/luxury_theme.dart` — 黑金主题。`LuxuryPalette`（颜色常量）、`LuxuryBackdrop`（渐变背景 + 光晕）、`LuxuryPanel`（圆角面板容器）、`luxuryDisplayStyle`（Georgia 展示字体）
 
-### Tests (`test/`，共 83 用例)
+### Tests (`test/`)
+用例数量以 `flutter test` 实际输出为准，不在文档中硬编码。
 - `midi_player_controller_test.dart` — 播放控制器调度测试（~24 用例，含 Program Change 追踪、轨道 index 查找、零音量/静音边界、播放异常上下文、同步/异步 NoteOn 失败清理）
 - `midi_engine_test.dart` — 引擎通道串行化测试（5 用例）
 - `midi_timeline_test.dart` — 事件排序和音符配对测试（2 用例）
 - `midi_parse_test.dart` — 解析真实 MIDI 文件测试（1 用例）
 - `musicxml_import_test.dart` — MusicXML/PDF 导入测试（4 用例，含服务端 OMR 任务协议 Fake 和钢琴二重奏多轨道）
-- `midi_regression_test.dart` — **MIDI 解析回归测试**（22 用例）：16 个合成 MIDI（Format 0/1、重叠音符、tempo/拍号、PPQ、边界）+ 6 个真实古典 MIDI（巴赫/莫扎特/肖邦/贝多芬，来自 BitMidi）
+- `midi_regression_test.dart` — **MIDI 解析回归测试**（22 用例）：16 个合成 MIDI（Format 0/1、重叠音符、tempo/拍号、PPQ、边界）+ 5 个真实古典 MIDI（巴赫/莫扎特/肖邦/贝多芬，来自 BitMidi）
 - `follow_mode_controller_test.dart` — 跟随算法测试（10 用例，含 seek/currentTime 重对齐、idle 恢复、seek 到长休止等待和连续未匹配重对齐请求）
 - `follow_mode_session_test.dart` — 跟随会话生命周期测试（9 用例，含长休止暂停恢复、按播放时间重对齐、seek 到长休止暂停等待、连续未匹配自动重对齐、dispose 回调清理）
 - `microphone_input_test.dart` — 麦克风输入生命周期测试（4 用例）
@@ -227,7 +235,7 @@ flutter test
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| flutter_midi_pro | ^3.1.4 | MIDI 引擎（SF2 播放） |
+| flutter_midi_pro | 根 ^3.1.4 / 候选 4.0.4 | MIDI 引擎（SF2 播放） |
 | dart_midi_pro | ^1.0.4 | MIDI 文件解析 |
 | flutter_audio_capture | ^1.1.11 | 麦克风音频输入 |
 | pitch_detector_dart | ^0.0.7 | 音高检测（YIN 算法） |
