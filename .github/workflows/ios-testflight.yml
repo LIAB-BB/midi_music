@@ -1,0 +1,234 @@
+name: iOS TestFlight
+
+# 手动构建、签名并（可选）上传 TestFlight。
+#
+# 需要的 GitHub Secrets：
+#   IOS_TEAM_ID                      Apple Developer Team ID
+#   IOS_DIST_CERT_P12_BASE64         Apple Distribution .p12（base64）
+#   IOS_DIST_CERT_PASSWORD           .p12 密码
+#   IOS_PROVISIONING_PROFILE_BASE64  App Store 描述文件（base64）
+#   IOS_PROVISIONING_PROFILE_NAME    描述文件名称（Xcode 里的 Name）
+#   APPSTORE_API_KEY_ID              App Store Connect API Key ID
+#   APPSTORE_API_ISSUER_ID           App Store Connect Issuer ID
+#   APPSTORE_API_PRIVATE_KEY_BASE64  AuthKey_*.p8（base64）
+#
+# 第一次建议 upload=false，只验证 archive/export；确认 IPA 后再开启上传。
+on:
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: "CFBundleShortVersionString；留空使用 pubspec 的版本"
+        required: false
+        default: ""
+      build_number:
+        description: "CFBundleVersion；留空使用 GITHUB_RUN_NUMBER"
+        required: false
+        default: ""
+      upload:
+        description: "上传到 TestFlight（false 只构建/导出 IPA）"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/testflight_ios
+    env:
+      BUNDLE_ID: com.liab.k478Testflight
+      KEYCHAIN_PATH: ${{ runner.temp }}/k478-signing.keychain-db
+      KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Validate secrets
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_PROVISIONING_PROFILE_NAME: ${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          APPSTORE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPSTORE_API_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in IOS_TEAM_ID IOS_DIST_CERT_P12_BASE64 IOS_DIST_CERT_PASSWORD IOS_PROVISIONING_PROFILE_BASE64 IOS_PROVISIONING_PROFILE_NAME; do
+            if [ -z "${!name}" ]; then
+              echo "::error::缺少 GitHub secret: $name"
+              missing=1
+            fi
+          done
+          if [ "${{ inputs.upload }}" = "true" ]; then
+            for name in APPSTORE_API_KEY_ID APPSTORE_API_ISSUER_ID APPSTORE_API_PRIVATE_KEY_BASE64; do
+              if [ -z "${!name}" ]; then
+                echo "::error::缺少 GitHub secret: $name"
+                missing=1
+              fi
+            done
+          fi
+          if [ "$missing" -ne 0 ]; then
+            echo "请按 docs/release/ios-testflight-ci.md 配置 Secrets。"
+            exit 1
+          fi
+
+      - name: Import distribution certificate
+        env:
+          CERT_B64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          echo "$CERT_B64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERT_PASSWORD" \
+            -A
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user | sed 's/^[[:space:]]*//'
+
+      - name: Install provisioning profile
+        env:
+          PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")
+          cp "$RUNNER_TEMP/profile.mobileprovision" \
+            "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          echo "Installed provisioning profile $PROFILE_UUID"
+
+      - name: Build signed archive
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          PROFILE_NAME: ${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER="${{ inputs.build_number }}"
+          if [ -z "$BUILD_NUMBER" ] || [ "$BUILD_NUMBER" = "null" ]; then
+            BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+          fi
+          VERSION="${{ inputs.marketing_version }}"
+          if [ -n "$VERSION" ] && [ "$VERSION" != "null" ]; then
+            flutter build ios --release --no-codesign \
+              --build-name="$VERSION" --build-number="$BUILD_NUMBER"
+          else
+            flutter build ios --release --no-codesign --build-number="$BUILD_NUMBER"
+          fi
+
+          cd ios
+          xcodebuild \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath ../build/Runner.xcarchive \
+            archive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH"
+
+      - name: Export signed IPA
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          PROFILE_NAME: ${{ secrets.IOS_PROVISIONING_PROFILE_NAME }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>${IOS_TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>signingCertificate</key>
+            <string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${PROFILE_NAME}</string>
+            </dict>
+            <key>uploadSymbols</key>
+            <true/>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>destination</key>
+            <string>export</string>
+          </dict>
+          </plist>
+          EOF
+          rm -rf build/ipa
+          xcodebuild -exportArchive \
+            -archivePath build/Runner.xcarchive \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath build/ipa
+          ls -l build/ipa
+
+      - name: Upload to TestFlight
+        if: ${{ inputs.upload }}
+        env:
+          API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+          API_PRIVATE_KEY_B64: ${{ secrets.APPSTORE_API_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$API_PRIVATE_KEY_B64" | base64 --decode > \
+            "$HOME/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8"
+          IPA=$(ls build/ipa/*.ipa | head -n 1)
+          xcrun altool --upload-app \
+            -f "$IPA" \
+            -t ios \
+            --apiKey "$API_KEY_ID" \
+            --apiIssuer "$API_ISSUER_ID" \
+            --verbose
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: k478-signed-ipa
+          path: apps/testflight_ios/build/ipa/*.ipa
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Cleanup signing material
+        if: always()
+        run: |
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/cert.p12" \
+                "$RUNNER_TEMP/profile.mobileprovision" \
+                "$RUNNER_TEMP/profile.plist" \
+                "$RUNNER_TEMP/ExportOptions.plist"
+          rm -rf "$HOME/.appstoreconnect/private_keys"
