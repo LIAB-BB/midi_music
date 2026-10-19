@@ -327,6 +327,33 @@ void main() {
     player.dispose();
   });
 
+  test('长时间卡顿后单次 tick 不会跳过大段谱面', () async {
+    var elapsed = Duration.zero;
+    final player = K478PlayerController(
+      engine: _FakeEngine(),
+      elapsedProvider: () => elapsed,
+    );
+    final song = MidiSongData(
+      fileName: 'stall.mid',
+      format: 1,
+      ticksPerBeat: 480,
+      tracks: const [],
+      timeline: const [],
+      tempoChanges: [TempoChange(tick: 0, microsecondsPerBeat: 500000)],
+      timeSignatureChanges: const [],
+      totalTicks: 9600,
+      totalDuration: 10,
+    );
+
+    await player.loadSong(song);
+    await player.play();
+    elapsed = const Duration(seconds: 10);
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+
+    expect(player.currentTime, lessThan(0.5));
+    player.dispose();
+  });
+
   test('播放、暂停、seek、速度和停止保持一致的会话状态', () async {
     final engine = _FakeEngine();
     final player = K478PlayerController(engine: engine);

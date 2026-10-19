@@ -25,8 +25,9 @@ Change、Note On、Note Off 进入引擎前过滤钢琴轨；回归测试覆盖�
 
 候选页面使用 `K478AdaptiveFollowSession`：把轨道 4/5 的 `MidiNote` 转成
 `score_follow` 的 `Score`，由多假设内核输出位置/速度/置信度。置信度达到
-0.5 才启动伴奏；普通匹配只调速，重新捕获或大漂移才 seek；拔掉 CoreMIDI
-设备会暂停并上报。
+0.5 才启动伴奏；普通匹配带 ±4% 相位修正，重新捕获或大漂移才 seek；
+所有声部都沉默的全局休止会 `pauseAt`；拔掉 CoreMIDI 设备会暂停并上报。
+播放器使用 `Stopwatch` 单调时钟，单次 tick 步进上限 250 ms。
 
 旧的 `K478MidiFollowSession` 与 `FollowModeController` 保留在包内，作为
 回退和对照；它们不参与候选页面，但仍由测试覆盖。多假设内核尚未完成

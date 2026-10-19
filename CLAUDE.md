@@ -152,8 +152,10 @@ flutter test
 - 纯 Dart 在线多假设跟随内核：窗口匹配、速度 EMA、和弦尾音保护、漏音分支、
   按“墙钟 × 速度”预测谱面时间的重新捕获、曲首锁谱窗口。
 - `packages/k478_practice/lib/src/core/k478_adaptive_follow_session.dart`
-  把它接入候选播放器：置信度 0.5 才启动、普通匹配只调速、重捕获/0.8 s
-  大漂移才 seek、拔线终止；候选页面默认使用该会话。
+  把它接入候选播放器：置信度 0.5 才启动、普通匹配带 ±4% 相位修正、重捕获/
+  0.8 s 大漂移才 seek、全局休止 `pauseAt`、拔线终止；候选页面默认使用该会话。
+- `K478PlayerController` 已改用 `Stopwatch` 单调时钟，单次 tick 步进上限
+  250 ms，避免后台恢复补发整段音符。
 - 旧 `K478MidiFollowSession` / `FollowModeController` 保留，作为回退和对照；
   原测试仍覆盖它们。
 - **尚未完成 iPhone + USB 电子琴真机验收**；设计与 K.478 基准见

@@ -44,14 +44,20 @@ class K478PlayerController extends ChangeNotifier {
   Completer<void>? _pauseAtCompleter;
   bool _pauseTransitionPending = false;
   Timer? _ticker;
-  DateTime? _lastTickAt;
-  DateTime? _lastUiNotifyAt;
+  final Stopwatch _clock = Stopwatch();
+  final Duration Function()? _elapsedProvider;
+  Duration? _lastElapsed;
+  Duration? _lastUiNotifyAt;
+  static const _maxTickDelta = Duration(milliseconds: 250);
   bool _disposed = false;
   bool _engineDisposeScheduled = false;
   final Map<_ActiveNoteKey, int> _activeNotes = {};
 
-  K478PlayerController({MidiPlaybackEngine? engine})
-    : _engine = engine ?? MidiEngine();
+  K478PlayerController({
+    MidiPlaybackEngine? engine,
+    Duration Function()? elapsedProvider,
+  }) : _engine = engine ?? MidiEngine(),
+       _elapsedProvider = elapsedProvider;
 
   MidiSongData? get song => _song;
   PlaybackState get state => _state;
@@ -239,8 +245,11 @@ class K478PlayerController extends ChangeNotifier {
   void _startTicker() {
     if (_disposed) return;
     _state = PlaybackState.playing;
-    _lastTickAt = DateTime.now();
-    _lastUiNotifyAt = _lastTickAt;
+    _clock
+      ..reset()
+      ..start();
+    _lastElapsed = Duration.zero;
+    _lastUiNotifyAt = Duration.zero;
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(milliseconds: 5), (_) => _onTick());
   }
@@ -249,18 +258,28 @@ class K478PlayerController extends ChangeNotifier {
     _state = state;
     _ticker?.cancel();
     _ticker = null;
-    _lastTickAt = null;
+    _clock.stop();
+    _lastElapsed = null;
     _lastUiNotifyAt = null;
+  }
+
+  Duration _elapsed() {
+    final provider = _elapsedProvider;
+    return provider != null ? provider() : _clock.elapsed;
   }
 
   void _onTick() {
     final song = _song;
-    final lastTickAt = _lastTickAt;
-    if (_disposed || song == null || lastTickAt == null || !isPlaying) return;
-    final now = DateTime.now();
-    _currentTime +=
-        now.difference(lastTickAt).inMicroseconds / 1000000 * _playbackSpeed;
-    _lastTickAt = now;
+    final lastElapsed = _lastElapsed;
+    if (_disposed || song == null || lastElapsed == null || !isPlaying) return;
+    final now = _elapsed();
+    var delta = now - lastElapsed;
+    if (delta < Duration.zero) delta = Duration.zero;
+    // 后台恢复/主 isolate 卡顿时，5 ms ticker 可能一次拿到几秒的 delta；
+    // 直接累加会补发整段音符。限制单次步进，剩下的交给跟随器的漂移保护。
+    if (delta > _maxTickDelta) delta = _maxTickDelta;
+    _currentTime += delta.inMicroseconds / 1000000 * _playbackSpeed;
+    _lastElapsed = now;
     final pauseAt = _pauseAtTime;
     if (pauseAt != null &&
         _currentTime >= pauseAt &&
@@ -277,8 +296,7 @@ class K478PlayerController extends ChangeNotifier {
     }
     _processEvents();
     final lastUiNotifyAt = _lastUiNotifyAt;
-    if (lastUiNotifyAt == null ||
-        now.difference(lastUiNotifyAt) >= _uiNotifyInterval) {
+    if (lastUiNotifyAt == null || now - lastUiNotifyAt >= _uiNotifyInterval) {
       _lastUiNotifyAt = now;
       _notifyListeners();
     }

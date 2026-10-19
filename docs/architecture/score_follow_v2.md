@@ -86,8 +86,13 @@
   不使用 CoreMIDI 的 host timestamp；
 - `confidence >= 0.5` 才启动伴奏；从上一个 onset 起播，避免切掉第一个
   弦乐起拍；
-- 普通匹配只 `setSpeed`；`reacquired` 时 seek/play；只有
-  `confidence >= 0.6` 且 `|drift| > 0.8 s` 才做一次大漂移 seek；
+- 普通匹配用 `correctFollowSpeed` 做 ±4% 的比例相位修正；`reacquired`
+  时 seek/play；只有 `confidence >= 0.6` 且 `|drift| > 0.8 s` 才做一次
+  大漂移 seek；
+- 播放器改用 `Stopwatch` 单调时钟，并限制单次 tick 步进 ≤250 ms，避免
+  后台恢复时补发整段音符；
+- 用全局休止计划（所有轨道都沉默）在休止边界 `pauseAt`；钢琴单独休止、
+  弦乐仍在进行时不会暂停伴奏；
 - 订阅 `MidiInput.states`，设备列表为空时暂停并回调 `onTerminated`；
 - 默认 `FollowConfig(minSpeed: 0.25, maxSpeed: 2)`，与播放器的变速范围
   对齐；
@@ -96,14 +101,11 @@
 
 ## 5. 仍未完成
 
-1. **连续相位反馈**：目前只有 0.8 s 的大漂移保护，没有 PLL/连续相位
-   控制；长曲目的慢漂移仍靠速度估计。
-2. **播放器单调时钟**：`K478PlayerController` 仍用 `DateTime.now()` 的
-   5 ms ticker，没有 delta 上限、前后台/音频中断处理。
-3. **休止/等待**：没有自动生成休止边界；候选仍不因钢琴休止而暂停伴奏。
-4. **EventChannel 生命周期**：没有引用计数；快速重进页面、锁屏/来电
+1. **完整 PLL**：相位控制仍是 ±4% 的比例修正，不是带积分/预测的 PLL；
+   长曲目的慢漂移仍依赖速度估计和 0.8 s seek 保护。
+2. **EventChannel 生命周期**：没有引用计数；快速重进页面、锁屏/来电
    恢复仍需真机验证。
-5. **真机验收**：iPhone + USB 电子琴、长休止、连续错音、跳页、锁屏/
+3. **真机验收**：iPhone + USB 电子琴、长休止、连续错音、跳页、锁屏/
    来电中断；不能用纯 Dart 模拟替代。
 
 ## 6. 已知边界
