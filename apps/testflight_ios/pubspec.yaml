@@ -49,6 +49,11 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
+  # 候选仍走 CocoaPods；core_midi_input 的 Package.swift 目标路径在
+  # 包根之外，Flutter 3.44 的 SPM 集成会拒绝。SPM 布局单独修好前，
+  # 这里显式关闭 SPM，避免 CI 的 no-codesign 构建被卡住。
+  config:
+    enable-swift-package-manager: false
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
