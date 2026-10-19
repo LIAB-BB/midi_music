@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/follow/follow_mode_controller.dart';
@@ -11,9 +12,18 @@ import '../../core/diagnostics/diagnostic_logger.dart';
 import '../../core/midi/midi_player.dart';
 import '../../core/midi_input/ios_midi_input.dart';
 import '../../core/midi_input/midi_input.dart';
+import '../../core/notation/piece_score_alignment.dart';
+import '../../core/score/k478_measure_follow.dart';
+import '../../core/score/osmd_score_renderer.dart';
+import '../../core/score/piece_manifest.dart';
+import '../../core/score/score_playback_coordinator.dart';
+import '../../core/score/score_renderer_protocol.dart';
 import '../../core/settings/app_settings.dart';
 import '../../models/midi_track.dart';
 import '../theme/luxury_theme.dart';
+import '../widgets/k478_measure_rail.dart';
+import '../widgets/osmd_score_view.dart';
+import '../widgets/piece_score_strip.dart';
 import '../widgets/performance_console.dart';
 import '../widgets/midi_piano_roll.dart';
 import '../widgets/player_helpers.dart';
@@ -130,15 +140,127 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
   final Set<int> _performerTrackIndices = {};
   String? _playbackError;
   Timer? _errorDismissTimer;
+  PieceScoreAlignment? _alignment;
+  PieceMeasureFollow? _measureFollow;
+  OsmdScoreRenderer? _osmdRenderer;
+  ScorePlaybackCoordinator? _scoreCoordinator;
+  int? _engravedOrdinal;
+  var _packageRequest = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.player.onPlaybackError = _onPlaybackError;
+    _bindAlignment();
     _midiInput = IosMidiInput();
     _midiStateSubscription = _midiInput.states.listen(_handleMidiInputState);
     unawaited(_initializeMidiInput());
+  }
+
+  @override
+  void didUpdateWidget(_PlayerBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.player.songData, widget.player.songData)) {
+      _bindAlignment();
+    }
+  }
+
+  void _bindAlignment() {
+    final song = widget.player.songData;
+    final request = ++_packageRequest;
+    if (song == null) {
+      _alignment = null;
+      _measureFollow = null;
+      _osmdRenderer = null;
+      _scoreCoordinator = null;
+      _engravedOrdinal = null;
+      return;
+    }
+    if (identical(_alignment?.song, song)) return;
+    unawaited(_loadPiecePackage(song, request));
+  }
+
+  Future<void> _loadPiecePackage(MidiSongData song, int request) async {
+    try {
+      PieceManifest? manifest;
+      for (final asset in bundledPieceManifestAssets) {
+        final parsed = PieceManifest.parse(await rootBundle.loadString(asset));
+        if (parsed.performanceFile == song.fileName) {
+          manifest = parsed;
+          break;
+        }
+      }
+      if (!mounted || request != _packageRequest) return;
+      if (manifest == null) {
+        setState(() {
+          _alignment = null;
+          _measureFollow = null;
+          _osmdRenderer = null;
+          _scoreCoordinator = null;
+          _engravedOrdinal = null;
+        });
+        return;
+      }
+      final alignment = PieceScoreAlignment.compile(song, manifest);
+      if (!mounted || request != _packageRequest) return;
+      final renderer = OsmdScoreRenderer(onMessage: _handleScoreMessage);
+      final follow = PieceMeasureFollow(
+        alignment: alignment,
+        seekToTime: (seconds) {
+          if (_isFollowMode) return false;
+          _seekTo(seconds);
+          return true;
+        },
+      );
+      setState(() {
+        _alignment = alignment;
+        _measureFollow = follow;
+        _osmdRenderer = renderer;
+        _scoreCoordinator = ScorePlaybackCoordinator(
+          player: follow,
+          port: renderer,
+        );
+        _engravedOrdinal = null;
+      });
+    } on Object {
+      if (!mounted || request != _packageRequest) return;
+      setState(() {
+        _alignment = null;
+        _measureFollow = null;
+        _osmdRenderer = null;
+        _scoreCoordinator = null;
+        _engravedOrdinal = null;
+      });
+    }
+  }
+
+  void _handleScoreMessage(ScoreRendererMessage message) {
+    final coordinator = _scoreCoordinator;
+    if (coordinator == null) return;
+    coordinator.handleMessage(message);
+    if (message.type == ScoreRendererMessageType.ready ||
+        message.type == ScoreRendererMessageType.layout) {
+      coordinator.syncFromPlayer(force: true);
+    }
+  }
+
+  void _syncEngraving(double seconds) {
+    final follow = _measureFollow;
+    final coordinator = _scoreCoordinator;
+    if (follow == null || coordinator == null || !osmdWebViewAvailable) return;
+    follow.syncTime(seconds);
+    final ordinal = follow.currentMeasureOrdinal;
+    if (ordinal == _engravedOrdinal) return;
+    _engravedOrdinal = ordinal;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scoreCoordinator?.syncFromPlayer();
+    });
+  }
+
+  void _seekToMeasure(int ordinal) {
+    _measureFollow?.seekToMeasure(ordinal);
   }
 
   void _handleMidiInputState(MidiInputState state) {
@@ -494,6 +616,9 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
     final player = widget.player;
     final song = player.songData;
     if (song == null) return const SizedBox.shrink();
+    if (_measureFollow != null) {
+      _syncEngraving(player.currentTime);
+    }
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -516,6 +641,30 @@ class _PlayerBodyState extends State<_PlayerBody> with WidgetsBindingObserver {
             followSpeedFactor: _followSpeedFactor,
             onSeek: _seekTo,
           ),
+          if (_alignment != null && _measureFollow != null) ...[
+            const SizedBox(height: 14),
+            K478MeasureRail(
+              alignment: _alignment!,
+              currentOrdinal: _measureFollow!.ordinalAt(player.currentTime),
+              onMeasureSelected: _isFollowMode ? null : _seekToMeasure,
+            ),
+            const SizedBox(height: 14),
+            if (osmdWebViewAvailable && _osmdRenderer != null)
+              SizedBox(
+                height: 420,
+                child: OsmdScoreView(
+                  key: ValueKey(_alignment!.manifest.id),
+                  renderer: _osmdRenderer!,
+                  musicXml: _alignment!.musicXml,
+                ),
+              )
+            else
+              PieceScoreStrip(
+                musicXml: _alignment!.musicXml,
+                currentOrdinal: _measureFollow!.ordinalAt(player.currentTime),
+                onMeasureSelected: _isFollowMode ? null : _seekToMeasure,
+              ),
+          ],
           const SizedBox(height: 14),
           SizedBox(
             height: 254,
