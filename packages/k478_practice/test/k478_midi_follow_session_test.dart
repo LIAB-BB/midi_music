@@ -368,7 +368,10 @@ void main() {
     expect(player.currentTime, closeTo(0.08, 0.01));
 
     input.addNote(62, at.add(const Duration(milliseconds: 600)));
-    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await _waitUntil(
+      () =>
+          player.state == PlaybackState.playing && engine.noteOns.contains(67),
+    );
     expect(session.state, FollowModeState.following);
     expect(player.state, PlaybackState.playing);
     expect(player.currentTime, greaterThanOrEqualTo(0.2));
@@ -443,4 +446,15 @@ void main() {
     expect(player.currentTime, 0);
     player.dispose();
   });
+}
+
+/// 旧会话测试使用真实计时器；慢 runner 上固定 10 ms 延迟不够稳定。
+Future<void> _waitUntil(bool Function() condition) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 2));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('condition not met within 2s');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 }
