@@ -47,6 +47,8 @@ jobs:
       BUNDLE_ID: com.liab.k478Testflight
       KEYCHAIN_PATH: ${{ runner.temp }}/k478-signing.keychain-db
       KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+      # Podfile 默认走清华镜像；GitHub macOS runner 在境外，用官方 CDN 更快。
+      COCOAPODS_SPECS_SOURCE: https://cdn.cocoapods.org/
     steps:
       - uses: actions/checkout@v4
 
