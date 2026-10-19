@@ -1,6 +1,13 @@
 # https://dart.dev/tools/analysis
 
 analyzer:
+  # 每个嵌套包/宿主都有自己的 pubspec 与 analysis_options；根目录的
+  # `flutter analyze` 不应代替它们做分析。否则全新 checkout 上没有嵌套
+  # 包的 package_config 时，根分析会把嵌套测试按根依赖图解析并报大量
+  # 伪错误（CI 一直红的原因）。各包由独立 job 分析与测试。
+  exclude:
+    - packages/**
+    - apps/**
   language:
     strict-casts: true
     strict-inference: true

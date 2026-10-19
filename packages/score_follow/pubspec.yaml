@@ -1,0 +1,12 @@
+name: score_follow
+description: "可容错的实时乐谱跟随内核：多假设对齐、连续速度估计与起拍/错音/跳音处理。纯 Dart，可在无设备环境完整测试。"
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.11.5
+
+dev_dependencies:
+  dart_midi_pro: ^1.0.4
+  lints: ^6.0.0
+  test: ^1.25.0

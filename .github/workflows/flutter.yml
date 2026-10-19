@@ -84,6 +84,27 @@ jobs:
       - name: Verify committed K.478 score-page hashes
         run: cd ../.. && sha256sum -c docs/evidence/k478_page_sha256.txt
 
+  score-follow-checks:
+    # 纯 Dart 跟随内核；不依赖 Flutter 运行时，但复用同一 Flutter SDK
+    # 以保证 Dart 版本与主仓库一致。
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/score_follow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+      - run: dart pub get
+      - run: dart format --output=none --set-exit-if-changed lib test tool
+      - run: dart analyze
+      - run: dart test
+      - name: K.478 follow benchmark
+        run: dart run tool/benchmark.dart
+
   testflight-ios-candidate:
     runs-on: macos-latest
     env:
