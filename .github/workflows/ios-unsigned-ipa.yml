@@ -1,0 +1,66 @@
+name: iOS Unsigned IPA
+
+# 手动触发，不依赖 Apple 证书。产物是未签名 IPA，可用 Sideloadly /
+# AltStore 在 Windows 上用自己的 Apple ID 侧载到 iPhone，仅用于临时真机试用；
+# 不是 TestFlight，也不能替代签名发布。
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "CFBundleVersion；留空使用 GITHUB_RUN_NUMBER"
+        required: false
+        default: ""
+      retention_days:
+        description: "artifact 保留天数"
+        required: false
+        default: "14"
+
+permissions:
+  contents: read
+
+jobs:
+  unsigned-ipa:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/testflight_ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.1'
+          channel: stable
+          cache: true
+
+      - name: Resolve dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Build without codesign
+        run: |
+          set -euo pipefail
+          BUILD_NUMBER="${{ inputs.build_number }}"
+          if [ -z "$BUILD_NUMBER" ] || [ "$BUILD_NUMBER" = "null" ]; then
+            BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+          fi
+          flutter build ios --release --no-codesign --build-number="$BUILD_NUMBER"
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          cd build/ios/iphoneos
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          IPA="K478-unsigned-${GITHUB_RUN_NUMBER}.ipa"
+          /usr/bin/zip -qry "$IPA" Payload
+          /usr/bin/shasum -a 256 "$IPA" | tee sha256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: k478-unsigned-ipa
+          path: |
+            apps/testflight_ios/build/ios/iphoneos/*.ipa
+            apps/testflight_ios/build/ios/iphoneos/sha256.txt
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}
