@@ -21,6 +21,17 @@
 K.478 的轨道 1、2、3 是弦乐，轨道 4、5 是钢琴。播放器会在 Program
 Change、Note On、Note Off 进入引擎前过滤钢琴轨；回归测试覆盖此边界。
 
+## 跟随
+
+候选页面使用 `K478AdaptiveFollowSession`：把轨道 4/5 的 `MidiNote` 转成
+`score_follow` 的 `Score`，由多假设内核输出位置/速度/置信度。置信度达到
+0.5 才启动伴奏；普通匹配只调速，重新捕获或大漂移才 seek；拔掉 CoreMIDI
+设备会暂停并上报。
+
+旧的 `K478MidiFollowSession` 与 `FollowModeController` 保留在包内，作为
+回退和对照；它们不参与候选页面，但仍由测试覆盖。多假设内核尚未完成
+iPhone + USB 电子琴真机验收，不能据此宣称跟随鲁棒性已通过发布门槛。
+
 ## SoundFont
 
 发布产物需要 `assets/soundfonts/k478_violin.sf2` 与

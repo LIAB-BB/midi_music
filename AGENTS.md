@@ -44,8 +44,9 @@ flutter test
 - `packages/k478_practice/`：K.478 UI、播放器与跟随逻辑；package lockfile
   不提交，不能使用 `--enforce-lockfile`。
 - `packages/core_midi_input/`：CoreMIDI 输入 package；package lockfile 不提交。
-- `packages/score_follow/`：纯 Dart 在线多假设跟随内核（v2 实验）；尚未接入
-  候选二进制，不能替代候选的跟随验收。设计与基准见
+- `packages/score_follow/`：纯 Dart 在线多假设跟随内核；已接入候选的
+  `K478AdaptiveFollowSession`，旧 `K478MidiFollowSession` 保留回退。
+  尚未完成 iPhone 真机验收。设计与基准见
   `docs/architecture/score_follow_v2.md`。
 - 根目录仍是 Legacy host（最低 iOS 13.6），其分析、测试和构建结果不能替代
   候选 host 的结果。不要为了候选清理或删除 legacy 功能。
@@ -77,7 +78,7 @@ CI 不得将它们写成已完成。`CLAUDE.md` 若有用户未提交改动，�
 - `lib/core/midi/`：MIDI 解析、TempoMap、SoundFont 引擎、播放控制器。
 - `lib/core/follow/`：麦克风输入、onset 检测、旧版跟随算法、跟随会话生命周期。
 - `packages/score_follow/`：纯 Dart v2 跟随内核（多假设对齐、速度估计、
-  漏音分支与重新捕获）；当前未接入 UI。
+  漏音分支与重新捕获）；已接入候选的 `K478AdaptiveFollowSession`。
 - `lib/models/`：MIDI 曲目、轨道、音符、时间线事件和速度/拍号模型。
 - `lib/ui/`：Cupertino UI 页面和黑金主题组件。
 - `test/`：核心算法、引擎串行化、播放器调度、生命周期和 App smoke tests。

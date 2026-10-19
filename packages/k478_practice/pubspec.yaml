@@ -16,6 +16,8 @@ dependencies:
   dart_midi_pro: ^1.0.4
   flutter_midi_pro: 4.0.4
   provider: ^6.1.0
+  score_follow:
+    path: ../score_follow
 
 dev_dependencies:
   flutter_test:

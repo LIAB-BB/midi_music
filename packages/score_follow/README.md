@@ -1,8 +1,8 @@
 # score_follow
 
-可容错的实时乐谱跟随内核，纯 Dart，无 Flutter / 平台依赖。**尚未接入
-`packages/k478_practice` 候选二进制**；本包先在可测试环境中证明算法，再谈
-传输层和真机接入。
+可容错的实时乐谱跟随内核，纯 Dart，无 Flutter / 平台依赖。已接入
+`packages/k478_practice` 的 `K478AdaptiveFollowSession`，候选页面默认使用；
+尚未完成 iPhone + USB 电子琴真机验收。
 
 现有 K.478 候选的跟随算法是“严格逐音匹配”：只允许当前期待的那一个 onset，
 错一个音就停在原地，连续三次错音才把播放器 seek 回期待位置；跳过音符后
@@ -67,4 +67,5 @@ dart run tool/benchmark.dart
 - 不处理完整反复（da capo）与同时多声部交叉；并行重复段落仍可能造成
   重新捕获到错误位置。
 - 没有接播放器传输层：相位误差如何转成调速/seek、以及音频中断、拔线、
-  后台恢复，仍由上层会话负责。
+  后台恢复，仍由上层会话负责。K.478 的 `K478AdaptiveFollowSession`
+  目前只做了启动锁、重捕获 seek、0.8 s 大漂移保护和拔线终止。
