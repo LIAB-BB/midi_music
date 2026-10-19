@@ -5,6 +5,8 @@ import 'package:score_follow/score_follow.dart';
 
 import '../models/midi_track.dart';
 import 'follow_mode_controller.dart';
+import 'follow_phase.dart';
+import 'follow_rest_plan.dart';
 import 'k478_player.dart';
 
 typedef AdaptiveFollowStateCallback = void Function(FollowModeState state);
@@ -29,11 +31,15 @@ class K478AdaptiveFollowSession {
     required MidiInput input,
     FollowConfig config = const FollowConfig(minSpeed: 0.25, maxSpeed: 2),
     double Function()? timeProvider,
+    double restMinSilenceSeconds = 1,
+    bool enableGlobalRestWait = true,
   }) : _player = player,
        _performerTracks = List<MidiTrackInfo>.unmodifiable(performerTracks),
        _input = input,
        _config = config,
-       _timeProvider = timeProvider;
+       _timeProvider = timeProvider,
+       _restMinSilenceSeconds = restMinSilenceSeconds,
+       _enableGlobalRestWait = enableGlobalRestWait;
 
   final K478PlayerController _player;
   final List<MidiTrackInfo> _performerTracks;
@@ -43,9 +49,13 @@ class K478AdaptiveFollowSession {
   /// 测试可注入；生产环境使用 [_clock]。
   final double Function()? _timeProvider;
   final Stopwatch _clock = Stopwatch();
+  final double _restMinSilenceSeconds;
+  final bool _enableGlobalRestWait;
 
   AdaptiveScoreFollower? _follower;
   Score? _score;
+  RestPlan? _restPlan;
+  double? _scheduledRestStart;
   StreamSubscription<MidiInputMessage>? _messageSubscription;
   StreamSubscription<MidiInputState>? _stateSubscription;
   Future<void>? _startFuture;
@@ -110,6 +120,13 @@ class K478AdaptiveFollowSession {
     final score = _buildScore(notes);
     _score = score;
     _follower = AdaptiveScoreFollower(score: score, config: _config);
+    final song = _player.song;
+    if (_enableGlobalRestWait && song != null) {
+      _restPlan = RestPlan.fromSong(
+        song,
+        minSilenceSeconds: _restMinSilenceSeconds,
+      );
+    }
     _clock.start();
     _messageSubscription = _input.messages
         .where((message) => message.isNoteOn)
@@ -153,6 +170,8 @@ class K478AdaptiveFollowSession {
         await _player.seekTo(target, includeEventsAtTarget: true);
         if (_isCancelled(generation)) return;
         await _player.play();
+        if (_isCancelled(generation)) return;
+        _scheduleNextRest(target);
       });
       return;
     }
@@ -163,20 +182,40 @@ class K478AdaptiveFollowSession {
         await _player.seekTo(update.scoreTime, includeEventsAtTarget: true);
         if (_isCancelled(generation)) return;
         if (!_player.isPlaying) await _player.play();
+        if (_isCancelled(generation)) return;
+        _scheduledRestStart = null;
+        _scheduleNextRest(update.scoreTime);
       });
       return;
     }
 
     if (!update.matched) return;
-    _player.setSpeed(update.speed);
 
-    // 大漂移保护：只在证据很强且偏差很大时 seek，避免每个音都拉回。
-    final drift = _player.currentTime - update.scoreTime;
-    if (update.confidence >= 0.6 && drift.abs() > 0.8) {
+    // 普通匹配只做小幅相位修正；大偏差留给下面的 seek 保护。
+    final phaseError = _player.currentTime - update.scoreTime;
+    _player.setSpeed(correctFollowSpeed(update.speed, phaseError));
+
+    if (update.confidence >= 0.6 && phaseError.abs() > 0.8) {
       _enqueuePlayerCommand((generation) async {
         await _player.seekTo(update.scoreTime, includeEventsAtTarget: true);
+        if (_isCancelled(generation)) return;
+        _scheduledRestStart = null;
+        _scheduleNextRest(update.scoreTime);
       });
     }
+  }
+
+  /// [pauseAt] 在到达全局休止边界时清音并暂停；重入时由 reacquired 路径恢复。
+  void _scheduleNextRest(double fromScoreTime) {
+    final plan = _restPlan;
+    if (plan == null || _disposed || _terminating) return;
+    final rest = plan.nextAfter(fromScoreTime);
+    if (rest == null) return;
+    if (_scheduledRestStart == rest.start) return;
+    _scheduledRestStart = rest.start;
+    unawaited(
+      _player.pauseAt(rest.start, isCancelled: () => _disposed || _terminating),
+    );
   }
 
   void _handleInputState(MidiInputState state) {
