@@ -148,12 +148,18 @@ flutter test
 - `follow_mode_session.dart` — **跟随模式会话**，串联 `PitchInput` → `OnsetDetector` → `FollowModeController` → `FollowPlaybackTarget` 的完整生命周期。防并发 start、dispose 打断 start、根据跟随状态自动控制播放器（休止时暂停、恢复时播放），支持 `resumeFromTime()` 在用户 seek 或连续未匹配时按当前播放时间重新对齐
 - `follow_playback_target.dart` — `FollowPlaybackTarget` 抽象 + `MidiFollowPlaybackTarget` 实现，适配 `MidiPlayerController`
 
-### Follow Engine v2（`packages/score_follow/`，实验）
+### Follow Engine v2（`packages/score_follow/` + 候选会话）
 - 纯 Dart 在线多假设跟随内核：窗口匹配、速度 EMA、和弦尾音保护、漏音分支、
   按“墙钟 × 速度”预测谱面时间的重新捕获、曲首锁谱窗口。
-- **尚未接入 `packages/k478_practice` 或候选二进制**；设计与 K.478 基准见
+- `packages/k478_practice/lib/src/core/k478_adaptive_follow_session.dart`
+  把它接入候选播放器：置信度 0.5 才启动、普通匹配只调速、重捕获/0.8 s
+  大漂移才 seek、拔线终止；候选页面默认使用该会话。
+- 旧 `K478MidiFollowSession` / `FollowModeController` 保留，作为回退和对照；
+  原测试仍覆盖它们。
+- **尚未完成 iPhone + USB 电子琴真机验收**；设计与 K.478 基准见
   `docs/architecture/score_follow_v2.md`。
-- 验证命令：`cd packages/score_follow && dart pub get && dart analyze && dart test && dart run tool/benchmark.dart`。
+- 验证命令：`cd packages/k478_practice && flutter analyze && flutter test`；
+  `cd packages/score_follow && dart analyze && dart test && dart run tool/benchmark.dart`。
 
 ### MIDI Input (`lib/core/midi_input/` + `ios/Runner/`)
 - `midi_input.dart` — 平台无关的设备、消息、状态模型和 `MidiInput` 接口
@@ -221,7 +227,7 @@ flutter test
 
 - **状态管理**: Provider + ChangeNotifier（`MidiPlayerController` 是唯一全局状态）
 - **多轨道共享 channel**: 通过 `trackIndex`（而非 channel）做静音/音量控制
-- **当前跟随管道**: USB MIDI Note On → `MidiFollowModeSession` → `FollowModeController` → `setSpeed()`
+- **当前跟随管道**: USB MIDI Note On → `K478AdaptiveFollowSession` → `AdaptiveScoreFollower` → `setSpeed()` / 必要时 `seek()`；旧 `MidiFollowModeSession` 保留回退
 - **线程安全**: UI 回调使用 `SchedulerBinding.addPostFrameCallback()` 包裹
 - **生命周期守卫**: 所有公开方法开头检查 `_isDisposed`，异步操作支持 `dispose()` 打断
 - **SoundFont**: 首次运行自动从 CDN 下载 TimGM6mb.sf2（~6MB），缓存到应用目录，3 个后备 URL

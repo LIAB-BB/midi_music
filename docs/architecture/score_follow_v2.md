@@ -1,8 +1,8 @@
 # 跟随内核 v2：在线多假设对齐
 
-> 状态：实验实现，位于 `packages/score_follow/`，**尚未接入
-> `packages/k478_practice` 或 TestFlight 候选二进制**。本文记录设计、
-> 量化结果和接入前必须补齐的部分。
+> 状态：已接入 `packages/k478_practice` 的 `K478AdaptiveFollowSession`，
+> 候选页面默认使用；旧 `K478MidiFollowSession` 保留回退。**尚未完成
+> iPhone + USB 电子琴真机验收**，不能据此宣称跟随鲁棒性已通过发布门槛。
 
 ## 1. 为什么重写
 
@@ -77,24 +77,36 @@
 速度 MAE：干净场景 v1 0.027、v2 0.023；失误场景 v1 0.016（但只剩
 1.5% 的样本位置正确）、v2 0.024。详细表见包 README。
 
-## 4. 必须补的接入工作
+## 4. 当前接入
 
-本包只解决“从 Note On 序列估计谱面位置/速度”。接入候选前还需要：
+`K478AdaptiveFollowSession`（`packages/k478_practice/lib/src/core/`）：
 
-1. **传输层相位反馈**：用 `update.scoreTime` 与播放器当前谱面时间做
-   PLL；误差超过阈值（建议 80–120 ms）才 seek，否则只调速。
-2. **单调时钟**：替换 `DateTime.now()` 的 5 ms ticker，限制单次
-   delta，避免后台恢复时补发整段音符。
-3. **启动/重入**：首个 `confidence >= 0.5` 才启动伴奏；每次普通匹配
-   都要确认播放器确实在目标谱面时间运行，不能只发 `setSpeed`。
-4. **休止/等待**：用谱面 onset 间隔自动生成休止边界，替代手工
-   `approvedWaitReentryTicks`；边界到达后 `allNotesOff` 再停。
-5. **输入生命周期**：订阅 `MidiInput.states`，拔线/空设备列表时暂停
-   伴奏并上报；EventChannel 做引用计数，避免快速重进页面丢监听。
-6. **真机验证**：iPhone + USB 电子琴、长休止、连续错音、跳页、锁屏/
+- 从候选的轨道 4/5 `MidiNote` 构建 `Score`，不重解析 MIDI；
+- 输入时间使用会话自己的 `Stopwatch`（测试可注入 `timeProvider`），
+  不使用 CoreMIDI 的 host timestamp；
+- `confidence >= 0.5` 才启动伴奏；从上一个 onset 起播，避免切掉第一个
+  弦乐起拍；
+- 普通匹配只 `setSpeed`；`reacquired` 时 seek/play；只有
+  `confidence >= 0.6` 且 `|drift| > 0.8 s` 才做一次大漂移 seek；
+- 订阅 `MidiInput.states`，设备列表为空时暂停并回调 `onTerminated`；
+- 默认 `FollowConfig(minSpeed: 0.25, maxSpeed: 2)`，与播放器的变速范围
+  对齐；
+- 旧 `K478MidiFollowSession` 与 `FollowModeController` 保留，作为回退
+  和对照，仍由原测试覆盖。
+
+## 5. 仍未完成
+
+1. **连续相位反馈**：目前只有 0.8 s 的大漂移保护，没有 PLL/连续相位
+   控制；长曲目的慢漂移仍靠速度估计。
+2. **播放器单调时钟**：`K478PlayerController` 仍用 `DateTime.now()` 的
+   5 ms ticker，没有 delta 上限、前后台/音频中断处理。
+3. **休止/等待**：没有自动生成休止边界；候选仍不因钢琴休止而暂停伴奏。
+4. **EventChannel 生命周期**：没有引用计数；快速重进页面、锁屏/来电
+   恢复仍需真机验证。
+5. **真机验收**：iPhone + USB 电子琴、长休止、连续错音、跳页、锁屏/
    来电中断；不能用纯 Dart 模拟替代。
 
-## 5. 已知边界
+## 6. 已知边界
 
 - 只处理 MIDI Note On，不做音频 onset/音高检测。
 - 不处理完整反复（da capo）；并行重复段落仍可能重新捕获到错误位置，

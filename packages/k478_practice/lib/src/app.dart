@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'core/follow_mode_controller.dart';
-import 'core/k478_midi_follow_session.dart';
+import 'core/k478_adaptive_follow_session.dart';
 import 'core/k478_player.dart';
 import 'core/midi_parser.dart';
 
@@ -243,8 +243,8 @@ class _PracticePage extends StatefulWidget {
 }
 
 class _PracticePageState extends State<_PracticePage> {
-  K478MidiFollowSession? _followSession;
-  K478MidiFollowSession? _startingFollowSession;
+  K478AdaptiveFollowSession? _followSession;
+  K478AdaptiveFollowSession? _startingFollowSession;
   StreamSubscription<MidiInputState>? _stateSubscription;
   MidiInputState _inputState = const MidiInputState();
   String? _followError;
@@ -274,18 +274,17 @@ class _PracticePageState extends State<_PracticePage> {
       _followError = null;
     });
     final input = IosMidiInput();
-    late final K478MidiFollowSession session;
+    late final K478AdaptiveFollowSession session;
     final stateSubscription = input.states.listen((state) {
       if (mounted && _ownsSession(session)) {
         setState(() => _inputState = state);
       }
     });
     _stateSubscription = stateSubscription;
-    session = K478MidiFollowSession(
+    session = K478AdaptiveFollowSession(
       player: player,
       performerTracks: player.performerTracks,
       input: input,
-      config: const FollowModeConfig(),
     );
     _startingFollowSession = session;
     session.onStateChanged = (_) {
@@ -344,7 +343,7 @@ class _PracticePageState extends State<_PracticePage> {
     }
   }
 
-  bool _ownsSession(K478MidiFollowSession session) =>
+  bool _ownsSession(K478AdaptiveFollowSession session) =>
       identical(_followSession, session) ||
       identical(_startingFollowSession, session);
 
@@ -358,7 +357,7 @@ class _PracticePageState extends State<_PracticePage> {
   }
 
   Future<void> _handleTerminatedSession(
-    K478MidiFollowSession session,
+    K478AdaptiveFollowSession session,
     Object error,
   ) async {
     if (!_ownsSession(session)) return;
@@ -542,7 +541,8 @@ class _PracticePageState extends State<_PracticePage> {
           ),
           const SizedBox(height: 10),
           const Text(
-            '首轮验收使用直连 USB 电子琴；首个正确起拍才启动弦乐。App 不接收或播放钢琴声部音频。',
+            '首轮验收使用直连 USB 电子琴；连续正确起拍、置信度足够后才启动弦乐。'
+            'App 不接收或播放钢琴声部音频。',
             style: _smallMutedStyle,
           ),
           if (_followError != null) ...[
