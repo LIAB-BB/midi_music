@@ -2,18 +2,20 @@
 
 适用对象：`apps/testflight_ios` + `packages/k478_practice`，iPhone-only、iOS 13.0+。根目录 Legacy host（iOS 13.6、导入/麦克风/OMR/卷帘）不构成此清单的通过证据。
 
-自动化、真机、签名 IPA 是三条不同证据链；任一未完成都不能写成“已发布”。建议将本次记录填入 [release dossier 模板](releases/k478_release_dossier_template.md)。
+自动化、真机、签名 IPA 是三条不同证据链；任一未完成都不能写成“已发布”。本轮填表用 [`releases/k478_device_pass_2026-09-24.md`](releases/k478_device_pass_2026-09-24.md)；空白模板仍在 [release dossier 模板](releases/k478_release_dossier_template.md)。
 
-## 双机真机装机（开发签名，先于 TestFlight）
+> 2026-09-24 负责人决定：协作者本轮不装机。**一台 iPhone 完成 S1 与 S5–S7 即可记为开发签名单机已测**，不再把第二台写成进入内部 TestFlight 的硬门槛。手机 B 填「未测，本轮不要求」。单机通过仍不得写成「已发布」或能力矩阵「试用=是」。
 
-目标：两台 iPhone 都脱离 Mac 数据线，各自直连电子琴完成 S1–S7。当前候选 Team 为 `XV6N683H3X`（`com.liab.k478Testflight`），Automatic Signing。
+## 真机装机（开发签名，先于 TestFlight）
 
-### 装机前（每台手机各做一次）
+目标：这台 iPhone 脱离 Mac 数据线，直连电子琴完成 S1–S7。当前候选 Team 为 `XV6N683H3X`（`com.liab.k478Testflight`），Automatic Signing。
+
+### 装机前（要装的那台手机做一次）
 
 1. iPhone 与 Mac 同一 Wi‑Fi；首次仍建议 **USB 连一次** 完成“信任此电脑”。
 2. iPhone：设置 → 隐私与安全性 → 开发者模式 → 打开（若系统要求）。
 3. Xcode → Window → Devices and Simulators：确认设备出现；勾选 **Connect via network**（无线调试）。
-4. 该 Apple ID / Team 下把两台设备 UDID 加进开发设备列表（Automatic 首次 Run 时常会自动注册；失败则到 developer.apple.com 手动加）。
+4. 该 Apple ID / Team 下把要装的设备 UDID 加进开发设备列表（Automatic 首次 Run 时常会自动注册；失败则到 developer.apple.com 手动加）。
 5. 本机已有 Development 证书即可；无需先上 TestFlight。
 
 ### 安装命令（候选 host）
@@ -29,22 +31,22 @@ flutter run --release -d <device_id>
 
 装成功后：**拔掉 Mac 线**（若仍插着），只保留电子琴 USB 通路，再跑下面 S5–S7。
 
-### 双机记录表（必填）
+### 装机记录表（手机 A 必填，手机 B 本轮可选）
 
-| 项 | 手机 A（负责人） | 手机 B（协作者） |
+| 项 | 手机 A（负责人） | 手机 B（本轮不要求） |
 | --- | --- | --- |
-| 机型 / iOS | | |
+| 机型 / iOS | | 未测，本轮不要求 |
 | 设备 ID（`flutter devices`） | | |
 | 接线：无线调试 / 直连琴的转接头 | | |
 | 电子琴型号 | | |
 | 构建 commit | | |
-| S1 听音 | 待测 | 待测 |
-| S5 连接与拔插 | 待测 | 待测 |
-| S6 跟随启停与首音 | 待测 | 待测 |
-| S7 钢琴休止弦乐连续 | 待测 | 待测 |
+| S1 听音 | 待测 | 未测，本轮不要求 |
+| S5 连接与拔插 | 待测 | 未测，本轮不要求 |
+| S6 跟随启停与首音 | 待测 | 未测，本轮不要求 |
+| S7 钢琴休止弦乐连续 | 待测 | 未测，本轮不要求 |
 | 阻塞问题 | | |
 
-两台都未完成 S5–S7 前，不把单机结果写成“真机已通过”。
+手机 A 完成 S1 与 S5–S7 后，可以写成「开发签名单机已测」。不要把未测的手机 B 留空或抄成已测，也不要因此阻止后续内部分发。
 
 ## 预检
 
@@ -56,7 +58,7 @@ cd ../.. && tool/verify_k478_score_pages.sh
 ```
 
 - [ ] 候选首页预载 K.478 MIDI 与离线弦乐音色成功；没有通用导入、选轨、卷帘或 OMR 入口。
-- [ ] App 图标、TestFlight 截图和其他市场物料均已在资产台账登记并获准分发；未登记即阻止 TestFlight。
+- [ ] App 图标、TestFlight 截图和其他市场物料均已在资产台账登记并获准分发；未登记阻止外部 TestFlight 与宣传物料，不阻止开发签名单机装机。
 - [ ] 候选 lockfile、Pods 与本次源码一致；构建不以旧 Debug `Runner.app` 或旧 AssetManifest 作为证据。
 - [ ] 已运行 K.478 页面验证脚本。页面图技术来源已核验；SF2 官方输入比对、iPhone 听音、签名 IPA 仍分别待验。
 - [ ] 资产台账仅允许 K.478 MIDI、21 张 PNG、两个 SF2、`cupertino_icons` 图标字体与第三方通知进入候选；原始 PDF、TimGM 和其他 MIDI 不得随包。
@@ -112,7 +114,7 @@ cd ../.. && tool/verify_k478_score_pages.sh
 
 ## S8：试用材料与判定
 
-- [ ] 测试说明列出 iPhone/iOS、电子琴型号、直连方式、K.478、已知限制与反馈入口。
+- [ ] 测试说明列出 iPhone/iOS、电子琴型号、直连方式、K.478、已知限制与反馈入口。草稿见 [`releases/testflight_what_to_test.md`](releases/testflight_what_to_test.md)；反馈入口上传前仍须填真实联系方式。
 - [ ] 记录 commit、build、IPA hash、设备、资产、隐私、S0-S7 结果与问题。
 - [ ] Go/No-Go 数字与放大试用条件由负责人确认；本清单不擅自设为生效门槛。
 
