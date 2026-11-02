@@ -13,7 +13,11 @@ import 'core/midi_parser.dart';
 const _midiAsset =
     'packages/k478_practice/assets/midi/mozart_k478_piano_quartet.mid';
 const _scoreAssetPrefix = 'assets/scores/mozart_k478_piano_part/page';
-const _scorePageCount = 21;
+
+/// 内置 MIDI 只有第三乐章 Rondo，对应 PDF 第 13–21 页。第 1–12 页是另外
+/// 两个乐章，不展示，否则用户会照着与伴奏无关的谱面演奏。
+const _scoreFirstPage = 13;
+const _scorePageCount = 9;
 
 class K478PracticeApp extends StatelessWidget {
   /// 仅用于 widget 验证 App 内部的 Dynamic Type 布局；生产调用保持 null。
@@ -184,7 +188,7 @@ class _HomeCard extends StatelessWidget {
           const Text('钢琴四重奏\nK.478', style: _displayStyle),
           const SizedBox(height: 10),
           const Text(
-            '莫扎特 · 钢琴右手、左手与弦乐分轨\n首轮只验证一首内置曲目与 CoreMIDI 跟随。',
+            '莫扎特 · 第三乐章 Rondo（G 大调）\n钢琴右手、左手与弦乐分轨；首轮只验证 CoreMIDI 跟随。',
             style: _mutedStyle,
           ),
           const SizedBox(height: 22),
@@ -222,7 +226,7 @@ class _HomeCard extends StatelessWidget {
             width: double.infinity,
             child: CupertinoButton(
               onPressed: onOpenScore,
-              child: const Text('查看钢琴声部版面'),
+              child: const Text('查看 Rondo 钢琴声部版面'),
             ),
           ),
           const Text(
@@ -242,7 +246,8 @@ class _PracticePage extends StatefulWidget {
   State<_PracticePage> createState() => _PracticePageState();
 }
 
-class _PracticePageState extends State<_PracticePage> {
+class _PracticePageState extends State<_PracticePage>
+    with WidgetsBindingObserver {
   K478AdaptiveFollowSession? _followSession;
   K478AdaptiveFollowSession? _startingFollowSession;
   StreamSubscription<MidiInputState>? _stateSubscription;
@@ -251,9 +256,35 @@ class _PracticePageState extends State<_PracticePage> {
   var _isStartingFollow = false;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_disposeFollowSession());
     super.dispose();
+  }
+
+  /// 候选没有后台音频能力：进入后台后定时器会被挂起，回来时位置已失效，
+  /// 所以主动停下，而不是让伴奏带着错误位置继续。
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.hidden) unawaited(_handleBackgrounded());
+  }
+
+  Future<void> _handleBackgrounded() async {
+    final player = context.read<K478PlayerController>();
+    if (_followSession == null && _startingFollowSession == null) {
+      await player.pause();
+      return;
+    }
+    await _disposeFollowSession();
+    if (mounted) {
+      setState(() => _followError = 'App 进入过后台，跟随已停止；请重新开始。');
+    }
   }
 
   Future<void> _toggleFollow(K478PlayerController player) async {
@@ -673,7 +704,7 @@ class _ScorePageState extends State<_ScorePage> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         border: null,
-        middle: Text('钢琴声部 · ${_currentPage + 1}/$_scorePageCount'),
+        middle: Text('Rondo 钢琴声部 · ${_currentPage + 1}/$_scorePageCount'),
       ),
       child: ColoredBox(
         color: const Color(0xFFF2EEE5),
@@ -689,7 +720,7 @@ class _ScorePageState extends State<_ScorePage> {
                 maxScale: 3,
                 child: Center(
                   child: Image.asset(
-                    '$_scoreAssetPrefix-${(index + 1).toString().padLeft(2, '0')}.png',
+                    '$_scoreAssetPrefix-${(index + _scoreFirstPage).toString().padLeft(2, '0')}.png',
                     package: 'k478_practice',
                     fit: BoxFit.contain,
                   ),

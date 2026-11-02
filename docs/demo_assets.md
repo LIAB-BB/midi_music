@@ -10,7 +10,7 @@
 - 来源：Mutopia Project，Piano Quartet KV 478（Music ID 499）；来源页标注 Public Domain。
 - 编制：小提琴、中提琴、大提琴、钢琴（钢琴 MIDI 分为右手和左手两轨）。
 
-候选乐谱阅读是从 PDF 生成的 **21 张独立页面图**，首页和演奏台均有手动入口；没有 MIDI 钢琴卷帘、自动翻页、MusicXML 编辑或播放位置同步。页面通过 `pdftoppm -r 180 -png` 从已核验 PDF 复现，验证命令为：
+内置 MIDI 只含第三乐章 Rondo，因此 App 只展示第 13–21 页；第 1–12 页是另外两个乐章，随包但不展示。候选乐谱阅读是从 PDF 生成的 **21 张独立页面图**，首页和演奏台均有手动入口；没有 MIDI 钢琴卷帘、自动翻页、MusicXML 编辑或播放位置同步。页面通过 `pdftoppm -r 180 -png` 从已核验 PDF 复现，验证命令为：
 
 ```bash
 tool/verify_k478_score_pages.sh

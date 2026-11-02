@@ -80,6 +80,24 @@ void main() {
   });
 
   group('AdaptiveScoreFollower', () {
+    test('主假设存活期间分支不会抢走位置', () {
+      final score = scoreOf([
+        for (var pitch = 50; pitch < 90; pitch++) [pitch],
+      ]);
+      final follower = AdaptiveScoreFollower(score: score);
+      var time = 0.0;
+      for (var index = 0; index < 8; index++) {
+        follower.onNoteOn(50 + index, time);
+        time += 0.5;
+      }
+      // 连续 3 个音都接得上后面某段，但主假设还没被淘汰（maxMisses = 4）。
+      for (final pitch in [70, 71, 72]) {
+        final update = follower.onNoteOn(pitch, time);
+        time += 0.5;
+        expect(update.positionOnsetIndex, 7);
+      }
+    });
+
     test('匀速 1.0 演奏：位置逐 onset 前进，速度收敛到 1', () {
       final score = scoreOf([
         for (var index = 0; index < 16; index++) [60 + index % 5],

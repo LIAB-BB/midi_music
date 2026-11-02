@@ -2,6 +2,7 @@ import CoreMIDI
 import Flutter
 import Foundation
 import MachO
+import UIKit
 
 public final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private final class MidiByteStreamState {
@@ -50,9 +51,13 @@ public final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     switch call.method {
     case "start":
       startListening()
+      // 演奏时不会触摸屏幕，MIDI 输入也不算用户活动；不关闭自动锁屏的话，
+      // 曲子中途 App 会被挂起。
+      UIApplication.shared.isIdleTimerDisabled = true
       result(devicePayload())
     case "stop":
       stopListening()
+      UIApplication.shared.isIdleTimerDisabled = false
       result(nil)
     default:
       result(FlutterMethodNotImplemented)

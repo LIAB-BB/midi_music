@@ -57,6 +57,10 @@ class RestPlan {
     return RestPlan._(List<ScoreRest>.unmodifiable(rests));
   }
 
+  /// 只保留满足 [test] 的休止，用于排除不该等待演奏者的区间。
+  RestPlan where(bool Function(ScoreRest rest) test) =>
+      RestPlan._(List<ScoreRest>.unmodifiable(rests.where(test)));
+
   /// 返回起点严格晚于 [scoreTime] 的下一段全局休止。
   ScoreRest? nextAfter(double scoreTime) {
     for (final rest in rests) {

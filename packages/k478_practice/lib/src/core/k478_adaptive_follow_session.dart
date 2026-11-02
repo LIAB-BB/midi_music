@@ -56,6 +56,10 @@ class K478AdaptiveFollowSession {
   Score? _score;
   RestPlan? _restPlan;
   double? _scheduledRestStart;
+
+  /// 播放器已停在这个全局休止边界，等演奏者重新进入。
+  double? _restWaitStart;
+  final Set<String> _knownDeviceIds = {};
   StreamSubscription<MidiInputMessage>? _messageSubscription;
   StreamSubscription<MidiInputState>? _stateSubscription;
   Future<void>? _startFuture;
@@ -122,11 +126,21 @@ class K478AdaptiveFollowSession {
     _follower = AdaptiveScoreFollower(score: score, config: _config);
     final song = _player.song;
     if (_enableGlobalRestWait && song != null) {
-      _restPlan = RestPlan.fromSong(
-        song,
-        minSilenceSeconds: _restMinSilenceSeconds,
-      );
+      // 只等“钢琴先进入”的休止。弦乐先进入时若暂停，演奏者在等弦乐、
+      // 弦乐在等演奏者，会互相卡死。
+      _restPlan =
+          RestPlan.fromSong(
+            song,
+            minSilenceSeconds: _restMinSilenceSeconds,
+          ).where(
+            (rest) => score.onsets.any(
+              (onset) => (onset.time - rest.end).abs() < 0.01,
+            ),
+          );
     }
+    _knownDeviceIds
+      ..clear()
+      ..addAll(_input.state.devices.map((device) => device.id));
     _clock.start();
     _messageSubscription = _input.messages
         .where((message) => message.isNoteOn)
@@ -176,7 +190,14 @@ class K478AdaptiveFollowSession {
       return;
     }
 
-    if (update.reacquired) {
+    // 准时重新进入时误差在门限内，不会触发 reacquired，但播放器仍需恢复。
+    final restWaitStart = _restWaitStart;
+    final resumesFromRest =
+        update.matched &&
+        restWaitStart != null &&
+        update.scoreTime > restWaitStart;
+    if (update.reacquired || resumesFromRest) {
+      _restWaitStart = null;
       _enqueuePlayerCommand((generation) async {
         _player.setSpeed(update.speed);
         await _player.seekTo(update.scoreTime, includeEventsAtTarget: true);
@@ -214,15 +235,28 @@ class K478AdaptiveFollowSession {
     if (_scheduledRestStart == rest.start) return;
     _scheduledRestStart = rest.start;
     unawaited(
-      _player.pauseAt(rest.start, isCancelled: () => _disposed || _terminating),
+      _player
+          .pauseAt(rest.start, isCancelled: () => _disposed || _terminating)
+          .then<void>((_) {
+            if (_disposed || _terminating) return;
+            // 被 seek 取消时 Future 也会完成，需确认确实停在边界上。
+            if (_player.state == PlaybackState.paused &&
+                _player.currentTime >= rest.start - 1e-6) {
+              _restWaitStart = rest.start;
+            }
+          }),
     );
   }
 
   void _handleInputState(MidiInputState state) {
     if (_disposed || !_started || _terminating) return;
-    if (state.devices.isEmpty) {
+    // 不能只看列表是否为空：网络或虚拟 MIDI 源还在时，拔掉电子琴列表不会空。
+    final currentIds = state.devices.map((device) => device.id).toSet();
+    if (currentIds.isEmpty || !currentIds.containsAll(_knownDeviceIds)) {
       _handleRuntimeError(StateError('MIDI 输入已断开'));
+      return;
     }
+    _knownDeviceIds.addAll(currentIds);
   }
 
   void _handleInputError(Object error, [StackTrace? stackTrace]) {
