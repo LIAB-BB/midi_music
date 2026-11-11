@@ -14,4 +14,8 @@
 
 ## 后果与边界
 
-候选不承诺 Android、蓝牙 MIDI、通用选轨、卷帘、导入、OMR、麦克风跟随、自动 Wait Mode 或自动翻页。该 ADR 不代表签名 IPA、真机听音、资产权利或 Go/No-Go 已获批准。
+候选不承诺 Android、通用选轨、卷帘、导入、OMR、麦克风跟随、自动 Wait Mode 或自动翻页。该 ADR 不代表签名 IPA、真机听音、资产权利或 Go/No-Go 已获批准。
+
+## 修订（2026-11-11）：蓝牙 MIDI 配对入口
+
+应产品负责人要求（目标设备 Roland FP-30），演奏台加入「连接蓝牙电子琴」入口：`core_midi_input` 通过系统 `CABTMIDICentralViewController` 配对，连上后蓝牙设备与 USB 一样作为 CoreMIDI source 接入；候选 host 因此声明 `NSBluetoothAlwaysUsageDescription`，仅在用户点该按钮时由 iOS 申请蓝牙权限。决定 2 不变：首轮通过依据仍是直连 USB 电子琴；蓝牙在 iPhone + 蓝牙电子琴真机记录前只算“已实现、待验证”，不对外承诺。

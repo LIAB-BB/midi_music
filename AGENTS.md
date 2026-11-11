@@ -44,6 +44,9 @@ flutter test
 - `packages/k478_practice/`：K.478 UI、播放器与跟随逻辑；package lockfile
   不提交，不能使用 `--enforce-lockfile`。
 - `packages/core_midi_input/`：CoreMIDI 输入 package；package lockfile 不提交。
+  `CoreMidiBluetoothPairing` 打开系统蓝牙 MIDI 配对界面（`CABTMIDICentralViewController`），
+  宿主必须声明 `NSBluetoothAlwaysUsageDescription`（bundle audit 会检查）；
+  offline 的 source 视为已断开。蓝牙尚未真机验证。
 - `packages/score_follow/`：纯 Dart 在线多假设跟随内核；已接入候选的
   `K478AdaptiveFollowSession`，旧 `K478MidiFollowSession` 保留回退。
   尚未完成 iPhone 真机验收。设计与基准见

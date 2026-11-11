@@ -157,6 +157,11 @@ flutter test
 - **内置 MIDI 只有第三乐章 Rondo**，候选分谱只展示对应的 PDF 第 13–21 页；
   第 1–12 页资产仍在包内但不展示。
 - `core_midi_input` 在 `start`/`stop` 时开关自动锁屏；演奏台进入后台会停止跟随。
+- 蓝牙 MIDI：演奏台「连接蓝牙电子琴」→ `CoreMidiBluetoothPairing` → 原生
+  `CABTMIDICentralViewController`（CoreAudioKit）。连上后与 USB 同为 CoreMIDI
+  source；`kMIDIPropertyOffline` 的 source 视为断开。候选 host 的 Info.plist
+  必须有 `NSBluetoothAlwaysUsageDescription`，否则打开配对界面会崩溃。
+  蓝牙尚未真机验证，短暂掉线会直接终止跟随（无重连宽限）。
 - 断线判定是“会话中见过的任一设备消失”，不是“设备列表为空”。
 - 全局休止只等钢琴先进入的区间；准时重新进入同样会恢复播放。
 - `K478PlayerController` 已改用 `Stopwatch` 单调时钟，单次 tick 步进上限

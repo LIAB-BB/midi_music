@@ -253,7 +253,9 @@ class _PracticePageState extends State<_PracticePage>
   StreamSubscription<MidiInputState>? _stateSubscription;
   MidiInputState _inputState = const MidiInputState();
   String? _followError;
+  String? _pairingError;
   var _isStartingFollow = false;
+  var _isPairingBluetooth = false;
 
   @override
   void initState() {
@@ -357,6 +359,23 @@ class _PracticePageState extends State<_PracticePage>
       } else if (identical(_startingFollowSession, session)) {
         _startingFollowSession = null;
       }
+    }
+  }
+
+  /// 只在未跟随时开放：配对界面会盖住演奏台，跟随中弹出会打断演奏。
+  /// 配对成功的设备由系统保持连接，下次「开始 MIDI 跟随」时自动接入。
+  Future<void> _showBluetoothPairing() async {
+    if (_isPairingBluetooth) return;
+    setState(() {
+      _isPairingBluetooth = true;
+      _pairingError = null;
+    });
+    try {
+      await const CoreMidiBluetoothPairing().showPairingSheet();
+    } on BluetoothMidiPairingException catch (error) {
+      if (mounted) setState(() => _pairingError = error.message);
+    } finally {
+      if (mounted) setState(() => _isPairingBluetooth = false);
     }
   }
 
@@ -545,7 +564,7 @@ class _PracticePageState extends State<_PracticePage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _Eyebrow('COREMIDI 输入'),
+          const _Eyebrow('MIDI 输入 · USB / 蓝牙'),
           const SizedBox(height: 12),
           _StatusRow(
             icon: connection.healthy
@@ -570,12 +589,27 @@ class _PracticePageState extends State<_PracticePage>
               ),
             ),
           ),
-          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoButton(
+              onPressed:
+                  session != null || _isStartingFollow || _isPairingBluetooth
+                  ? null
+                  : () => unawaited(_showBluetoothPairing()),
+              child: Text(_isPairingBluetooth ? '正在配对蓝牙电子琴' : '连接蓝牙电子琴'),
+            ),
+          ),
+          const SizedBox(height: 4),
           const Text(
-            '首轮验收使用直连 USB 电子琴；连续正确起拍、置信度足够后才启动弦乐。'
-            'App 不接收或播放钢琴声部音频。',
+            'USB 直连电子琴可直接开始；蓝牙电子琴（如 Roland FP-30）请先点'
+            '「连接蓝牙电子琴」配对，不要在系统设置的蓝牙里配对。蓝牙延迟略高于 USB。'
+            '连续正确起拍、置信度足够后才启动弦乐；App 不接收或播放钢琴声部音频。',
             style: _smallMutedStyle,
           ),
+          if (_pairingError != null) ...[
+            const SizedBox(height: 12),
+            _ErrorBox(message: _pairingError!),
+          ],
           if (_followError != null) ...[
             const SizedBox(height: 12),
             _ErrorBox(message: _followError!),

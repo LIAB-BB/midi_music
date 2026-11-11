@@ -1,7 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/services.dart';
-
+import 'core_midi_channels.dart';
 import 'midi_input.dart';
 
 abstract class MidiInputPlatformBridge {
@@ -11,12 +10,8 @@ abstract class MidiInputPlatformBridge {
 }
 
 class CoreMidiPlatformBridge implements MidiInputPlatformBridge {
-  static const _methodChannel = MethodChannel(
-    'com.liab.midi_music/core_midi_input/methods',
-  );
-  static const _eventChannel = EventChannel(
-    'com.liab.midi_music/core_midi_input/events',
-  );
+  static const _methodChannel = coreMidiMethodChannel;
+  static const _eventChannel = coreMidiEventChannel;
 
   const CoreMidiPlatformBridge();
 
@@ -30,7 +25,7 @@ class CoreMidiPlatformBridge implements MidiInputPlatformBridge {
   Future<void> stop() => _methodChannel.invokeMethod<void>('stop');
 }
 
-/// iOS 上的 USB/CoreMIDI 输入实现。
+/// iOS 上的 CoreMIDI 输入实现，USB 与已配对的蓝牙 MIDI 设备都作为 source 接入。
 class IosMidiInput implements MidiInput {
   final MidiInputPlatformBridge _bridge;
   final _messageController = StreamController<MidiInputMessage>.broadcast();

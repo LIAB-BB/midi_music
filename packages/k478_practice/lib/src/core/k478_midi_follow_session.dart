@@ -84,7 +84,7 @@ class K478MidiFollowSession {
     await _input.start();
     if (_shouldAbortStart) return;
     if (!_input.state.isConnected) {
-      throw StateError('没有检测到可用的 CoreMIDI 输入；请检查 USB 连接。');
+      throw StateError('没有检测到可用的 MIDI 输入；请检查 USB 连接，或先点「连接蓝牙电子琴」配对。');
     }
 
     _followController.onSpeedChanged = _handleSpeedChanged;
