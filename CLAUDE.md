@@ -154,6 +154,16 @@ flutter test
 - `packages/k478_practice/lib/src/core/k478_adaptive_follow_session.dart`
   把它接入候选播放器：置信度 0.5 才启动、普通匹配带 ±4% 相位修正、重捕获/
   0.8 s 大漂移才 seek、全局休止 `pauseAt`、拔线终止；候选页面默认使用该会话。
+- **内置 MIDI 只有第三乐章 Rondo**，候选分谱只展示对应的 PDF 第 13–21 页；
+  第 1–12 页资产仍在包内但不展示。
+- `core_midi_input` 在 `start`/`stop` 时开关自动锁屏；演奏台进入后台会停止跟随。
+- 蓝牙 MIDI：演奏台「连接蓝牙电子琴」→ `CoreMidiBluetoothPairing` → 原生
+  `CABTMIDICentralViewController`（CoreAudioKit）。连上后与 USB 同为 CoreMIDI
+  source；`kMIDIPropertyOffline` 的 source 视为断开。候选 host 的 Info.plist
+  必须有 `NSBluetoothAlwaysUsageDescription`，否则打开配对界面会崩溃。
+  蓝牙尚未真机验证，短暂掉线会直接终止跟随（无重连宽限）。
+- 断线判定是“会话中见过的任一设备消失”，不是“设备列表为空”。
+- 全局休止只等钢琴先进入的区间；准时重新进入同样会恢复播放。
 - `K478PlayerController` 已改用 `Stopwatch` 单调时钟，单次 tick 步进上限
   250 ms，避免后台恢复补发整段音符。
 - 旧 `K478MidiFollowSession` / `FollowModeController` 保留，作为回退和对照；
@@ -169,7 +179,7 @@ flutter test
 - `CoreMidiInputPlugin.swift` — 直接使用 iOS CoreMIDI，自动连接当前全部 MIDI 输入源，处理热插拔与 running status；当前产品仅使用 Note On
 
 ### UI Layer (`lib/ui/`)
-- `pages/home_page.dart` — 候选首页，仅 K.478 入口与 21 页分谱；文件选择器/导入只在未接线的 `home_page_legacy.dart`，不构成候选能力
+- `pages/home_page.dart` — 候选首页，仅 K.478 入口与 21 页分谱（根开发 host 未限制到 Rondo；发布候选见 Follow Engine v2 一节）；文件选择器/导入只在未接线的 `home_page_legacy.dart`，不构成候选能力
 - `pages/score_practice_page.dart` — 曲库练习页。仅对当前 `songId` 对应曲目开放播放、seek 和调速；装饰性谱面明确标记为示意内容，未接线的循环、跟随、指法、移调和视奏入口不展示
 - `pages/player_page.dart` — 播放器页面。初始化 USB MIDI、展示连接状态并管理 `MidiFollowModeSession`；用户 seek 后同步跟随会话重对齐
 - `widgets/stage_console.dart` — StageConsole（曲名/进度/BPM/仪表盘）、StageDial、StageMetric；进度条 seek 支持外部 `onSeek` 回调

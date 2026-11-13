@@ -7,9 +7,10 @@ Pod::Spec.new do |s|
   s.version          = '0.1.0'
   s.summary          = 'CoreMIDI input for the K.478 iOS TestFlight candidate.'
   s.description      = <<-DESC
-Receives CoreMIDI source and channel events for the K.478 iOS USB MIDI
-practice candidate. It does not request microphone, local-network or
-Bluetooth permissions.
+Receives CoreMIDI source and channel events for the K.478 iOS MIDI
+practice candidate (USB or Bluetooth LE MIDI). It does not request microphone
+or local-network permissions; opening the Bluetooth MIDI pairing sheet
+requires the host app to declare NSBluetoothAlwaysUsageDescription.
                        DESC
   s.homepage         = 'https://github.com/LIAB-BB/midi_music'
   s.license          = { :file => '../LICENSE' }
@@ -17,6 +18,7 @@ Bluetooth permissions.
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
+  s.frameworks = 'CoreMIDI', 'CoreAudioKit'
   s.platform = :ios, '13.0'
 
   # Flutter.framework does not contain a i386 slice.

@@ -20,7 +20,8 @@ let package = Package(
                 .process("../Resources/PrivacyInfo.xcprivacy")
             ],
             linkerSettings: [
-                .linkedFramework("CoreMIDI")
+                .linkedFramework("CoreMIDI"),
+                .linkedFramework("CoreAudioKit")
             ]
         )
     ]

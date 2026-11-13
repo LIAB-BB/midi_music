@@ -8,9 +8,10 @@ OMR、麦克风输入、`permission_handler` 或旧的泛曲库入口。
 
 - 一首内置曲目：莫扎特《钢琴四重奏 K.478》；
 - CoreMIDI 输入（首轮只以直连 class-compliant USB 电子琴验收）；
+- 蓝牙 MIDI 配对入口（系统 BLE MIDI 界面，需 `NSBluetoothAlwaysUsageDescription`；未真机验证）；
 - 电子琴自行发钢琴声，App 只播放小提琴 / 中提琴声部 / 大提琴伴奏；中提琴声部当前暂用小提琴音色；
 - 本地打包的 SF2，不在启动时下载音色；
-- 21 页钢琴声部 PDF 预渲染页。
+- 21 页钢琴声部 PDF 预渲染页随包；内置 MIDI 只有第三乐章，App 只展示对应的第 13–21 页。
 
 当前 Bundle ID 是构建占位符 `com.liab.k478Testflight`；在创建 App Store
 Connect 记录和签名配置前，必须确认它是否为最终 App ID。当前版本号为

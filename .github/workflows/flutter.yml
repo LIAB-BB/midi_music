@@ -10,6 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # runner 默认 JDK 已升到 25，而 Gradle 8.14 最高只能运行在 JDK 24 上；
+      # 固定为与 android/app/build.gradle.kts 编译目标一致的 17。
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.44.1'

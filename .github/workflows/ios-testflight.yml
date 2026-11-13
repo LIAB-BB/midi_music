@@ -45,12 +45,15 @@ jobs:
         working-directory: apps/testflight_ios
     env:
       BUNDLE_ID: com.liab.k478Testflight
-      KEYCHAIN_PATH: ${{ runner.temp }}/k478-signing.keychain-db
       KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
       # Podfile 默认走清华镜像；GitHub macOS runner 在境外，用官方 CDN 更快。
       COCOAPODS_SPECS_SOURCE: https://cdn.cocoapods.org/
     steps:
       - uses: actions/checkout@v4
+
+      # runner context 不能用于 job 级 env，否则整个 workflow 校验失败。
+      - name: Set keychain path
+        run: echo "KEYCHAIN_PATH=$RUNNER_TEMP/k478-signing.keychain-db" >> "$GITHUB_ENV"
 
       - uses: subosito/flutter-action@v2
         with:

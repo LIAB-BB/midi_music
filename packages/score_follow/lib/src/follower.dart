@@ -128,12 +128,13 @@ class AdaptiveScoreFollower {
     }
 
     var matchedAny = false;
-    var reanchored = false;
 
     // 先快照：_apply 会修改假设，避免边遍历边改。
     final snapshot = List<_Hypothesis>.of(_hypotheses);
     for (final hypothesis in snapshot) {
-      hypothesis.matchedThisInput = false;
+      hypothesis
+        ..matchedThisInput = false
+        ..reanchoredThisInput = false;
       final candidate = _bestCandidate(hypothesis, pitch, observedTime);
       if (candidate == null) {
         _recordMiss(hypothesis);
@@ -142,7 +143,6 @@ class AdaptiveScoreFollower {
       }
       _apply(hypothesis, candidate, observedTime);
       matchedAny = true;
-      if (candidate.reanchor) reanchored = true;
     }
 
     _hypotheses.removeWhere(
@@ -162,7 +162,12 @@ class AdaptiveScoreFollower {
     _prune();
     final best = _bestHypothesis();
     _lastKnownIndex = best.lastIndex;
-    return _buildUpdate(pitch, observedTime, reacquired: reanchored);
+    // 只看最佳假设：其他假设重锚不代表当前位置变了，不该让上层 seek。
+    return _buildUpdate(
+      pitch,
+      observedTime,
+      reacquired: best.reanchoredThisInput,
+    );
   }
 
   _Candidate? _bestCandidate(_Hypothesis hypothesis, int pitch, double time) {
@@ -263,6 +268,7 @@ class AdaptiveScoreFollower {
 
     hypothesis
       ..matchedThisInput = true
+      ..reanchoredThisInput = candidate.reanchor
       ..lastError = candidate.error
       ..lastWallTime = time
       ..misses = 0;
@@ -446,14 +452,14 @@ class AdaptiveScoreFollower {
   }
 
   void _prune() {
-    final hasPrimary = _hypotheses.any((hypothesis) => !hypothesis.isFork);
-    if (hasPrimary) {
+    final primaries = _hypotheses.where((hypothesis) => !hypothesis.isFork);
+    if (primaries.isNotEmpty) {
+      // 主假设衰减时上限也跟着降，保证主假设存活期间分支不会抢走位置。
+      final bestPrimary = primaries.map((h) => h.confidence).reduce(math.max);
+      final cap = math.min(config.forkConfidenceCap, bestPrimary * 0.99);
       for (final hypothesis in _hypotheses) {
         if (!hypothesis.isFork) continue;
-        hypothesis.confidence = math.min(
-          hypothesis.confidence,
-          config.forkConfidenceCap,
-        );
+        hypothesis.confidence = math.min(hypothesis.confidence, cap);
       }
     }
 
@@ -592,6 +598,7 @@ class _Hypothesis {
   double errorEma = 0;
   double lastWallTime;
   bool matchedThisInput;
+  bool reanchoredThisInput = false;
   double lastError = 0;
 
   /// 初始捕获时的先验（越大越可信）。只在置信度与匹配数相同时用于

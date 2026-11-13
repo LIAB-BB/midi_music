@@ -33,6 +33,10 @@ if /usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily:1' "$info_plist" >/dev/null
   fail "UIDeviceFamily must contain only iPhone (1)"
 fi
 
+# 蓝牙 MIDI 配对界面首次打开时会申请蓝牙权限；缺少说明文案时 iOS 会直接终止 App。
+/usr/libexec/PlistBuddy -c 'Print :NSBluetoothAlwaysUsageDescription' "$info_plist" >/dev/null 2>&1 \
+  || fail "NSBluetoothAlwaysUsageDescription missing (required by Bluetooth MIDI pairing)"
+
 for key in NSMicrophoneUsageDescription NSLocalNetworkUsageDescription NSBonjourServices; do
   if /usr/libexec/PlistBuddy -c "Print :$key" "$info_plist" >/dev/null 2>&1; then
     fail "unexpected privacy/network key: $key"

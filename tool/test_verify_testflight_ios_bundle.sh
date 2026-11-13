@@ -21,7 +21,7 @@ mkdir -p "$app_path/Frameworks"
 cat > "$app_path/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>UIDeviceFamily</key><array><integer>1</integer></array></dict></plist>
+<plist version="1.0"><dict><key>UIDeviceFamily</key><array><integer>1</integer></array><key>NSBluetoothAlwaysUsageDescription</key><string>Bluetooth MIDI</string></dict></plist>
 PLIST
 
 for framework in App Flutter core_midi_input flutter_midi_pro objective_c; do
@@ -51,6 +51,11 @@ expect_rejected() {
     exit 1
   fi
 }
+
+cp "$app_path/Info.plist" "$temp_root/Info.plist.valid"
+/usr/libexec/PlistBuddy -c 'Delete :NSBluetoothAlwaysUsageDescription' "$app_path/Info.plist"
+expect_rejected 'missing Bluetooth usage description'
+cp "$temp_root/Info.plist.valid" "$app_path/Info.plist"
 
 printf 'not allowed' > "$assets_root/soundfonts/extra.sf2"
 expect_rejected 'extra SoundFont'

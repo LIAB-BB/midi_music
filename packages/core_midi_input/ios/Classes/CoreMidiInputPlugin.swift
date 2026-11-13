@@ -1,9 +1,13 @@
+import CoreAudioKit
 import CoreMIDI
 import Flutter
 import Foundation
 import MachO
+import UIKit
 
-public final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
+public final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHandler,
+  UIAdaptivePresentationControllerDelegate
+{
   private final class MidiByteStreamState {
     let lock = NSLock()
     var runningStatus: UInt8?
@@ -20,6 +24,8 @@ public final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHa
   private var isListening = false
   private var parserStates = [MIDIEndpointRef: MidiByteStreamState]()
   private let parserStateLock = NSLock()
+  private var pendingPairingResult: FlutterResult?
+  private weak var pairingNavigationController: UINavigationController?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = CoreMidiInputPlugin()
@@ -50,10 +56,16 @@ public final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     switch call.method {
     case "start":
       startListening()
+      // 演奏时不会触摸屏幕，MIDI 输入也不算用户活动；不关闭自动锁屏的话，
+      // 曲子中途 App 会被挂起。
+      UIApplication.shared.isIdleTimerDisabled = true
       result(devicePayload())
     case "stop":
       stopListening()
+      UIApplication.shared.isIdleTimerDisabled = false
       result(nil)
+    case "showBluetoothPairing":
+      presentBluetoothPairing(result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -116,6 +128,88 @@ public final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHa
     resetParserStates()
   }
 
+  // MARK: - 蓝牙 MIDI 配对
+
+  /// 蓝牙 MIDI 不能在系统“设置 → 蓝牙”里连接，必须由 App 内的
+  /// CABTMIDICentralViewController 发起。连上后设备作为普通 CoreMIDI
+  /// source 出现，由 refreshSources 统一接入；界面关闭后连接仍由系统保持。
+  private func presentBluetoothPairing(result: @escaping FlutterResult) {
+    guard pendingPairingResult == nil else {
+      result(
+        FlutterError(
+          code: "pairing_in_progress",
+          message: "蓝牙 MIDI 配对界面已经打开",
+          details: nil
+        )
+      )
+      return
+    }
+    guard let presenter = topViewController() else {
+      result(
+        FlutterError(
+          code: "no_view_controller",
+          message: "无法打开蓝牙 MIDI 配对界面",
+          details: nil
+        )
+      )
+      return
+    }
+
+    let central = CABTMIDICentralViewController()
+    central.title = "蓝牙 MIDI 设备"
+    central.navigationItem.rightBarButtonItem = UIBarButtonItem(
+      barButtonSystemItem: .done,
+      target: self,
+      action: #selector(dismissBluetoothPairing)
+    )
+    let navigation = UINavigationController(rootViewController: central)
+    // 下滑关闭不会触发“完成”按钮，需要靠代理回调结束 Dart 端的等待。
+    navigation.presentationController?.delegate = self
+    pendingPairingResult = result
+    pairingNavigationController = navigation
+    presenter.present(navigation, animated: true)
+  }
+
+  @objc private func dismissBluetoothPairing() {
+    guard let navigation = pairingNavigationController else {
+      finishBluetoothPairing()
+      return
+    }
+    navigation.dismiss(animated: true) { [weak self] in
+      self?.finishBluetoothPairing()
+    }
+  }
+
+  public func presentationControllerDidDismiss(
+    _ presentationController: UIPresentationController
+  ) {
+    finishBluetoothPairing()
+  }
+
+  private func finishBluetoothPairing() {
+    pairingNavigationController = nil
+    let result = pendingPairingResult
+    pendingPairingResult = nil
+    if isListening {
+      refreshSources()
+    }
+    result?(nil)
+  }
+
+  private func topViewController() -> UIViewController? {
+    let windows = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+    let window = windows.first { $0.isKeyWindow } ?? windows.first
+    var controller = window?.rootViewController
+    while let presented = controller?.presentedViewController {
+      controller = presented
+    }
+    return controller
+  }
+
+  // MARK: - CoreMIDI source
+
   private func refreshSources() {
     for source in connectedSources {
       MIDIPortDisconnectSource(inputPort, source)
@@ -125,13 +219,25 @@ public final class CoreMidiInputPlugin: NSObject, FlutterPlugin, FlutterStreamHa
 
     for index in 0..<MIDIGetNumberOfSources() {
       let source = MIDIGetSource(index)
-      guard source != 0 else { continue }
+      // 蓝牙等无线端点断开后 source 可能仍留在列表中，只标记为 offline；
+      // 必须当作消失处理，否则跟随会话的断线判定不会触发。
+      guard source != 0, !isOffline(source) else { continue }
       let sourceRefCon = UnsafeMutableRawPointer(bitPattern: Int(source))
       if MIDIPortConnectSource(inputPort, source, sourceRefCon) == noErr {
         connectedSources.insert(source)
       }
     }
     emitDeviceState()
+  }
+
+  private func isOffline(_ endpoint: MIDIEndpointRef) -> Bool {
+    var offline: Int32 = 0
+    let status = MIDIObjectGetIntegerProperty(
+      endpoint,
+      kMIDIPropertyOffline,
+      &offline
+    )
+    return status == noErr && offline != 0
   }
 
   private func devicePayload() -> [[String: String]] {

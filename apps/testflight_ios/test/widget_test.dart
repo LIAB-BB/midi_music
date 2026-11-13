@@ -10,15 +10,20 @@ void main() {
     expect(find.textContaining('钢琴四重奏'), findsOneWidget);
   });
 
-  testWidgets('可从首页进入 21 页钢琴分谱阅读', (tester) async {
+  testWidgets('只展示与内置 MIDI 对应的 Rondo 分谱', (tester) async {
     await tester.pumpWidget(const K478PracticeApp());
     await tester.pump();
 
-    await tester.tap(find.text('查看钢琴声部版面'));
+    await tester.tap(find.text('查看 Rondo 钢琴声部版面'));
     await tester.pumpAndSettle();
 
-    expect(find.text('钢琴声部 · 1/21'), findsOneWidget);
+    expect(find.text('Rondo 钢琴声部 · 1/9'), findsOneWidget);
     expect(find.byType(InteractiveViewer), findsOneWidget);
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(
+      (image.image as AssetImage).assetName,
+      'assets/scores/mozart_k478_piano_part/page-13.png',
+    );
   });
 
   testWidgets('三倍文本缩放下候选首页仍可构建', (tester) async {

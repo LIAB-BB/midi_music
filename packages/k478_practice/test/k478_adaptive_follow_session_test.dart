@@ -59,6 +59,9 @@ class _ConnectedInput implements MidiInput {
   final _messages = StreamController<MidiInputMessage>.broadcast();
   final _states = StreamController<MidiInputState>.broadcast();
   bool disposed = false;
+  List<MidiInputDevice> devices = const [
+    MidiInputDevice(id: 'usb-1', name: 'Digital Piano'),
+  ];
 
   @override
   Stream<MidiInputMessage> get messages => _messages.stream;
@@ -67,9 +70,12 @@ class _ConnectedInput implements MidiInput {
   Stream<MidiInputState> get states => _states.stream;
 
   @override
-  MidiInputState get state => const MidiInputState(
-    devices: [MidiInputDevice(id: 'usb-1', name: 'Digital Piano')],
-  );
+  MidiInputState get state => MidiInputState(devices: devices);
+
+  void updateDevices(List<MidiInputDevice> next) {
+    devices = next;
+    _states.add(MidiInputState(devices: next));
+  }
 
   @override
   Future<void> start() async {}
@@ -270,6 +276,170 @@ void main() {
     expect(session.isActive, isFalse);
     expect(player.isPlaying, isFalse);
     expect(input.disposed, isTrue);
+  });
+
+  test('其他 MIDI 源还在时，拔掉电子琴也会终止会话', () async {
+    const usb = MidiInputDevice(id: 'usb-1', name: 'Digital Piano');
+    const network = MidiInputDevice(id: 'net-1', name: 'Network Session');
+    const extra = MidiInputDevice(id: 'usb-2', name: 'Pedal');
+    final engine = _ReadyEngine();
+    final player = await createPlayer(engine);
+    final input = _ConnectedInput()..devices = const [usb, network];
+    final session = K478AdaptiveFollowSession(
+      player: player,
+      performerTracks: _performerTracks(),
+      input: input,
+    );
+    addTearDown(() async {
+      await session.dispose();
+      player.dispose();
+    });
+    await session.start();
+    final terminated = Completer<Object>();
+    session.onTerminated = (_, error) => terminated.complete(error);
+
+    input.updateDevices(const [usb, network, extra]);
+    await _settle();
+    expect(session.isActive, isTrue);
+
+    input.updateDevices(const [network]);
+    await terminated.future.timeout(const Duration(seconds: 2));
+    expect(session.isActive, isFalse);
+  });
+
+  group('全局休止', () {
+    MidiNote note(int pitch, double start, double end) => MidiNote(
+      noteNumber: pitch,
+      velocity: 100,
+      channel: 0,
+      startTick: (start * 960).round(),
+      endTick: (end * 960).round(),
+      startTime: start,
+      endTime: end,
+    );
+
+    MidiSongData song(List<MidiNote> piano, List<MidiNote> strings) =>
+        MidiSongData(
+          fileName: 'rest.mid',
+          format: 1,
+          ticksPerBeat: 480,
+          tracks: [
+            MidiTrackInfo(index: 1, notes: strings),
+            MidiTrackInfo(index: 4, notes: piano),
+          ],
+          timeline: const [],
+          tempoChanges: [TempoChange(tick: 0, microsecondsPerBeat: 500000)],
+          timeSignatureChanges: const [],
+          totalTicks: 4800,
+          totalDuration: 5,
+        );
+
+    /// 分小步推进假时钟，避开播放器单次 250 ms 的步进上限。
+    Future<void> advance(
+      void Function(Duration) set,
+      Duration from,
+      Duration to,
+    ) async {
+      for (var t = from; t < to; t += const Duration(milliseconds: 100)) {
+        set(t);
+        await _settle();
+      }
+      set(to);
+      await _settle();
+    }
+
+    test('钢琴准时重新进入时伴奏恢复播放', () async {
+      final piano = [
+        note(60, 0, 0.5),
+        note(62, 0.5, 1),
+        note(64, 1, 1.5),
+        note(65, 3, 3.5),
+        note(67, 3.5, 4),
+      ];
+      var elapsed = Duration.zero;
+      final player = K478PlayerController(
+        engine: _ReadyEngine(),
+        elapsedProvider: () => elapsed,
+      );
+      await player.loadSong(song(piano, const []));
+      await player.prepareSoundfont();
+      final input = _ConnectedInput();
+      var now = 0.0;
+      final session = K478AdaptiveFollowSession(
+        player: player,
+        performerTracks: [MidiTrackInfo(index: 4, notes: piano)],
+        input: input,
+        timeProvider: () => now,
+      );
+      addTearDown(() async {
+        await session.dispose();
+        player.dispose();
+      });
+      await session.start();
+      input.addNote(60);
+      await _settle();
+      now = 0.5;
+      input.addNote(62);
+      await _settle();
+      expect(player.isPlaying, isTrue);
+      now = 1;
+      input.addNote(64);
+      await advance(
+        (value) => elapsed = value,
+        Duration.zero,
+        const Duration(seconds: 2),
+      );
+      expect(player.isPlaying, isFalse);
+      expect(player.currentTime, closeTo(1.5, 0.001));
+
+      now = 3;
+      elapsed = Duration.zero;
+      input.addNote(65);
+      await _settle();
+      expect(player.isPlaying, isTrue);
+      expect(player.currentTime, greaterThanOrEqualTo(3));
+    });
+
+    test('弦乐先于钢琴进入的休止不暂停，避免互相等待', () async {
+      final piano = [
+        note(60, 0, 0.5),
+        note(62, 0.5, 1),
+        note(64, 1, 1.5),
+        note(65, 3.5, 4),
+      ];
+      var elapsed = Duration.zero;
+      final player = K478PlayerController(
+        engine: _ReadyEngine(),
+        elapsedProvider: () => elapsed,
+      );
+      await player.loadSong(song(piano, [note(72, 3, 3.5)]));
+      await player.prepareSoundfont();
+      final input = _ConnectedInput();
+      var now = 0.0;
+      final session = K478AdaptiveFollowSession(
+        player: player,
+        performerTracks: [MidiTrackInfo(index: 4, notes: piano)],
+        input: input,
+        timeProvider: () => now,
+      );
+      addTearDown(() async {
+        await session.dispose();
+        player.dispose();
+      });
+      await session.start();
+      input.addNote(60);
+      await _settle();
+      now = 0.5;
+      input.addNote(62);
+      await _settle();
+      await advance(
+        (value) => elapsed = value,
+        Duration.zero,
+        const Duration(seconds: 2),
+      );
+      expect(player.isPlaying, isTrue);
+      expect(player.currentTime, greaterThan(1.5));
+    });
   });
 
   test('停止跟随后恢复开始前的用户速度', () async {
