@@ -1,0 +1,17 @@
+{
+  "id": "mozart-k478",
+  "title": "钢琴四重奏 K.478",
+  "performanceFile": "mozart_k478_piano_quartet.mid",
+  "ticksPerBeat": 384,
+  "timeSignature": {
+    "numerator": 2,
+    "denominator": 2
+  },
+  "tracks": [
+    { "index": 1, "role": "accompaniment", "program": 40 },
+    { "index": 2, "role": "accompaniment", "program": 40 },
+    { "index": 3, "role": "accompaniment", "program": 42 },
+    { "index": 4, "role": "performer", "program": 0, "name": "upper" },
+    { "index": 5, "role": "performer", "program": 0, "name": "lower" }
+  ]
+}

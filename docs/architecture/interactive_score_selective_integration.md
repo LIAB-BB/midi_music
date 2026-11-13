@@ -22,19 +22,31 @@
   原始 `MidiSongData` 不被替换。
 - `MidiNotationService`：在 isolate 中执行分析/转换，支持取消与重建。
 - `ScoreSession`：保存原始播放数据、显示 MusicXML、小节映射状态与降级警告。
+- `PieceManifest`：曲目包 JSON。声明演奏文件、演奏者轨道和伴奏轨道。
+- `PieceScoreAlignment`：按曲目包派生演奏者 MusicXML，并把演奏者音符对齐到 MIDI 小节。
+  K.478 的轨道 4/5 与 1/2/3 写在 `assets/pieces/k478.json`，不写进编译器。
 - `ScoreRendererMessage`：严格解析来自未来渲染器的布局、手势和错误消息。
 - `ScoreRendererPort`、`ScorePlaybackPort` 与
   `ScorePlaybackCoordinator`：用最小端口协调点击跳转、播放器位置高亮、
   自动跟随与暂时性渲染失败后的重试。
 
-这些能力目前仅位于根 Legacy host 的未接线领域层；没有页面、导航、导入入口或
-候选二进制引用它们。
+这些能力里，声部分析、选择、转换和渲染端口仍没有自己的页面。根演奏台按
+`assets/pieces/k478.json` 加载曲目包，用 `PieceMeasureFollow` 和 `K478MeasureRail`
+显示当前 MIDI 小节，点选会跳到该小节起点；跟随开启时只显示不跳转。候选包、
+五线谱渲染和自动翻页仍未接入。
+
+`PieceScoreAlignment` 按曲目包核对轨道、Program 和拍号，派生仅用于显示的演奏者
+MusicXML，并要求每个演奏者音符落入与 `MeasureMap` 相同的小节 tick。播放和跟随
+仍读取原始 `MidiSongData`。五线谱在有 WebView 的设备上由本地 OpenSheetMusicDisplay 1.9.2 绘制，
+经 `OsmdScoreRenderer` 和 `ScorePlaybackCoordinator` 高亮、点选。脚本随包，
+页面禁止网络连接。没有 WebView 的环境继续显示 `PieceScoreStrip` 试排。
+候选包仍未接入。
 
 ## 明确未移植
 
 - `InteractiveScoreView`、WebView、OSMD、`assets/score_renderer`；
 - 通用 MIDI/MusicXML/PDF 导入改造、OMR 和设置页面；
-- 首页、播放页、K.478 页面、release scope/checklist；
+- 首页、候选 K.478 页面、release scope/checklist；根演奏台只增加 MIDI 小节轨，不含五线谱渲染；
 - `apps/testflight_ios`、`packages/k478_practice`、
   `packages/core_midi_input` 及其依赖/锁文件；
 - 现有 `MidiPlayerController`、`MeasureMap`、`ScoreImportService`、

@@ -27,6 +27,15 @@ void main() {
 
     expect(find.text('mozart k478 piano quartet'), findsWidgets);
     expect(find.byKey(const Key('midi-piano-roll')), findsOneWidget);
+    expect(find.byKey(const Key('k478-measure-rail')), findsOneWidget);
+    expect(find.text('第 1 小节'), findsOneWidget);
+
+    await tester.ensureVisible(find.byKey(const Key('k478-measure-2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('k478-measure-2')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('第 2 小节'), findsOneWidget);
   });
 
   testWidgets('分谱入口打开 K.478 离线页面阅读器', (WidgetTester tester) async {
